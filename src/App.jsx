@@ -51,7 +51,7 @@ const SHIPS = [
   { date: "2026-06-25", endDate: "2026-06-26", line: "P&O", ship: "Aurora", turnaround: false, pax: 1868, status: "contracted" },
   { date: "2026-06-25", endDate: null, line: "Nat Geo", ship: "Nat Geo Resolution", turnaround: true, pax: 148, status: "other" },
   { date: "2026-06-25", endDate: null, line: "VIVA Cruises", ship: "Seaventure", turnaround: true, pax: 164, status: "other" },
-  { date: "2026-06-26", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "other" },
+  { date: "2026-06-26", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "contracted" },
   { date: "2026-06-28", endDate: null, line: "Quark Expeditions", ship: "Ocean Nova", turnaround: true, pax: 78, status: "other" },
   { date: "2026-06-29", endDate: "2026-06-30", line: "Viking", ship: "Viking Mars", turnaround: true, pax: 930, status: "contracted" },
   { date: "2026-06-30", endDate: null, line: "Nat Geo", ship: "Nat Geo Endurance", turnaround: true, pax: 148, status: "other" },
@@ -182,7 +182,7 @@ const SHIPS = [
   { date: "2026-08-23", endDate: null, line: "Oceania", ship: "Marina", turnaround: true, pax: 1285, status: "prospect" },
   { date: "2026-08-24", endDate: null, line: "Windstar", ship: "Star Pride", turnaround: true, pax: 212, status: "prospect" },
   { date: "2026-08-24", endDate: null, line: "Silversea", ship: "Silver Endeavour", turnaround: true, pax: 260, status: "other" },
-  { date: "2026-08-26", endDate: null, line: "Phoenix Reisen", ship: "Amera", turnaround: false, pax: 835, status: "other" },
+  { date: "2026-08-26", endDate: null, line: "Phoenix Reisen", ship: "Amera", turnaround: false, pax: 835, status: "contracted" },
   { date: "2026-08-27", endDate: null, line: "Nat Geo", ship: "Nat Geo Endurance", turnaround: true, pax: 148, status: "other" },
   { date: "2026-08-27", endDate: "2026-08-28", line: "MSC", ship: "MSC Preziosa", turnaround: false, pax: 3502, status: "other" },
   { date: "2026-08-29", endDate: null, line: "Aida", ship: "AIDAdiva", turnaround: false, pax: 1025, status: "contracted" },
@@ -191,10 +191,10 @@ const SHIPS = [
   { date: "2026-08-30", endDate: "2026-08-31", line: "Viking", ship: "Viking Mira", turnaround: true, pax: 990, status: "contracted" },
   { date: "2026-08-31", endDate: null, line: "Hurtigruten", ship: "Spitsbergen", turnaround: true, pax: 335, status: "other" },
   { date: "2026-08-31", endDate: null, line: "Windstar", ship: "Star Pride", turnaround: true, pax: 212, status: "prospect" },
-  { date: "2026-08-31", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "other" },
+  { date: "2026-08-31", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "contracted" },
   // ─── SEPTEMBER ──────────────────────────────────────────────────────────────
   { date: "2026-09-01", endDate: null, line: "Viking", ship: "Viking Mira", turnaround: true, pax: 990, status: "contracted" },
-  { date: "2026-09-01", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "other" },
+  { date: "2026-09-01", endDate: null, line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "contracted" },
   { date: "2026-09-02", endDate: "2026-09-03", line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: true, pax: 2348, status: "prospect" },
   { date: "2026-09-03", endDate: null, line: "Princess", ship: "Sky Princess", turnaround: false, pax: 3560, status: "other" },
   { date: "2026-09-05", endDate: null, line: "Hurtigruten", ship: "Fram", turnaround: true, pax: 318, status: "other" },
@@ -285,6 +285,14 @@ const WS_PRIORITIES = {
 };
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUPABASE CONFIG — Replace with your project values after setup
+// ═══════════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://hszrtbjewapkgetfxnrk.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_h-_YX9FOC5J3SRnk_dxqgA_DxpoM61H";
+const supabaseHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" };
+const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("YOUR_PROJECT");
+
 export default function IPSDashboard() {
   // Lines the user has manually toggled to "contracted" via What-If
   const [wonLines, setWonLines] = useState(new Set());
@@ -312,6 +320,9 @@ export default function IPSDashboard() {
   const [wsExpandedTask, setWsExpandedTask] = useState(null);
   const [wsNewNote, setWsNewNote] = useState("");
   const [wsNoteAuthor, setWsNoteAuthor] = useState("jon");
+  const [wsDrafts, setWsDrafts] = useState([]);
+  const [wsDraftsLoading, setWsDraftsLoading] = useState(false);
+  const [wsDraftsCollapsed, setWsDraftsCollapsed] = useState(false);
 
   // ─── WORKSPACE STORAGE ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -366,6 +377,55 @@ export default function IPSDashboard() {
     saveTasks(wsTasks.map(t => t.id === taskId ? { ...t, notes: [...(t.notes || []), { id: generateId(), author: wsNoteAuthor, text: wsNewNote.trim(), createdAt: new Date().toISOString() }] } : t));
     setWsNewNote("");
   }, [wsTasks, wsNewNote, wsNoteAuthor, saveTasks]);
+
+  // ─── TELEGRAM DRAFTS — FETCH / ACCEPT / DISMISS ────────────────────────────
+  const fetchDrafts = useCallback(async () => {
+    if (!SUPABASE_CONFIGURED) return;
+    setWsDraftsLoading(true);
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/task_drafts?status=eq.pending&order=created_at.desc`,
+        { headers: supabaseHeaders }
+      );
+      if (res.ok) setWsDrafts(await res.json());
+    } catch (e) { console.warn("Failed to fetch drafts:", e); }
+    finally { setWsDraftsLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (SUPABASE_CONFIGURED && activeModule === "workspace") fetchDrafts();
+  }, [activeModule, fetchDrafts]);
+
+  const acceptDraft = useCallback((draft) => {
+    setWsTaskForm({
+      title: draft.text,
+      description: `Drafted via Telegram by ${draft.author}`,
+      assignee: Object.keys(WS_TEAM).includes(draft.author) ? draft.author : "jon",
+      project: "general",
+      priority: "medium",
+      dueDate: "",
+    });
+    setWsTaskModal("new");
+    // Delete draft from Supabase after opening modal
+    if (SUPABASE_CONFIGURED) {
+      fetch(`${SUPABASE_URL}/rest/v1/task_drafts?id=eq.${draft.id}`, {
+        method: "DELETE", headers: supabaseHeaders,
+      }).then(() => setWsDrafts(d => d.filter(x => x.id !== draft.id)))
+        .catch(e => console.warn("Failed to delete draft:", e));
+    }
+  }, []);
+
+  const dismissDraft = useCallback(async (draftId) => {
+    if (!SUPABASE_CONFIGURED) return;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/task_drafts?id=eq.${draftId}`, {
+        method: "PATCH",
+        headers: supabaseHeaders,
+        body: JSON.stringify({ status: "dismissed" }),
+      });
+      setWsDrafts(d => d.filter(x => x.id !== draftId));
+    } catch (e) { console.warn("Failed to dismiss draft:", e); }
+  }, []);
 
   const filteredTasks = useMemo(() => {
     let result = [...wsTasks];
@@ -632,7 +692,23 @@ export default function IPSDashboard() {
             <NavTab label="Operations" view="operations" />
             <NavTab label="Fleet Intel" view="fleet" />
           </>) : (<>
-            <WsNavTab label="Tasks" view="tasks" />
+            <button onClick={() => setWsView("tasks")} style={{
+              background: wsView === "tasks" ? "rgba(56,189,248,0.1)" : "transparent",
+              border: wsView === "tasks" ? `1px solid ${IPS_ACCENT}` : "1px solid transparent",
+              borderRadius: 6, padding: "8px 16px", cursor: "pointer",
+              color: wsView === "tasks" ? IPS_ACCENT : TEXT_DIM,
+              fontSize: 13, fontWeight: 500, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif",
+              display: "flex", alignItems: "center", gap: 6, position: "relative",
+            }}>
+              Tasks
+              {wsDrafts.length > 0 && (
+                <span style={{
+                  background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700,
+                  borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center",
+                  lineHeight: "14px", fontFamily: "JetBrains Mono",
+                }}>{wsDrafts.length}</span>
+              )}
+            </button>
             <WsNavTab label="Calendar" view="calendar" />
             <WsNavTab label="Dashboard" view="dashboard" />
           </>)}
@@ -780,9 +856,8 @@ export default function IPSDashboard() {
               { l: "Tiered Pts", v: stats.ipsTieredW, c: IPS_SUCCESS, s: `of ${stats.totalTieredW}` },
             ].map((x, i) => (<Card key={i}><div style={{ textAlign: "center" }}><div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 28, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{x.v}</div>{x.s && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>{x.s}</div>}</div></Card>))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
             <PieCard data={callPie} sharePercent={stats.callShare} title="Call Count Share" />
-            <PieCard data={simpleWPie} sharePercent={stats.simpleWShare} title="Simple Weighted (T=3×)" />
             <PieCard data={tieredPie} sharePercent={stats.tieredShare} title="Tiered Weighted (by pax)" />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
@@ -1526,6 +1601,52 @@ export default function IPSDashboard() {
 
           {/* ═══ TASKS VIEW ═══ */}
           {wsView === "tasks" && (<>
+            {/* Telegram Drafts Inbox */}
+            {wsDrafts.length > 0 && (
+              <Card style={{ marginBottom: 16, border: `1px solid rgba(245,158,11,0.3)`, background: `linear-gradient(90deg, rgba(245,158,11,0.06) 0%, ${SURFACE} 100%)` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: wsDraftsCollapsed ? 0 : 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 16 }}>📨</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>{wsDrafts.length} draft{wsDrafts.length !== 1 ? "s" : ""} from Telegram</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={fetchDrafts} style={{ background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", fontSize: 12, padding: "4px 8px", opacity: wsDraftsLoading ? 0.5 : 1 }}>{wsDraftsLoading ? "↻ Loading…" : "↻ Refresh"}</button>
+                    <button onClick={() => setWsDraftsCollapsed(c => !c)} style={{ background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>{wsDraftsCollapsed ? "▸" : "▾"}</button>
+                  </div>
+                </div>
+                {!wsDraftsCollapsed && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {wsDrafts.map(draft => (
+                      <div key={draft.id} style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 14px",
+                        border: `1px solid ${BORDER}`,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: TEXT, marginBottom: 3 }}>{draft.text}</div>
+                          <div style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>
+                            {draft.author} · {new Date(draft.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginLeft: 12, flexShrink: 0 }}>
+                          <button onClick={() => acceptDraft(draft)} style={{
+                            padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                            background: "rgba(34,197,94,0.15)", border: `1px solid rgba(34,197,94,0.3)`,
+                            color: "#22C55E", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                          }}>Accept</button>
+                          <button onClick={() => dismissDraft(draft.id)} style={{
+                            padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                            background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`,
+                            color: "#EF4444", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                          }}>Dismiss</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            )}
+
             {/* Action bar */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <button onClick={openNewTask} style={{
