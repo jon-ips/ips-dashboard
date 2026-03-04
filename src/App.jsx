@@ -1,5 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from "recharts";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
+import ipsLogoWhite from "./assets/ips-logo-white.png";
+import ipsIconColor from "./assets/ips-icon-color.png";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPLETE 2026 REYKJAVÍK SEASON — CORRECTED DOKK DATA
@@ -255,27 +258,28 @@ const CREW_PER_1000_PAX_TURNAROUND = 12;
 const MONTHS = ["May", "Jun", "Jul", "Aug", "Sep"];
 const MONTH_NUMS = [5, 6, 7, 8, 9];
 
-const IPS_BLUE = "#0A1628";
-const IPS_ACCENT = "#38BDF8";
+const IPS_BLUE = "#0C2C40";
+const IPS_ACCENT = "#57B5C8";
+const IPS_ACCENT2 = "#458CA7";
 const IPS_WARN = "#F59E0B";
 const IPS_DANGER = "#EF4444";
 const IPS_SUCCESS = "#22C55E";
-const SURFACE = "#0F1D32";
-const BORDER = "#1E3A5F";
-const TEXT = "#E2E8F0";
-const TEXT_DIM = "#64748B";
+const SURFACE = "#112F45";
+const BORDER = "#1A4A60";
+const TEXT = "#F6F7F7";
+const TEXT_DIM = "#B5BACB";
 const PROSPECT_COLOR = "#A78BFA";
 const OTHER_COLOR = "#475569";
 
 // ─── WORKSPACE CONFIG ────────────────────────────────────────────────────────
 const WS_TEAM = {
-  jon:     { name: "Jón", initials: "JH", color: "#38BDF8" },
+  jon:     { name: "Jón", initials: "JH", color: "#57B5C8" },
   tristan: { name: "Tristan", initials: "TH", color: "#F59E0B" },
 };
 const WS_PROJECTS = {
   operations: { label: "Operations",    color: "#22C55E" },
   sales:      { label: "Sales & BD",    color: "#A78BFA" },
-  dashboard:  { label: "Dashboard Dev", color: "#38BDF8" },
+  dashboard:  { label: "Dashboard Dev", color: "#57B5C8" },
   general:    { label: "General",       color: "#64748B" },
 };
 const WS_PRIORITIES = {
@@ -285,18 +289,47 @@ const WS_PRIORITIES = {
 };
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUPABASE CONFIG — Replace with your project values after setup
-// ═══════════════════════════════════════════════════════════════════════════════
-const SUPABASE_URL = "https://hszrtbjewapkgetfxnrk.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_h-_YX9FOC5J3SRnk_dxqgA_DxpoM61H";
-const supabaseHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" };
-const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("YOUR_PROJECT");
+// Supabase config is now imported from ./supabase.js
 
-export default function IPSDashboard() {
+export default function IPSDashboard({ accessLevel = "team", onLogout }) {
+  // ─── SUPABASE DATA LOADING ────────────────────────────────────────────────
+  const [dbPortCalls, setDbPortCalls] = useState(null); // null = not loaded yet
+  const [dbLoading, setDbLoading]     = useState(true);
+
+  // Load port calls from Supabase on mount, fall back to hardcoded SHIPS
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) { setDbLoading(false); return; }
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("port_calls")
+          .select("id,date,end_date,turnaround,pax,status,ships(name,cruise_lines(name))")
+          .order("date", { ascending: true });
+        if (!error && data && data.length > 0) {
+          const mapped = data.map(pc => ({
+            id: pc.id,
+            date: pc.date,
+            endDate: pc.end_date,
+            line: pc.ships?.cruise_lines?.name || "Unknown",
+            ship: pc.ships?.name || "Unknown",
+            turnaround: pc.turnaround,
+            pax: pc.pax,
+            status: pc.status || "other",
+          }));
+          setDbPortCalls(mapped);
+        }
+      } catch (e) { console.warn("Failed to load port calls from Supabase:", e); }
+      finally { setDbLoading(false); }
+    })();
+  }, []);
+
+  // Use DB data if loaded, otherwise fall back to hardcoded SHIPS
+  const portCalls = dbPortCalls || SHIPS;
+
   // Lines the user has manually toggled to "contracted" via What-If
   const [wonLines, setWonLines] = useState(new Set());
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
   const [portCalFilter, setPortCalFilter] = useState(new Set());
   const [portCalDropOpen, setPortCalDropOpen] = useState(false);
   const [activeView, setActiveView] = useState("overview");
@@ -324,21 +357,61 @@ export default function IPSDashboard() {
   const [wsDraftsLoading, setWsDraftsLoading] = useState(false);
   const [wsDraftsCollapsed, setWsDraftsCollapsed] = useState(false);
 
-  // ─── WORKSPACE STORAGE ─────────────────────────────────────────────────────
+  // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
+  const loadTasksFromDb = useCallback(async () => {
+    if (!SUPABASE_CONFIGURED) return null;
+    try {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) return null;
+      // Also fetch notes for all tasks
+      const { data: notes } = await supabase
+        .from("task_notes")
+        .select("*")
+        .order("created_at", { ascending: true });
+      const notesByTask = {};
+      (notes || []).forEach(n => {
+        if (!notesByTask[n.task_id]) notesByTask[n.task_id] = [];
+        notesByTask[n.task_id].push({ id: n.id, author: n.author, text: n.text, createdAt: n.created_at });
+      });
+      return (data || []).map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description || "",
+        assignee: t.assignee || "jon",
+        project: t.project || "operations",
+        priority: t.priority || "medium",
+        dueDate: t.due_date || null,
+        completed: t.completed || false,
+        completedAt: t.completed_at || null,
+        createdAt: t.created_at,
+        notes: notesByTask[t.id] || [],
+      }));
+    } catch (e) { console.warn("Failed to load tasks from Supabase:", e); return null; }
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
-        if (window.storage) {
+        // Try Supabase first
+        const dbTasks = await loadTasksFromDb();
+        if (dbTasks !== null) {
+          setWsTasks(dbTasks);
+        } else if (window.storage) {
+          // Fall back to localStorage
           const raw = await window.storage.getItem("ws:tasks");
           if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setWsTasks(p); }
         }
       } catch (e) { console.warn("Failed to load workspace tasks:", e); }
       finally { setWsLoaded(true); }
     })();
-  }, []);
+  }, [loadTasksFromDb]);
 
   const saveTasks = useCallback(async (tasks) => {
     setWsTasks(tasks);
+    // Also keep localStorage as backup
     try { if (window.storage) await window.storage.setItem("ws:tasks", JSON.stringify(tasks), { shared: true }); }
     catch (e) { console.warn("Failed to save workspace tasks:", e); }
   }, []);
@@ -353,28 +426,62 @@ export default function IPSDashboard() {
     setWsTaskModal(task.id);
   }, []);
 
-  const saveTaskForm = useCallback(() => {
+  const saveTaskForm = useCallback(async () => {
     if (!wsTaskForm.title.trim()) return;
     if (wsTaskModal === "new") {
-      saveTasks([...wsTasks, { id: generateId(), ...wsTaskForm, dueDate: wsTaskForm.dueDate || null, completed: false, createdAt: new Date().toISOString(), completedAt: null, notes: [] }]);
+      const newTask = { id: generateId(), ...wsTaskForm, dueDate: wsTaskForm.dueDate || null, completed: false, createdAt: new Date().toISOString(), completedAt: null, notes: [] };
+      saveTasks([...wsTasks, newTask]);
+      // Persist to Supabase
+      if (SUPABASE_CONFIGURED) {
+        const { data } = await supabase.from("tasks").insert({
+          title: wsTaskForm.title, description: wsTaskForm.description, assignee: wsTaskForm.assignee,
+          project: wsTaskForm.project, priority: wsTaskForm.priority, due_date: wsTaskForm.dueDate || null,
+        });
+        // Update local ID to match DB UUID
+        if (data && data[0]) {
+          setWsTasks(prev => prev.map(t => t.id === newTask.id ? { ...t, id: data[0].id } : t));
+        }
+      }
     } else {
       saveTasks(wsTasks.map(t => t.id === wsTaskModal ? { ...t, ...wsTaskForm, dueDate: wsTaskForm.dueDate || null } : t));
+      if (SUPABASE_CONFIGURED) {
+        supabase.from("tasks").update({
+          title: wsTaskForm.title, description: wsTaskForm.description, assignee: wsTaskForm.assignee,
+          project: wsTaskForm.project, priority: wsTaskForm.priority, due_date: wsTaskForm.dueDate || null,
+        }).eq("id", wsTaskModal).then(() => {});
+      }
     }
     setWsTaskModal(null);
   }, [wsTaskModal, wsTaskForm, wsTasks, saveTasks]);
 
   const toggleComplete = useCallback((id) => {
-    saveTasks(wsTasks.map(t => t.id === id ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : null } : t));
+    const task = wsTasks.find(t => t.id === id);
+    const nowCompleted = !task?.completed;
+    const completedAt = nowCompleted ? new Date().toISOString() : null;
+    saveTasks(wsTasks.map(t => t.id === id ? { ...t, completed: nowCompleted, completedAt } : t));
+    if (SUPABASE_CONFIGURED) {
+      supabase.from("tasks").update({ completed: nowCompleted, completed_at: completedAt }).eq("id", id).then(() => {});
+    }
   }, [wsTasks, saveTasks]);
 
   const deleteTask = useCallback((id) => {
     saveTasks(wsTasks.filter(t => t.id !== id));
     if (wsExpandedTask === id) setWsExpandedTask(null);
+    if (SUPABASE_CONFIGURED) {
+      supabase.from("tasks").delete().eq("id", id).then(() => {});
+    }
   }, [wsTasks, saveTasks, wsExpandedTask]);
 
-  const addNote = useCallback((taskId) => {
+  const addNote = useCallback(async (taskId) => {
     if (!wsNewNote.trim()) return;
-    saveTasks(wsTasks.map(t => t.id === taskId ? { ...t, notes: [...(t.notes || []), { id: generateId(), author: wsNoteAuthor, text: wsNewNote.trim(), createdAt: new Date().toISOString() }] } : t));
+    const newNote = { id: generateId(), author: wsNoteAuthor, text: wsNewNote.trim(), createdAt: new Date().toISOString() };
+    saveTasks(wsTasks.map(t => t.id === taskId ? { ...t, notes: [...(t.notes || []), newNote] } : t));
+    if (SUPABASE_CONFIGURED) {
+      const { data } = await supabase.from("task_notes").insert({ task_id: taskId, author: wsNoteAuthor, text: wsNewNote.trim() });
+      if (data && data[0]) {
+        setWsTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: (t.notes || []).map(n => n.id === newNote.id ? { ...n, id: data[0].id } : n) } : t));
+      }
+    }
     setWsNewNote("");
   }, [wsTasks, wsNewNote, wsNoteAuthor, saveTasks]);
 
@@ -475,7 +582,7 @@ export default function IPSDashboard() {
   // Build sorted list of all non-contracted lines for the dropdown
   const allNonContractedLines = useMemo(() => {
     const lines = {};
-    SHIPS.forEach((s) => {
+    portCalls.forEach((s) => {
       if (s.status !== "contracted" && !lines[s.line]) {
         lines[s.line] = { status: s.status, calls: 0, turnarounds: 0, pax: 0 };
       }
@@ -490,7 +597,7 @@ export default function IPSDashboard() {
       if (b[1].status === "prospect" && a[1].status !== "prospect") return 1;
       return a[0].localeCompare(b[0]);
     });
-  }, []);
+  }, [portCalls]);
 
   const isOvernight = (s) => s.endDate !== null;
 
@@ -520,7 +627,7 @@ export default function IPSDashboard() {
     let ipsTieredW = 0, otherTieredW = 0;
     let ipsTurnarounds = 0, ipsTransits = 0, ipsTurnaroundPax = 0;
 
-    SHIPS.forEach((s) => {
+    portCalls.forEach((s) => {
       const sw = s.turnaround ? SIMPLE_TURNAROUND_WEIGHT : TRANSIT_WEIGHT;
       const tw = getTieredWeight(s);
       if (isIPS(s)) {
@@ -537,7 +644,7 @@ export default function IPSDashboard() {
     const tieredShare = totalTieredW > 0 ? ((ipsTieredW / totalTieredW) * 100).toFixed(1) : 0;
 
     const monthly = MONTH_NUMS.map((m, i) => {
-      const ms = SHIPS.filter((s) => new Date(s.date).getMonth() + 1 === m);
+      const ms = portCalls.filter((s) => new Date(s.date).getMonth() + 1 === m);
       let mIC = 0, mOC = 0, mISW = 0, mOSW = 0, mITW = 0, mOTW = 0, pallets = 0, luggage = 0, crew = 0;
       ms.forEach((s) => {
         const sw = s.turnaround ? SIMPLE_TURNAROUND_WEIGHT : TRANSIT_WEIGHT;
@@ -553,7 +660,7 @@ export default function IPSDashboard() {
     });
 
     const lineBreakdown = {};
-    SHIPS.forEach((s) => {
+    portCalls.forEach((s) => {
       if (!lineBreakdown[s.line]) lineBreakdown[s.line] = { calls: 0, turnarounds: 0, transits: 0, pax: 0, simpleW: 0, tieredW: 0, turnaroundPax: 0, status: (s.status !== "contracted" && wonLines.has(s.line)) ? "contracted" : s.status, baseStatus: s.status, overnights: 0 };
       lineBreakdown[s.line].calls++;
       lineBreakdown[s.line].pax += s.pax;
@@ -564,12 +671,12 @@ export default function IPSDashboard() {
     });
 
     return { ipsCalls, otherCalls, totalCalls, callShare, simpleWShare, tieredShare, ipsSimpleW, otherSimpleW, totalSimpleW, ipsTieredW, otherTieredW, totalTieredW, ipsTurnarounds, ipsTransits, ipsTurnaroundPax, monthly, lineBreakdown };
-  }, [isIPS, wonLines]);
+  }, [isIPS, wonLines, portCalls]);
 
   // ─── CRUNCH ─────────────────────────────────────────────────────────────────
   const crunchData = useMemo(() => {
     const allDates = {};
-    SHIPS.forEach((s) => {
+    portCalls.forEach((s) => {
       if (!isIPS(s) || !s.turnaround) return;
       // Only flag the actual turnaround operations day
       const opsDate = getTurnaroundOpsDate(s);
@@ -586,13 +693,13 @@ export default function IPSDashboard() {
   const tieredPie = [{ name: "IPS", value: stats.ipsTieredW, color: IPS_ACCENT }, { name: "Other", value: stats.otherTieredW, color: "#334155" }];
 
   // ─── COMPONENTS ─────────────────────────────────────────────────────────────
-  const Card = ({ children, style, onClick }) => (<div onClick={onClick} style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, ...style }}>{children}</div>);
-  const SL = ({ children }) => (<div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 16 }}>{children}</div>);
-  const NavTab = ({ label, view }) => (<button onClick={() => setActiveView(view)} style={{ background: activeView === view ? "rgba(56,189,248,0.1)" : "transparent", border: activeView === view ? `1px solid ${IPS_ACCENT}` : "1px solid transparent", borderRadius: 6, padding: "8px 16px", cursor: "pointer", color: activeView === view ? IPS_ACCENT : TEXT_DIM, fontSize: 13, fontWeight: 500, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif" }}>{label}</button>);
+  const Card = ({ children, style, onClick }) => (<div onClick={onClick} className="card" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, transition: "border-color 0.2s, box-shadow 0.2s", ...style }}>{children}</div>);
+  const SL = ({ children }) => (<div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 16, fontWeight: 500 }}>{children}</div>);
+  const SidebarNav = ({ label, active, onClick, badge }) => (<button onClick={onClick} className="sidebar-nav" style={{ background: active ? "rgba(87,181,200,0.1)" : "transparent", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: active ? `3px solid ${IPS_ACCENT}` : "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "9px 14px", cursor: "pointer", color: active ? TEXT : TEXT_DIM, fontSize: 13, fontWeight: active ? 600 : 400, transition: "all 0.15s", fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8, marginBottom: 1 }}>{label}{badge}</button>);
 
   const CTip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
-    return (<div style={{ background: "#0A1628", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: TEXT }}><div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>{payload.map((p, i) => (<div key={i} style={{ color: p.color, display: "flex", gap: 8 }}><span>{p.name}:</span><span style={{ fontFamily: "JetBrains Mono", fontWeight: 600 }}>{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</span></div>))}</div>);
+    return (<div style={{ background: "#0C2C40", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: TEXT }}><div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>{payload.map((p, i) => (<div key={i} style={{ color: p.color, display: "flex", gap: 8 }}><span>{p.name}:</span><span style={{ fontFamily: "JetBrains Mono", fontWeight: 600 }}>{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</span></div>))}</div>);
   };
 
   const PieCard = ({ data, sharePercent, title }) => (
@@ -617,23 +724,16 @@ export default function IPSDashboard() {
 
   // ─── WORKSPACE COMPONENTS ───────────────────────────────────────────────────
   const ModuleTab = ({ label, mod, icon }) => (
-    <button onClick={() => setActiveModule(mod)} style={{
-      background: activeModule === mod ? "rgba(56,189,248,0.12)" : "transparent",
-      border: activeModule === mod ? `1px solid ${IPS_ACCENT}` : "1px solid transparent",
-      borderRadius: 8, padding: "6px 16px", cursor: "pointer",
-      color: activeModule === mod ? IPS_ACCENT : TEXT_DIM,
-      fontSize: 12, fontWeight: 600, transition: "all 0.2s",
-      fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 6,
+    <button onClick={() => setActiveModule(mod)} className="sidebar-nav" style={{
+      background: activeModule === mod ? "rgba(87,181,200,0.1)" : "transparent",
+      borderTop: "none", borderRight: "none", borderBottom: "none",
+      borderLeft: activeModule === mod ? `3px solid ${IPS_ACCENT}` : "3px solid transparent",
+      borderRadius: "0 6px 6px 0", padding: "10px 14px", cursor: "pointer",
+      color: activeModule === mod ? TEXT : TEXT_DIM,
+      fontSize: 13, fontWeight: activeModule === mod ? 700 : 500, transition: "all 0.15s",
+      fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 8,
+      width: "100%", textAlign: "left", marginBottom: 2,
     }}>{icon} {label}</button>
-  );
-  const WsNavTab = ({ label, view }) => (
-    <button onClick={() => setWsView(view)} style={{
-      background: wsView === view ? "rgba(56,189,248,0.1)" : "transparent",
-      border: wsView === view ? `1px solid ${IPS_ACCENT}` : "1px solid transparent",
-      borderRadius: 6, padding: "8px 16px", cursor: "pointer",
-      color: wsView === view ? IPS_ACCENT : TEXT_DIM,
-      fontSize: 13, fontWeight: 500, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif",
-    }}>{label}</button>
   );
   const FilterPill = ({ label, active, color, onClick }) => (
     <button onClick={onClick} style={{
@@ -641,13 +741,13 @@ export default function IPSDashboard() {
       border: `1px solid ${active ? (color || IPS_ACCENT) : BORDER}`,
       borderRadius: 6, padding: "5px 12px", cursor: "pointer",
       color: active ? (color || IPS_ACCENT) : TEXT_DIM,
-      fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
+      fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", transition: "all 0.2s",
     }}>{label}</button>
   );
   const inputStyle = {
     width: "100%", padding: "10px 14px", borderRadius: 8,
     background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`,
-    color: TEXT, fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: "none",
+    color: TEXT, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif", outline: "none",
   };
 
   const sortedLines = Object.entries(stats.lineBreakdown).sort((a, b) => {
@@ -665,70 +765,85 @@ export default function IPSDashboard() {
   };
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif", background: IPS_BLUE, color: TEXT, minHeight: "100vh" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap');::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${IPS_BLUE}}::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}*{box-sizing:border-box;margin:0;padding:0}`}</style>
+    <div style={{ fontFamily: "'Satoshi', 'Inter', sans-serif", background: IPS_BLUE, color: TEXT, minHeight: "100vh", display: "flex" }}>
+      <style>{`@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700,800,900&display=swap');@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${IPS_BLUE}}::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}*{box-sizing:border-box;margin:0;padding:0}.sidebar-nav:hover{background:rgba(87,181,200,0.06)!important}.card:hover{border-color:rgba(87,181,200,0.25)!important;box-shadow:0 2px 12px rgba(0,0,0,0.15)!important}button:active{transform:scale(0.98)}`}</style>
 
-      {/* HEADER */}
-      <div style={{ background: `linear-gradient(135deg, ${SURFACE} 0%, ${IPS_BLUE} 100%)`, borderBottom: `1px solid ${BORDER}`, padding: "14px 24px", display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: `linear-gradient(135deg, ${IPS_ACCENT}, #0284C7)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, color: "#fff", fontFamily: "JetBrains Mono" }}>IPS</div>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>{activeModule === "market" ? "IPS Market Intelligence" : "IPS Workspace"}</div>
-              <div style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${SHIPS.length} port calls` : "Task & Project Management"}</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 4, background: "rgba(0,0,0,0.25)", padding: 3, borderRadius: 8 }}>
-            <ModuleTab label="Market Intel" mod="market" icon="📊" />
-            <ModuleTab label="Workspace" mod="workspace" icon="📋" />
-          </div>
+      {/* SIDEBAR */}
+      <aside style={{ width: 240, minWidth: 240, background: SURFACE, borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", height: "100vh", position: "sticky", top: 0, zIndex: 100 }}>
+        {/* Logo */}
+        <div style={{ padding: "20px 20px 16px" }}>
+          <img src={ipsLogoWhite} alt="Iceland Port Services" style={{ height: 28 }} />
         </div>
-        <div style={{ display: "flex", gap: 4, background: "rgba(0,0,0,0.2)", padding: 3, borderRadius: 8, alignSelf: "flex-start" }}>
+
+        {/* Module selector */}
+        <div style={{ padding: "0 0 0 0", marginBottom: 4 }}>
+          <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "4px 16px 6px", fontWeight: 500 }}>Modules</div>
+          <ModuleTab label="Market Intel" mod="market" icon="📊" />
+          <ModuleTab label="Workspace" mod="workspace" icon="📋" />
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: BORDER, margin: "8px 16px" }} />
+
+        {/* Sub navigation */}
+        <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
+          <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "8px 16px 6px", fontWeight: 500 }}>
+            {activeModule === "market" ? "Views" : "Workspace"}
+          </div>
           {activeModule === "market" ? (<>
-            <NavTab label="Overview" view="overview" />
-            <NavTab label="Calendar" view="calendar" />
-            <NavTab label="Crunch Calendar" view="crunch" />
-            <NavTab label="Port Calendar" view="portcal" />
-            <NavTab label="Operations" view="operations" />
-            <NavTab label="Fleet Intel" view="fleet" />
+            <SidebarNav label="Overview" active={activeView === "overview"} onClick={() => setActiveView("overview")} />
+            <SidebarNav label="Calendar" active={activeView === "calendar"} onClick={() => setActiveView("calendar")} />
+            <SidebarNav label="Crunch Calendar" active={activeView === "crunch"} onClick={() => setActiveView("crunch")} />
+            <SidebarNav label="Port Calendar" active={activeView === "portcal"} onClick={() => setActiveView("portcal")} />
+            <SidebarNav label="Operations" active={activeView === "operations"} onClick={() => setActiveView("operations")} />
+            <SidebarNav label="Fleet Intel" active={activeView === "fleet"} onClick={() => setActiveView("fleet")} />
           </>) : (<>
-            <button onClick={() => setWsView("tasks")} style={{
-              background: wsView === "tasks" ? "rgba(56,189,248,0.1)" : "transparent",
-              border: wsView === "tasks" ? `1px solid ${IPS_ACCENT}` : "1px solid transparent",
-              borderRadius: 6, padding: "8px 16px", cursor: "pointer",
-              color: wsView === "tasks" ? IPS_ACCENT : TEXT_DIM,
-              fontSize: 13, fontWeight: 500, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif",
-              display: "flex", alignItems: "center", gap: 6, position: "relative",
-            }}>
-              Tasks
-              {wsDrafts.length > 0 && (
-                <span style={{
-                  background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700,
-                  borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center",
-                  lineHeight: "14px", fontFamily: "JetBrains Mono",
-                }}>{wsDrafts.length}</span>
-              )}
-            </button>
-            <WsNavTab label="Calendar" view="calendar" />
-            <WsNavTab label="Dashboard" view="dashboard" />
+            <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={wsDrafts.length > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{wsDrafts.length}</span>) : null} />
+            <SidebarNav label="Calendar" active={wsView === "calendar"} onClick={() => setWsView("calendar")} />
+            <SidebarNav label="Dashboard" active={wsView === "dashboard"} onClick={() => setWsView("dashboard")} />
           </>)}
         </div>
-      </div>
 
-      <div style={{ padding: "20px 24px", maxWidth: 1440, margin: "0 auto" }}>
+        {/* Bottom: badge + sign out */}
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${BORDER}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: onLogout ? 10 : 0 }}>
+            <div style={{ fontSize: 9, padding: "3px 8px", borderRadius: 4, background: accessLevel === "ceo" ? "rgba(239,68,68,0.15)" : "rgba(87,181,200,0.1)", color: accessLevel === "ceo" ? IPS_DANGER : IPS_ACCENT, fontFamily: "JetBrains Mono", fontWeight: 600, textTransform: "uppercase" }}>
+              {accessLevel === "ceo" ? "CEO Access" : "Team Access"}
+            </div>
+          </div>
+          {onLogout && (
+            <button onClick={onLogout} className="sidebar-nav" style={{ background: "rgba(255,255,255,0.03)", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "8px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left" }}>
+              Sign Out
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main style={{ flex: 1, overflowY: "auto", height: "100vh" }}>
+        {/* Page header */}
+        <div style={{ padding: "20px 28px 0", marginBottom: 4 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "Market Intelligence" : "Workspace"}</h1>
+          <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : "Task & Project Management"}</div>
+        </div>
+
+        <div style={{ padding: "16px 28px", maxWidth: 1440 }}>
 
         {activeModule === "market" && (<>
         {/* WHAT-IF */}
         <Card style={{ marginBottom: 20, background: `linear-gradient(90deg, rgba(167,139,250,0.05) 0%, ${SURFACE} 100%)`, border: `1px solid rgba(167,139,250,0.2)` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setWhatIfOpen(o => !o)}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", fontWeight: 500 }}>What-If Scenario</div>
+              {!whatIfOpen && wonLines.size > 0 && <span style={{ fontSize: 11, color: TEXT_DIM }}>· {wonLines.size} line{wonLines.size > 1 ? "s" : ""} selected</span>}
+            </div>
+            <span style={{ color: TEXT_DIM, fontSize: 14, transform: whatIfOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+          </div>
+          {whatIfOpen && (<div style={{ marginTop: 12 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
             {/* Left: dropdown */}
             <div style={{ flex: "1 1 400px", minWidth: 300 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", marginBottom: 2 }}>What-If Scenario</div>
-                  <div style={{ fontSize: 12, color: TEXT_DIM }}>Select cruise lines to model as IPS contracts</div>
-                </div>
-              </div>
+              <div style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 10 }}>Select cruise lines to model as IPS contracts</div>
 
               {/* Dropdown trigger */}
               <div style={{ position: "relative" }}>
@@ -736,7 +851,7 @@ export default function IPSDashboard() {
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                   background: "rgba(255,255,255,0.03)", border: `1px solid ${dropdownOpen ? PROSPECT_COLOR : BORDER}`,
                   borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.2s", color: TEXT,
-                  fontFamily: "'DM Sans', sans-serif", fontSize: 13,
+                  fontFamily: "'Satoshi', 'Inter', sans-serif", fontSize: 13,
                 }}>
                   <span style={{ color: wonLines.size > 0 ? TEXT : TEXT_DIM }}>
                     {wonLines.size === 0 ? "Select cruise lines to add..." : `${wonLines.size} line${wonLines.size > 1 ? "s" : ""} added to IPS portfolio`}
@@ -782,7 +897,7 @@ export default function IPSDashboard() {
                         <button key={line} onClick={() => toggleLine(line)} style={{
                           width: "100%", display: "flex", alignItems: "center", gap: 10,
                           padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                          background: checked ? "rgba(56,189,248,0.08)" : "transparent",
+                          background: checked ? "rgba(87,181,200,0.08)" : "transparent",
                           borderLeft: `3px solid ${checked ? IPS_ACCENT : "transparent"}`,
                         }}>
                           <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? IPS_ACCENT : BORDER}`, background: checked ? IPS_ACCENT : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
@@ -805,7 +920,7 @@ export default function IPSDashboard() {
                     return (
                       <button key={line} onClick={() => toggleLine(line)} style={{
                         display: "flex", alignItems: "center", gap: 6,
-                        background: isProspect ? "rgba(167,139,250,0.15)" : "rgba(56,189,248,0.1)",
+                        background: isProspect ? "rgba(167,139,250,0.15)" : "rgba(87,181,200,0.1)",
                         border: `1px solid ${isProspect ? PROSPECT_COLOR : IPS_ACCENT}`,
                         borderRadius: 6, padding: "4px 10px", cursor: "pointer", transition: "all 0.15s",
                       }}>
@@ -825,7 +940,7 @@ export default function IPSDashboard() {
 
             {/* Right: share metrics */}
             <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
-              <div style={{ textAlign: "center", padding: "8px 14px", background: "rgba(56,189,248,0.08)", borderRadius: 8, border: `1px solid rgba(56,189,248,0.15)` }}>
+              <div style={{ textAlign: "center", padding: "8px 14px", background: "rgba(87,181,200,0.08)", borderRadius: 8, border: `1px solid rgba(87,181,200,0.15)` }}>
                 <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Calls</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: IPS_ACCENT, fontFamily: "JetBrains Mono" }}>{stats.callShare}%</div>
                 <div style={{ fontSize: 9, color: TEXT_DIM }}>{stats.ipsCalls}/{stats.totalCalls}</div>
@@ -842,6 +957,7 @@ export default function IPSDashboard() {
               </div>
             </div>
           </div>
+          </div>)}
         </Card>
 
         {/* ═══ OVERVIEW ═══ */}
@@ -871,7 +987,7 @@ export default function IPSDashboard() {
         {activeView === "calendar" && (() => {
           // Build daily port activity map including multi-day stays
           const dailyMap = {};
-          SHIPS.forEach((s) => {
+          portCalls.forEach((s) => {
             const start = new Date(s.date + "T12:00:00");
             const end = s.endDate ? new Date(s.endDate + "T12:00:00") : start;
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -886,7 +1002,7 @@ export default function IPSDashboard() {
 
           // All non-contracted lines for the toggle dropdown
           const nonIPSLines = {};
-          SHIPS.forEach((s) => {
+          portCalls.forEach((s) => {
             if (s.status !== "contracted" && !wonLines.has(s.line)) {
               if (!nonIPSLines[s.line]) nonIPSLines[s.line] = { status: s.status, calls: 0, turnarounds: 0 };
               nonIPSLines[s.line].calls++;
@@ -924,7 +1040,7 @@ export default function IPSDashboard() {
           const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
           // Count IPS calls this month for summary
-          const monthShips = SHIPS.filter(s => new Date(s.date).getMonth() + 1 === calMonth);
+          const monthShips = portCalls.filter(s => new Date(s.date).getMonth() + 1 === calMonth);
           const ipsThisMonth = monthShips.filter(s => isIPS(s));
           const ipsT = ipsThisMonth.filter(s => s.turnaround).length;
 
@@ -940,11 +1056,11 @@ export default function IPSDashboard() {
                       <div style={{ display: "flex", gap: 4 }}>
                         {MONTH_NUMS.map((m, i) => (
                           <button key={m} onClick={() => setCalMonth(m)} style={{
-                            background: calMonth === m ? "rgba(56,189,248,0.15)" : "rgba(255,255,255,0.03)",
+                            background: calMonth === m ? "rgba(87,181,200,0.15)" : "rgba(255,255,255,0.03)",
                             border: `1px solid ${calMonth === m ? IPS_ACCENT : BORDER}`,
                             borderRadius: 6, padding: "6px 14px", cursor: "pointer",
                             color: calMonth === m ? IPS_ACCENT : TEXT_DIM, fontSize: 12, fontWeight: 600,
-                            fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
+                            fontFamily: "'Satoshi', 'Inter', sans-serif", transition: "all 0.2s",
                           }}>{MONTHS[i]}</button>
                         ))}
                       </div>
@@ -956,7 +1072,7 @@ export default function IPSDashboard() {
                         width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                         background: "rgba(255,255,255,0.03)", border: `1px solid ${calDropOpen ? IPS_ACCENT : BORDER}`,
                         borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.2s", color: TEXT,
-                        fontFamily: "'DM Sans', sans-serif", fontSize: 13,
+                        fontFamily: "'Satoshi', 'Inter', sans-serif", fontSize: 13,
                       }}>
                         <span style={{ color: calFilter.size > 0 ? TEXT : TEXT_DIM }}>
                           {calFilter.size === 0 ? "Showing IPS contracted only — add other lines..." : `IPS + ${calFilter.size} additional line${calFilter.size > 1 ? "s" : ""}`}
@@ -972,7 +1088,7 @@ export default function IPSDashboard() {
                         }}>
                           {/* Quick actions */}
                           <div style={{ display: "flex", gap: 6, padding: "8px 12px", borderBottom: `1px solid ${BORDER}` }}>
-                            <button onClick={() => setCalFilter(new Set(sortedCalLines.map(([l]) => l)))} style={{ background: "rgba(56,189,248,0.1)", border: `1px solid rgba(56,189,248,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Show all</button>
+                            <button onClick={() => setCalFilter(new Set(sortedCalLines.map(([l]) => l)))} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Show all</button>
                             <button onClick={() => setCalFilter(new Set())} style={{ background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>IPS only</button>
                             <button onClick={() => { const pLines = sortedCalLines.filter(([_, d]) => d.status === "prospect").map(([l]) => l); setCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(167,139,250,0.1)", border: `1px solid rgba(167,139,250,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: PROSPECT_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Prospects</button>
                           </div>
@@ -1007,7 +1123,7 @@ export default function IPSDashboard() {
                               <button key={line} onClick={() => toggleCalLine(line)} style={{
                                 width: "100%", display: "flex", alignItems: "center", gap: 10,
                                 padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                                background: checked ? "rgba(56,189,248,0.08)" : "transparent",
+                                background: checked ? "rgba(87,181,200,0.08)" : "transparent",
                                 borderLeft: `3px solid ${checked ? OTHER_COLOR : "transparent"}`,
                               }}>
                                 <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? OTHER_COLOR : BORDER}`, background: checked ? OTHER_COLOR : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
@@ -1050,7 +1166,7 @@ export default function IPSDashboard() {
 
                   {/* Right: summary stats */}
                   <div style={{ display: "flex", gap: 10, flexShrink: 0, paddingTop: 20 }}>
-                    <div style={{ textAlign: "center", padding: "8px 14px", background: "rgba(56,189,248,0.08)", borderRadius: 8, border: `1px solid rgba(56,189,248,0.15)` }}>
+                    <div style={{ textAlign: "center", padding: "8px 14px", background: "rgba(87,181,200,0.08)", borderRadius: 8, border: `1px solid rgba(87,181,200,0.15)` }}>
                       <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>IPS Calls</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: IPS_ACCENT, fontFamily: "JetBrains Mono" }}>{ipsThisMonth.length}</div>
                       <div style={{ fontSize: 9, color: TEXT_DIM }}>{monthNames[calMonth]}</div>
@@ -1097,7 +1213,7 @@ export default function IPSDashboard() {
                         <div key={di} style={{
                           minHeight: 90,
                           background: hasActivity
-                            ? ships.length >= 5 ? "rgba(239,68,68,0.06)" : ships.length >= 3 ? "rgba(245,158,11,0.04)" : "rgba(56,189,248,0.03)"
+                            ? ships.length >= 5 ? "rgba(239,68,68,0.06)" : ships.length >= 3 ? "rgba(245,158,11,0.04)" : "rgba(87,181,200,0.03)"
                             : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                           border: `1px solid ${hasActivity && ships.length >= 4 ? "rgba(245,158,11,0.25)" : BORDER}`,
                           borderRadius: 8, padding: 6, position: "relative", overflow: "hidden",
@@ -1109,7 +1225,7 @@ export default function IPSDashboard() {
                               color: hasActivity ? TEXT : TEXT_DIM,
                               width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
                               borderRadius: 5,
-                              background: ipsTCount > 0 ? "rgba(56,189,248,0.15)" : "transparent",
+                              background: ipsTCount > 0 ? "rgba(87,181,200,0.15)" : "transparent",
                             }}>{day}</span>
                             {ships.length > 0 && (
                               <span style={{
@@ -1246,7 +1362,7 @@ export default function IPSDashboard() {
         {activeView === "operations" && (<>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
             {stats.monthly.map((m) => (
-              <Card key={m.month} onClick={() => setSelectedMonth(selectedMonth === m.month ? null : m.month)} style={{ cursor: "pointer", border: selectedMonth === m.month ? `1px solid ${IPS_ACCENT}` : `1px solid ${BORDER}`, background: selectedMonth === m.month ? "rgba(56,189,248,0.05)" : SURFACE }}>
+              <Card key={m.month} onClick={() => setSelectedMonth(selectedMonth === m.month ? null : m.month)} style={{ cursor: "pointer", border: selectedMonth === m.month ? `1px solid ${IPS_ACCENT}` : `1px solid ${BORDER}`, background: selectedMonth === m.month ? "rgba(87,181,200,0.05)" : SURFACE }}>
                 <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>{m.month} 2026</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {[{ v: m.ipsCalls, l: "IPS Calls", c: IPS_ACCENT }, { v: m.pallets, l: "Pallets", c: IPS_WARN }, { v: m.crew, l: "Peak Crew", c: IPS_SUCCESS }, { v: m.luggage, l: "Luggage", c: PROSPECT_COLOR }].map((x, i) => (
@@ -1263,7 +1379,7 @@ export default function IPSDashboard() {
                 <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                   <span>Dates</span><span>Line</span><span>Ship</span><span style={{ textAlign: "right" }}>Pax</span><span style={{ textAlign: "center" }}>Type</span><span style={{ textAlign: "center" }}>O/N</span><span style={{ textAlign: "center" }}>Tier</span><span style={{ textAlign: "right" }}>Pallets</span>
                 </div>
-                {SHIPS.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date).getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => (
+                {portCalls.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date).getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "9px 12px", fontSize: 13, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: TEXT_DIM }}>{fmtDateRange(s)}</span>
                     <span style={{ fontWeight: 500 }}>{s.line}</span>
@@ -1284,7 +1400,7 @@ export default function IPSDashboard() {
         {/* ═══ FLEET INTEL ═══ */}
         {activeView === "fleet" && (
           <Card>
-            <SL>Cruise Line Intelligence — Reykjavík 2026 · {SHIPS.length} Port Calls</SL>
+            <SL>Cruise Line Intelligence — Reykjavík 2026 · {portCalls.length} Port Calls</SL>
             <div>
               <div style={{ display: "grid", gridTemplateColumns: "1.4fr 90px 55px 55px 55px 55px 70px 70px 70px", gap: 8, padding: "8px 12px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                 <span>Line</span><span>Status</span><span style={{ textAlign: "right" }}>Calls</span><span style={{ textAlign: "right" }}>(T)</span><span style={{ textAlign: "right" }}>Trn</span><span style={{ textAlign: "right" }}>O/N</span><span style={{ textAlign: "right" }}>Tiered</span><span style={{ textAlign: "right" }}>Call%</span><span style={{ textAlign: "right" }}>Tier%</span>
@@ -1307,7 +1423,7 @@ export default function IPSDashboard() {
                 );
               })}
             </div>
-            <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 8, background: "rgba(56,189,248,0.05)", border: `1px solid rgba(56,189,248,0.15)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 8, background: "rgba(87,181,200,0.05)", border: `1px solid rgba(87,181,200,0.15)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
               <div style={{ fontSize: 12, color: TEXT_DIM }}>
                 <strong style={{ color: IPS_ACCENT }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "contracted").length}</strong> contracted · <strong style={{ color: PROSPECT_COLOR }}>{wonLines.size}</strong> what-if · <strong style={{ color: OTHER_COLOR }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "other").length}</strong> other
               </div>
@@ -1320,7 +1436,7 @@ export default function IPSDashboard() {
         {activeView === "portcal" && (() => {
           // Build daily port activity map including multi-day stays
           const dailyMap = {};
-          SHIPS.forEach((s) => {
+          portCalls.forEach((s) => {
             const start = new Date(s.date + "T12:00:00");
             const end = s.endDate ? new Date(s.endDate + "T12:00:00") : start;
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -1339,7 +1455,7 @@ export default function IPSDashboard() {
           // Sort by number of calls descending
           const sortedDays = Object.entries(filteredDaily).sort((a, b) => b[1].length - a[1].length);
           // All unique lines for the filter
-          const allLines = [...new Set(SHIPS.map((s) => s.line))].sort((a, b) => a.localeCompare(b));
+          const allLines = [...new Set(portCalls.map((s) => s.line))].sort((a, b) => a.localeCompare(b));
           const togglePortCalLine = (line) => {
             setPortCalFilter((prev) => {
               const next = new Set(prev);
@@ -1360,7 +1476,7 @@ export default function IPSDashboard() {
                       width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                       background: "rgba(255,255,255,0.03)", border: `1px solid ${portCalDropOpen ? IPS_ACCENT : BORDER}`,
                       borderRadius: 8, padding: "10px 14px", cursor: "pointer", color: TEXT, fontSize: 13,
-                      fontFamily: "'DM Sans', sans-serif",
+                      fontFamily: "'Satoshi', 'Inter', sans-serif",
                     }}>
                       <span style={{ color: portCalFilter.size > 0 ? TEXT : TEXT_DIM }}>
                         {portCalFilter.size === 0 ? "All lines (click to filter)" : `${portCalFilter.size} line${portCalFilter.size > 1 ? "s" : ""} selected`}
@@ -1375,20 +1491,20 @@ export default function IPSDashboard() {
                       }}>
                         {/* Quick actions */}
                         <div style={{ display: "flex", gap: 6, padding: "8px 12px", borderBottom: `1px solid ${BORDER}` }}>
-                          <button onClick={() => setPortCalFilter(new Set(allLines))} style={{ background: "rgba(56,189,248,0.1)", border: `1px solid rgba(56,189,248,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Select all</button>
+                          <button onClick={() => setPortCalFilter(new Set(allLines))} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Select all</button>
                           <button onClick={() => setPortCalFilter(new Set())} style={{ background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>Clear all</button>
-                          <button onClick={() => { const ipsLines = [...new Set(SHIPS.filter(s => s.status === "contracted").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); ipsLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(56,189,248,0.1)", border: `1px solid rgba(56,189,248,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ IPS</button>
-                          <button onClick={() => { const pLines = [...new Set(SHIPS.filter(s => s.status === "prospect").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(167,139,250,0.1)", border: `1px solid rgba(167,139,250,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: PROSPECT_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Prospects</button>
+                          <button onClick={() => { const ipsLines = [...new Set(portCalls.filter(s => s.status === "contracted").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); ipsLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ IPS</button>
+                          <button onClick={() => { const pLines = [...new Set(portCalls.filter(s => s.status === "prospect").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(167,139,250,0.1)", border: `1px solid rgba(167,139,250,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: PROSPECT_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Prospects</button>
                         </div>
                         {allLines.map((line) => {
                           const checked = portCalFilter.has(line);
-                          const lineStatus = SHIPS.find(s => s.line === line)?.status || "other";
+                          const lineStatus = portCalls.find(s => s.line === line)?.status || "other";
                           const sc = lineStatus === "contracted" ? IPS_ACCENT : lineStatus === "prospect" ? PROSPECT_COLOR : TEXT_DIM;
                           return (
                             <button key={line} onClick={() => togglePortCalLine(line)} style={{
                               width: "100%", display: "flex", alignItems: "center", gap: 10,
                               padding: "7px 12px", border: "none", cursor: "pointer",
-                              background: checked ? "rgba(56,189,248,0.06)" : "transparent",
+                              background: checked ? "rgba(87,181,200,0.06)" : "transparent",
                               borderLeft: `3px solid ${checked ? sc : "transparent"}`,
                             }}>
                               <div style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${checked ? sc : BORDER}`, background: checked ? sc : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1407,7 +1523,7 @@ export default function IPSDashboard() {
                     {portCalFilter.size > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
                         {[...portCalFilter].sort().map((line) => {
-                          const lineStatus = SHIPS.find(s => s.line === line)?.status || "other";
+                          const lineStatus = portCalls.find(s => s.line === line)?.status || "other";
                           const sc = lineStatus === "contracted" ? IPS_ACCENT : lineStatus === "prospect" ? PROSPECT_COLOR : OTHER_COLOR;
                           return (
                             <button key={line} onClick={() => togglePortCalLine(line)} style={{
@@ -1457,7 +1573,7 @@ export default function IPSDashboard() {
                             <div style={{
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
                               width: 28, height: 28, borderRadius: 6, fontFamily: "JetBrains Mono", fontWeight: 800, fontSize: 14,
-                              background: ships.length >= 6 ? "rgba(239,68,68,0.15)" : ships.length >= 4 ? "rgba(245,158,11,0.15)" : "rgba(56,189,248,0.1)",
+                              background: ships.length >= 6 ? "rgba(239,68,68,0.15)" : ships.length >= 4 ? "rgba(245,158,11,0.15)" : "rgba(87,181,200,0.1)",
                               color: ships.length >= 6 ? IPS_DANGER : ships.length >= 4 ? IPS_WARN : IPS_ACCENT,
                             }}>
                               {ships.length}
@@ -1546,7 +1662,7 @@ export default function IPSDashboard() {
                           background: wsTaskForm.assignee === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
                           border: `1px solid ${wsTaskForm.assignee === k ? v.color : BORDER}`,
                           color: wsTaskForm.assignee === k ? v.color : TEXT_DIM, fontWeight: 600, fontSize: 13,
-                          fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8,
+                          fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 8,
                         }}>
                           <span style={{ width: 24, height: 24, borderRadius: 12, background: `${v.color}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontFamily: "JetBrains Mono", fontWeight: 700, color: v.color }}>{v.initials}</span>
                           {v.name}
@@ -1563,7 +1679,7 @@ export default function IPSDashboard() {
                           background: wsTaskForm.project === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
                           border: `1px solid ${wsTaskForm.project === k ? v.color : BORDER}`,
                           color: wsTaskForm.project === k ? v.color : TEXT_DIM, fontWeight: 500, fontSize: 12,
-                          fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 6,
+                          fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6,
                         }}>
                           <span style={{ width: 8, height: 8, borderRadius: 2, background: v.color }} />
                           {v.label}
@@ -1580,7 +1696,7 @@ export default function IPSDashboard() {
                           background: wsTaskForm.priority === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
                           border: `1px solid ${wsTaskForm.priority === k ? v.color : BORDER}`,
                           color: wsTaskForm.priority === k ? v.color : TEXT_DIM, fontWeight: 600, fontSize: 12,
-                          fontFamily: "'DM Sans', sans-serif",
+                          fontFamily: "'Satoshi', 'Inter', sans-serif",
                         }}>{v.label}</button>
                       ))}
                     </div>
@@ -1592,8 +1708,8 @@ export default function IPSDashboard() {
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
-                  <button onClick={() => setWsTaskModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
-                  <button onClick={saveTaskForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{wsTaskModal === "new" ? "Create Task" : "Save Changes"}</button>
+                  <button onClick={() => setWsTaskModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={saveTaskForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{wsTaskModal === "new" ? "Create Task" : "Save Changes"}</button>
                 </div>
               </div>
             </div>
@@ -1630,14 +1746,14 @@ export default function IPSDashboard() {
                         </div>
                         <div style={{ display: "flex", gap: 6, marginLeft: 12, flexShrink: 0 }}>
                           <button onClick={() => acceptDraft(draft)} style={{
-                            padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                            background: "rgba(34,197,94,0.15)", border: `1px solid rgba(34,197,94,0.3)`,
-                            color: "#22C55E", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                            padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+                            background: "rgba(34,197,94,0.08)", border: `1px solid rgba(34,197,94,0.2)`,
+                            color: "rgba(34,197,94,0.8)", fontSize: 11, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif",
                           }}>Accept</button>
                           <button onClick={() => dismissDraft(draft.id)} style={{
-                            padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                            background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`,
-                            color: "#EF4444", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                            padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+                            background: "transparent", border: `1px solid ${BORDER}`,
+                            color: TEXT_DIM, fontSize: 11, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif",
                           }}>Dismiss</button>
                         </div>
                       </div>
@@ -1651,9 +1767,9 @@ export default function IPSDashboard() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <button onClick={openNewTask} style={{
                 padding: "10px 20px", borderRadius: 8, cursor: "pointer",
-                background: `linear-gradient(135deg, ${IPS_ACCENT}, #0284C7)`,
+                background: `linear-gradient(135deg, ${IPS_ACCENT}, #458CA7)`,
                 border: "none", color: "#fff", fontSize: 13, fontWeight: 600,
-                fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8,
+                fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 8,
               }}>+ New Task</button>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono", textTransform: "uppercase", letterSpacing: 1 }}>Sort:</span>
@@ -1713,8 +1829,8 @@ export default function IPSDashboard() {
               return (
                 <div key={task.id} style={{ marginBottom: 6 }}>
                   <div style={{
-                    display: "grid", gridTemplateColumns: "36px 1fr auto auto auto auto 60px",
-                    gap: 12, alignItems: "center", padding: "12px 16px",
+                    display: "grid", gridTemplateColumns: "32px 1fr auto auto auto auto auto",
+                    gap: 10, alignItems: "center", padding: "10px 14px",
                     background: task.completed ? "rgba(255,255,255,0.01)" : SURFACE,
                     border: `1px solid ${isOverdue ? "rgba(239,68,68,0.4)" : BORDER}`,
                     borderRadius: isExpanded ? "8px 8px 0 0" : 8,
@@ -1753,7 +1869,7 @@ export default function IPSDashboard() {
 
                     {/* Actions */}
                     <div style={{ display: "flex", gap: 4 }}>
-                      <button onClick={() => openEditTask(task)} style={{ background: "rgba(56,189,248,0.1)", border: `1px solid rgba(56,189,248,0.2)`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Edit</button>
+                      <button onClick={() => openEditTask(task)} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Edit</button>
                       <button onClick={() => deleteTask(task.id)} style={{ background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>Del</button>
                     </div>
                   </div>
@@ -1785,7 +1901,7 @@ export default function IPSDashboard() {
                           ))}
                         </div>
                         <input value={wsNewNote} onChange={e => setWsNewNote(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addNote(task.id); }} placeholder="Add a note..." style={{ ...inputStyle, flex: 1, padding: "6px 12px" }} />
-                        <button onClick={() => addNote(task.id)} style={{ padding: "6px 14px", borderRadius: 6, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Add</button>
+                        <button onClick={() => addNote(task.id)} style={{ padding: "6px 14px", borderRadius: 6, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Add</button>
                       </div>
                     </div>
                   )}
@@ -1856,7 +1972,7 @@ export default function IPSDashboard() {
                         return (
                           <div key={di} style={{
                             minHeight: 90, borderRadius: 8, padding: 6, position: "relative",
-                            background: isToday ? "rgba(56,189,248,0.06)" : dayTasks.length >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
+                            background: isToday ? "rgba(87,181,200,0.06)" : dayTasks.length >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                             border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -1864,7 +1980,7 @@ export default function IPSDashboard() {
                                 fontFamily: "JetBrains Mono", fontSize: 12, fontWeight: 700,
                                 color: isToday ? IPS_ACCENT : dayTasks.length > 0 ? TEXT : TEXT_DIM,
                                 width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
-                                borderRadius: 5, background: isToday ? "rgba(56,189,248,0.15)" : "transparent",
+                                borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
                               }}>{day}</span>
                               {dayTasks.length > 0 && (
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 9, fontWeight: 600, color: dayTasks.length >= 3 ? IPS_WARN : TEXT_DIM, background: dayTasks.length >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{dayTasks.length}</span>
@@ -1979,7 +2095,8 @@ export default function IPSDashboard() {
           <span>{activeModule === "market" ? "Source: DOKK portal · Corrected Feb 2026 · Tiered (T): <300p=1× · 300–600p=3× · 600–1200p=6× · 1200+p=11× · 🌙 = overnight" : "IPS Workspace · Shared task management for Jón & Tristan"}</span>
           <span style={{ fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? "IPS Market Intelligence v3.0" : "IPS Workspace v1.0"}</span>
         </div>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
