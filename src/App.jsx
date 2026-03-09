@@ -417,18 +417,21 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   const [cfoRateCards, setCfoRateCards] = useState([]);
   const [cfoRateForm, setCfoRateForm] = useState({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" });
   const [cfoShowRateForm, setCfoShowRateForm] = useState(false);
-  // Invoices
-  const [cfoInvoices, setCfoInvoices] = useState([]);
-  const [cfoInvoicesLoaded, setCfoInvoicesLoaded] = useState(false);
-  const [cfoInvoiceModal, setCfoInvoiceModal] = useState(null);
+  // Invoices (live from Payday)
+  const [pdInvoices, setPdInvoices] = useState([]);
+  const [pdInvoicesLoading, setPdInvoicesLoading] = useState(false);
+  const [pdInvoicesError, setPdInvoicesError] = useState(null);
+  const [pdInvoicesLoaded, setPdInvoicesLoaded] = useState(false);
   const [cfoInvoiceFilter, setCfoInvoiceFilter] = useState("all");
-  const [cfoInvoiceLines, setCfoInvoiceLines] = useState([]);
-  // Expenses
-  const [cfoExpenses, setCfoExpenses] = useState([]);
-  const [cfoExpensesLoaded, setCfoExpensesLoaded] = useState(false);
-  const [cfoExpenseModal, setCfoExpenseModal] = useState(null);
-  const [cfoExpenseForm, setCfoExpenseForm] = useState({ category: "other", description: "", amount_isk: "", expense_date: "", recurring: false, recurrence: null, vendor: "", notes: "" });
+  // Expenses (live from Payday)
+  const [pdExpenses, setPdExpenses] = useState([]);
+  const [pdExpensesLoading, setPdExpensesLoading] = useState(false);
+  const [pdExpensesError, setPdExpensesError] = useState(null);
+  const [pdExpensesLoaded, setPdExpensesLoaded] = useState(false);
   const [cfoExpenseCatFilter, setCfoExpenseCatFilter] = useState("all");
+  // Payday data date range
+  const [pdDateFrom, setPdDateFrom] = useState("2025-01-01");
+  const [pdDateTo, setPdDateTo] = useState("2026-12-31");
   // Staff & Payroll
   const [cfoStaff, setCfoStaff] = useState([]);
   const [cfoStaffLoaded, setCfoStaffLoaded] = useState(false);
@@ -439,11 +442,12 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   // ─── PAYDAY INTEGRATION STATE ─────────────────────────────────────────────
   const [paydayConnected, setPaydayConnected] = useState(null); // null=loading, true/false
   const [paydayCompanyName, setPaydayCompanyName] = useState("");
-  const [paydaySyncing, setPaydaySyncing] = useState(null); // null | "invoices" | "expenses" | "customers"
   const [paydayCustomers, setPaydayCustomers] = useState([]);
-  const [paydaySyncLog, setPaydaySyncLog] = useState([]);
-  const [paydaySyncDateFrom, setPaydaySyncDateFrom] = useState("2026-01-01");
-  const [paydaySyncDateTo, setPaydaySyncDateTo] = useState("2026-12-31");
+  const [paydayCustomersLoading, setPaydayCustomersLoading] = useState(false);
+  // Invoice generation (Phase B)
+  const [cfoGenModal, setCfoGenModal] = useState(null); // null | { contract, rateCards, eligibleCalls, cruiseLine }
+  const [cfoGenLoading, setCfoGenLoading] = useState(false);
+  const [cfoGenError, setCfoGenError] = useState(null);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -641,23 +645,74 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
     })();
   }, [activeModule, cfoContractsLoaded]);
 
+  // Load invoices LIVE from Payday API
   useEffect(() => {
-    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoInvoicesLoaded) return;
+    if (activeModule !== "cfo" || !paydayConnected || pdInvoicesLoaded || pdInvoicesLoading) return;
     (async () => {
-      const { data } = await supabase.from("invoices").select("*,cruise_lines(name)").order("created_at", { ascending: false });
-      if (data) setCfoInvoices(data.map(inv => ({ ...inv, cruise_line_name: inv.cruise_lines?.name || "Unknown" })));
-      setCfoInvoicesLoaded(true);
+      setPdInvoicesLoading(true);
+      setPdInvoicesError(null);
+      try {
+        const result = await payday.invoices.list({ dateFrom: pdDateFrom, dateTo: pdDateTo });
+        if (!result.ok) throw new Error(result.error?.message || "Failed to load invoices");
+        const custMap = {};
+        cfoCruiseLines.forEach(cl => { if (cl.payday_customer_id) custMap[cl.payday_customer_id] = cl.name; });
+        const normalized = (result.data || []).map(inv => {
+          const custId = String(inv.customer?.id || inv.customerId || "");
+          return {
+            id: inv.id,
+            invoice_number: inv.number ? `${inv.number}` : `PD-${inv.id}`,
+            cruise_line_name: custMap[custId] || inv.customer?.name || inv.customerName || "Unknown",
+            customer_id: custId,
+            status: mapPaydayInvoiceStatus(inv.status),
+            issue_date: (inv.invoiceDate || inv.created || "").slice(0, 10),
+            due_date: (inv.dueDate || inv.finalDueDate || "").slice(0, 10),
+            subtotal_isk: Math.abs(parseFloat(inv.amountExcludingVat || 0)),
+            tax_isk: Math.abs(parseFloat(inv.amountVat || 0)),
+            total_isk: Math.abs(parseFloat(inv.amountIncludingVat || 0)),
+            raw: inv,
+          };
+        });
+        setPdInvoices(normalized);
+        setPdInvoicesLoaded(true);
+      } catch (err) {
+        setPdInvoicesError(err.message);
+      } finally {
+        setPdInvoicesLoading(false);
+      }
     })();
-  }, [activeModule, cfoInvoicesLoaded]);
+  }, [activeModule, paydayConnected, pdInvoicesLoaded, pdInvoicesLoading, pdDateFrom, pdDateTo, cfoCruiseLines]);
 
+  // Load expenses LIVE from Payday API
   useEffect(() => {
-    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoExpensesLoaded) return;
+    if (activeModule !== "cfo" || !paydayConnected || pdExpensesLoaded || pdExpensesLoading) return;
     (async () => {
-      const { data } = await supabase.from("expenses").select("*").order("expense_date", { ascending: false });
-      if (data) setCfoExpenses(data);
-      setCfoExpensesLoaded(true);
+      setPdExpensesLoading(true);
+      setPdExpensesError(null);
+      try {
+        const result = await payday.expenses.list({ from: pdDateFrom, to: pdDateTo });
+        if (!result.ok) throw new Error(result.error?.message || "Failed to load expenses");
+        const normalized = (result.data || []).map(exp => ({
+          id: exp.id,
+          category: "other",
+          description: ((exp.comments || exp.reference || `Expense #${exp.id}`).split("\n").find(l => l.trim()) || "").trim().slice(0, 120),
+          amount_isk: Math.abs(parseFloat(exp.amountIncludingVat || exp.amountExcludingVat || 0)),
+          subtotal_isk: Math.abs(parseFloat(exp.amountExcludingVat || 0)),
+          tax_isk: Math.abs(parseFloat(exp.amountVat || 0)),
+          expense_date: (exp.date || exp.created || "").slice(0, 10),
+          vendor: exp.creditor?.name || null,
+          status: exp.status || null,
+          recurring: false,
+          raw: exp,
+        }));
+        setPdExpenses(normalized);
+        setPdExpensesLoaded(true);
+      } catch (err) {
+        setPdExpensesError(err.message);
+      } finally {
+        setPdExpensesLoading(false);
+      }
     })();
-  }, [activeModule, cfoExpensesLoaded]);
+  }, [activeModule, paydayConnected, pdExpensesLoaded, pdExpensesLoading, pdDateFrom, pdDateTo]);
 
   useEffect(() => {
     if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoStaffLoaded) return;
@@ -677,34 +732,28 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
     })();
   }, [cfoExpandedContract]);
 
-  // ─── PAYDAY CONNECTION TEST & SYNC LOG LOAD ─────────────────────────────────
+  // ─── PAYDAY CONNECTION TEST ─────────────────────────────────────────────────
   useEffect(() => {
     if (activeModule !== "cfo" || !payday.connected()) {
       if (!payday.connected()) setPaydayConnected(false);
       return;
     }
     (async () => {
-      // Test connection by fetching 1 customer (no /company endpoint)
       const result = await payday.customers.get_list_page({ perpage: 1 });
       setPaydayConnected(result.ok);
-      if (result.ok) {
-        setPaydayCompanyName("Payday.is");
-      }
-      // Load sync log
-      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
-      if (logs) setPaydaySyncLog(logs);
+      if (result.ok) setPaydayCompanyName("Payday.is");
     })();
   }, [activeModule]);
 
-  // ─── PAYDAY SYNC FUNCTIONS ─────────────────────────────────────────────────
+  // ─── PAYDAY HELPER FUNCTIONS ───────────────────────────────────────────────
 
   const paydayLoadCustomers = useCallback(async () => {
-    setPaydaySyncing("customers");
+    setPaydayCustomersLoading(true);
     try {
       const result = await payday.customers.list();
       if (result.ok) setPaydayCustomers(result.data || []);
     } finally {
-      setPaydaySyncing(null);
+      setPaydayCustomersLoading(false);
     }
   }, []);
 
@@ -718,86 +767,73 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
     return map[(s || "").toLowerCase()] || "draft";
   };
 
-  const paydaySyncInvoices = useCallback(async () => {
-    setPaydaySyncing("invoices");
-    const logEntry = { sync_type: "invoices", status: "started", records_synced: 0 };
-    const { data: logRow } = await supabase.from("payday_sync_log").insert(logEntry);
-    const logId = logRow?.[0]?.id;
-    try {
-      const result = await payday.invoices.list({ dateFrom: paydaySyncDateFrom, dateTo: paydaySyncDateTo });
-      if (!result.ok) throw new Error(result.error?.message || "Failed to fetch invoices");
-      let synced = 0;
-      for (const inv of (result.data || [])) {
-        const custId = String(inv.customer?.id || inv.customerId || "");
-        const cl = cfoCruiseLines.find(c => c.payday_customer_id === custId);
-        if (!cl) continue;
-        const existing = cfoInvoices.find(i => i.payday_invoice_id === String(inv.id));
-        const payload = {
-          invoice_number: inv.number ? `PD-${inv.number}` : `PD-${inv.id}`,
-          cruise_line_id: cl.id,
-          status: mapPaydayInvoiceStatus(inv.status),
-          issue_date: (inv.invoiceDate || inv.created || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
-          due_date: (inv.dueDate || inv.finalDueDate || inv.invoiceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
-          subtotal_isk: Math.abs(parseFloat(inv.amountExcludingVat || 0)),
-          tax_isk: Math.abs(parseFloat(inv.amountVat || 0)),
-          total_isk: Math.abs(parseFloat(inv.amountIncludingVat || 0)),
-          payday_invoice_id: String(inv.id),
-          payday_synced_at: new Date().toISOString(),
-        };
-        if (existing) {
-          await supabase.from("invoices").update(payload).eq("id", existing.id);
-        } else {
-          await supabase.from("invoices").insert(payload);
-        }
-        synced++;
-      }
-      if (logId) await supabase.from("payday_sync_log").update({ status: "completed", records_synced: synced, completed_at: new Date().toISOString() }).eq("id", logId);
-      setCfoInvoicesLoaded(false); // trigger reload
-      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
-      if (logs) setPaydaySyncLog(logs);
-    } catch (err) {
-      if (logId) await supabase.from("payday_sync_log").update({ status: "failed", error_message: err.message, completed_at: new Date().toISOString() }).eq("id", logId);
-    } finally {
-      setPaydaySyncing(null);
-    }
-  }, [cfoCruiseLines, cfoInvoices, paydaySyncDateFrom, paydaySyncDateTo]);
+  const refreshPaydayData = useCallback(() => {
+    setPdInvoicesLoaded(false);
+    setPdExpensesLoaded(false);
+  }, []);
 
-  const paydaySyncExpenses = useCallback(async () => {
-    setPaydaySyncing("expenses");
-    const { data: logRow } = await supabase.from("payday_sync_log").insert({ sync_type: "expenses", status: "started", records_synced: 0 });
-    const logId = logRow?.[0]?.id;
-    try {
-      const result = await payday.expenses.list({ from: paydaySyncDateFrom, to: paydaySyncDateTo });
-      if (!result.ok) throw new Error(result.error?.message || "Failed to fetch expenses");
-      let synced = 0;
-      for (const exp of (result.data || [])) {
-        const existing = cfoExpenses.find(e => e.payday_expense_id === String(exp.id));
-        const payload = {
-          category: "other",
-          description: exp.description || exp.name || `Payday expense #${exp.id}`,
-          amount_isk: parseFloat(exp.amount || exp.totalAmount || 0),
-          expense_date: exp.date || exp.expenseDate || new Date().toISOString().slice(0, 10),
-          vendor: exp.vendor || exp.supplierName || null,
-          payday_expense_id: String(exp.id),
-          payday_synced_at: new Date().toISOString(),
-        };
-        if (existing) {
-          await supabase.from("expenses").update(payload).eq("id", existing.id);
-        } else {
-          await supabase.from("expenses").insert(payload);
+  // ─── INVOICE GENERATION (Phase B) ──────────────────────────────────────────
+  const calculateInvoiceLines = useCallback((portCall, rateCards) => {
+    return rateCards.map(rc => {
+      let quantity = 1;
+      let desc = rc.description || CFO_SERVICE_TYPES[rc.service_type]?.label || rc.service_type;
+      switch (rc.unit) {
+        case "per_pax": quantity = portCall.pax || 0; desc += ` (${quantity} pax)`; break;
+        case "per_hour": {
+          const days = portCall.end_date ? Math.max(1, Math.ceil((new Date(portCall.end_date) - new Date(portCall.date)) / 86400000)) : 1;
+          quantity = days * 8; desc += ` (${quantity} hrs)`; break;
         }
-        synced++;
+        case "per_call": case "flat": default: quantity = 1; break;
       }
-      if (logId) await supabase.from("payday_sync_log").update({ status: "completed", records_synced: synced, completed_at: new Date().toISOString() }).eq("id", logId);
-      setCfoExpensesLoaded(false);
-      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
-      if (logs) setPaydaySyncLog(logs);
+      const lineTotal = Math.max(quantity * parseFloat(rc.rate_isk || 0), parseFloat(rc.min_charge_isk || 0));
+      return { rate_card_id: rc.id, service_type: rc.service_type, description: desc, quantity, unit_price_isk: parseFloat(rc.rate_isk || 0), line_total_isk: lineTotal };
+    });
+  }, []);
+
+  const calculateDueDate = (dateStr, paymentTerms) => {
+    const d = new Date(dateStr);
+    const match = (paymentTerms || "Net 30").match(/(\d+)/);
+    d.setDate(d.getDate() + (match ? parseInt(match[1]) : 30));
+    return d.toISOString().slice(0, 10);
+  };
+
+  const generatePaydayInvoice = useCallback(async (portCall, contract, rateCards) => {
+    setCfoGenLoading(true);
+    setCfoGenError(null);
+    try {
+      const cl = cfoCruiseLines.find(c => c.id === contract.cruise_line_id);
+      if (!cl?.payday_customer_id) throw new Error(`"${cl?.name}" is not mapped to a Payday customer. Map it in Settings first.`);
+      const lines = calculateInvoiceLines(portCall, rateCards);
+      const payload = {
+        customerId: cl.payday_customer_id,
+        invoiceDate: portCall.date,
+        dueDate: calculateDueDate(portCall.date, contract.payment_terms),
+        reference: `IPS-${portCall.date}-${(cl.name || "").replace(/\s+/g, "").slice(0, 10)}`,
+        lines: lines.map(l => ({ description: l.description, quantity: l.quantity, unitPrice: l.unit_price_isk, amount: l.line_total_isk })),
+      };
+      const result = await payday.invoices.create(payload);
+      if (!result.ok) throw new Error(result.error?.message || "Payday rejected the invoice");
+      refreshPaydayData();
+      setCfoGenModal(null);
+      return result.data;
     } catch (err) {
-      if (logId) await supabase.from("payday_sync_log").update({ status: "failed", error_message: err.message, completed_at: new Date().toISOString() }).eq("id", logId);
+      setCfoGenError(err.message);
     } finally {
-      setPaydaySyncing(null);
+      setCfoGenLoading(false);
     }
-  }, [cfoExpenses, paydaySyncDateFrom, paydaySyncDateTo]);
+  }, [cfoCruiseLines, calculateInvoiceLines, refreshPaydayData]);
+
+  const openInvoiceGenerator = useCallback(async (contract) => {
+    const { data: rates } = await supabase.from("rate_cards").select("*").eq("contract_id", contract.id);
+    if (!rates || rates.length === 0) { alert("No rate cards defined for this contract. Add rate cards first."); return; }
+    const cl = cfoCruiseLines.find(c => c.id === contract.cruise_line_id);
+    const eligibleCalls = portCalls.filter(pc => pc.line === cl?.name).filter(pc => {
+      return !pdInvoices.some(inv => inv.customer_id === cl?.payday_customer_id && inv.issue_date === pc.date);
+    });
+    setCfoGenError(null);
+    setCfoGenModal({ contract, rateCards: rates, eligibleCalls, cruiseLine: cl });
+  }, [cfoCruiseLines, portCalls, pdInvoices]);
+
 
   // ─── CFO CRUD OPERATIONS ────────────────────────────────────────────────────
   const cfoSaveContract = useCallback(async () => {
@@ -852,32 +888,6 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
     setCfoRateCards(prev => prev.filter(r => r.id !== id));
   }, []);
 
-  const cfoSaveExpense = useCallback(async () => {
-    if (!cfoExpenseForm.description || !cfoExpenseForm.amount_isk) return;
-    const payload = {
-      category: cfoExpenseForm.category,
-      description: cfoExpenseForm.description,
-      amount_isk: parseFloat(cfoExpenseForm.amount_isk),
-      expense_date: cfoExpenseForm.expense_date || new Date().toISOString().split("T")[0],
-      recurring: cfoExpenseForm.recurring,
-      recurrence: cfoExpenseForm.recurring ? cfoExpenseForm.recurrence : null,
-      vendor: cfoExpenseForm.vendor || null,
-      notes: cfoExpenseForm.notes || null,
-    };
-    if (cfoExpenseModal === "new") {
-      const { data } = await supabase.from("expenses").insert(payload);
-      if (data?.[0]) setCfoExpenses(prev => [data[0], ...prev]);
-    } else {
-      await supabase.from("expenses").update(payload).eq("id", cfoExpenseModal);
-      setCfoExpenses(prev => prev.map(e => e.id === cfoExpenseModal ? { ...e, ...payload } : e));
-    }
-    setCfoExpenseModal(null);
-  }, [cfoExpenseModal, cfoExpenseForm]);
-
-  const cfoDeleteExpense = useCallback(async (id) => {
-    await supabase.from("expenses").delete().eq("id", id);
-    setCfoExpenses(prev => prev.filter(e => e.id !== id));
-  }, []);
 
   const cfoSaveStaff = useCallback(async () => {
     if (!cfoStaffForm.name || !cfoStaffForm.role) return;
@@ -956,48 +966,34 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   const cfoStats = useMemo(() => {
     const activeContracts = cfoContracts.filter(c => c.status === "active").length;
     const draftContracts = cfoContracts.filter(c => c.status === "draft").length;
-    const totalInvoiced = cfoInvoices.reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
-    const paidInvoiced = cfoInvoices.filter(i => i.status === "paid").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
-    const outstandingInvoiced = cfoInvoices.filter(i => i.status === "sent" || i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
-    const overdueInvoiced = cfoInvoices.filter(i => i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
-    const totalExpenses = cfoExpenses.reduce((s, e) => s + (parseFloat(e.amount_isk) || 0), 0);
+    const totalInvoiced = pdInvoices.reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const paidInvoiced = pdInvoices.filter(i => i.status === "paid").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const outstandingInvoiced = pdInvoices.filter(i => i.status === "sent" || i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const overdueInvoiced = pdInvoices.filter(i => i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const totalExpenses = pdExpenses.reduce((s, e) => s + (parseFloat(e.amount_isk) || 0), 0);
     const revenue = paidInvoiced;
     const profit = revenue - totalExpenses;
     const margin = revenue > 0 ? (profit / revenue * 100) : 0;
-    // Monthly revenue breakdown from invoices
     const revenueByMonth = {};
     const expenseByMonth = {};
-    cfoInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => {
+    pdInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => {
       const m = (i.issue_date || "").slice(0, 7);
       revenueByMonth[m] = (revenueByMonth[m] || 0) + (parseFloat(i.total_isk) || 0);
     });
-    cfoExpenses.forEach(e => {
+    pdExpenses.forEach(e => {
       const m = (e.expense_date || "").slice(0, 7);
       expenseByMonth[m] = (expenseByMonth[m] || 0) + (parseFloat(e.amount_isk) || 0);
     });
     const months = [...new Set([...Object.keys(revenueByMonth), ...Object.keys(expenseByMonth)])].sort();
-    const monthlyData = months.map(m => ({
-      month: m,
-      revenue: revenueByMonth[m] || 0,
-      expenses: expenseByMonth[m] || 0,
-      profit: (revenueByMonth[m] || 0) - (expenseByMonth[m] || 0),
-    }));
-    // Revenue by service type from invoices
-    const revByService = {};
-    // Expense by category
+    const monthlyData = months.map(m => ({ month: m, revenue: revenueByMonth[m] || 0, expenses: expenseByMonth[m] || 0, profit: (revenueByMonth[m] || 0) - (expenseByMonth[m] || 0) }));
     const expByCat = {};
-    cfoExpenses.forEach(e => {
-      expByCat[e.category] = (expByCat[e.category] || 0) + (parseFloat(e.amount_isk) || 0);
-    });
+    pdExpenses.forEach(e => { expByCat[e.category] = (expByCat[e.category] || 0) + (parseFloat(e.amount_isk) || 0); });
     const expensePie = Object.entries(expByCat).map(([k, v]) => ({ name: CFO_EXPENSE_CATS[k]?.label || k, value: v, color: CFO_EXPENSE_CATS[k]?.color || "#64748B" }));
-    // Revenue by cruise line
     const revByLine = {};
-    cfoInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => {
-      revByLine[i.cruise_line_name] = (revByLine[i.cruise_line_name] || 0) + (parseFloat(i.total_isk) || 0);
-    });
+    pdInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => { revByLine[i.cruise_line_name] = (revByLine[i.cruise_line_name] || 0) + (parseFloat(i.total_isk) || 0); });
     const revByLineSorted = Object.entries(revByLine).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value]) => ({ name, value }));
     return { activeContracts, draftContracts, totalInvoiced, paidInvoiced, outstandingInvoiced, overdueInvoiced, totalExpenses, revenue, profit, margin, monthlyData, expensePie, revByLineSorted };
-  }, [cfoContracts, cfoInvoices, cfoExpenses]);
+  }, [cfoContracts, pdInvoices, pdExpenses]);
 
   const filteredTasks = useMemo(() => {
     let result = [...wsTasks];
@@ -1273,7 +1269,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <SidebarNav label="Invoices" active={cfoView === "invoices"} onClick={() => setCfoView("invoices")} />
             <SidebarNav label="Expenses" active={cfoView === "expenses"} onClick={() => setCfoView("expenses")} />
             <SidebarNav label="Staff" active={cfoView === "staff"} onClick={() => setCfoView("staff")} />
-            <SidebarNav label="Payday Sync" active={cfoView === "payday"} onClick={() => setCfoView("payday")} badge={paydayConnected === true ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_SUCCESS, display: "inline-block" }} />) : paydayConnected === false ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_DANGER, display: "inline-block" }} />) : null} />
+            <SidebarNav label="Settings" active={cfoView === "payday"} onClick={() => setCfoView("payday")} badge={paydayConnected === true ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_SUCCESS, display: "inline-block" }} />) : paydayConnected === false ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_DANGER, display: "inline-block" }} />) : null} />
           </>) : (<>
             <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={wsDrafts.length > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{wsDrafts.length}</span>) : null} />
             <SidebarNav label="Calendar" active={wsView === "calendar"} onClick={() => setWsView("calendar")} />
@@ -2627,55 +2623,52 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           </div>
         )}
 
-        {/* ═══ EXPENSE MODAL ═══ */}
-        {cfoExpenseModal && (
+        {/* ═══ INVOICE GENERATION MODAL (Phase B) ═══ */}
+        {cfoGenModal && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{cfoExpenseModal === "new" ? "New Expense" : "Edit Expense"}</h3>
-              <div style={{ display: "grid", gap: 12 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Category</label>
-                    <select value={cfoExpenseForm.category} onChange={e => setCfoExpenseForm(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }}>
-                      {Object.entries(CFO_EXPENSE_CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Date</label>
-                    <input type="date" value={cfoExpenseForm.expense_date} onChange={e => setCfoExpenseForm(f => ({ ...f, expense_date: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
-                  </div>
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Description</label>
-                  <input value={cfoExpenseForm.description} onChange={e => setCfoExpenseForm(f => ({ ...f, description: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Amount (ISK)</label>
-                    <input type="number" value={cfoExpenseForm.amount_isk} onChange={e => setCfoExpenseForm(f => ({ ...f, amount_isk: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Vendor</label>
-                    <input value={cfoExpenseForm.vendor} onChange={e => setCfoExpenseForm(f => ({ ...f, vendor: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="checkbox" checked={cfoExpenseForm.recurring} onChange={e => setCfoExpenseForm(f => ({ ...f, recurring: e.target.checked }))} />
-                  <span style={{ fontSize: 13 }}>Recurring</span>
-                  {cfoExpenseForm.recurring && (
-                    <select value={cfoExpenseForm.recurrence || "monthly"} onChange={e => setCfoExpenseForm(f => ({ ...f, recurrence: e.target.value }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12, marginLeft: 8 }}>
-                      <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annual</option>
-                    </select>
-                  )}
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Notes</label>
-                  <textarea value={cfoExpenseForm.notes} onChange={e => setCfoExpenseForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13, resize: "vertical" }} />
-                </div>
+            <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 700, maxHeight: "90vh", overflowY: "auto" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Generate Invoice for {cfoGenModal.cruiseLine?.name}</h3>
+              <div style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 16 }}>
+                Contract: {cfoGenModal.contract.season} · Payment: {cfoGenModal.contract.payment_terms} · Rate cards: {cfoGenModal.rateCards.length}
               </div>
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-                <button onClick={() => setCfoExpenseModal(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer" }}>Cancel</button>
-                <button onClick={cfoSaveExpense} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              {cfoGenModal.eligibleCalls.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center", color: TEXT_DIM }}>No uninvoiced port calls found for this cruise line.</div>
+              ) : (
+                cfoGenModal.eligibleCalls.map(pc => {
+                  const lines = calculateInvoiceLines(pc, cfoGenModal.rateCards);
+                  const subtotal = lines.reduce((s, l) => s + l.line_total_isk, 0);
+                  return (
+                    <Card key={pc.date + pc.ship} style={{ marginBottom: 8, padding: "12px 16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{pc.ship} — {pc.date}</div>
+                          <div style={{ fontSize: 11, color: TEXT_DIM }}>{pc.pax} pax · {pc.turnaround ? "Turnaround" : "Transit"}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontWeight: 700, fontFamily: "JetBrains Mono", fontSize: 14 }}>{fmtISK(subtotal)}</div>
+                          <button onClick={() => generatePaydayInvoice(pc, cfoGenModal.contract, cfoGenModal.rateCards)} disabled={cfoGenLoading} style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 11, fontWeight: 600, cursor: cfoGenLoading ? "not-allowed" : "pointer", marginTop: 4 }}>
+                            {cfoGenLoading ? "Generating..." : "Generate"}
+                          </button>
+                        </div>
+                      </div>
+                      <table style={{ width: "100%", fontSize: 11, marginTop: 8, borderCollapse: "collapse" }}>
+                        <tbody>
+                          {lines.map((l, i) => (
+                            <tr key={i} style={{ borderTop: `1px solid ${BORDER}` }}>
+                              <td style={{ padding: 4 }}>{l.description}</td>
+                              <td style={{ padding: 4, textAlign: "right", color: TEXT_DIM }}>{l.quantity} x {fmtISK(l.unit_price_isk)}</td>
+                              <td style={{ padding: 4, textAlign: "right", fontWeight: 600 }}>{fmtISK(l.line_total_isk)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  );
+                })
+              )}
+              {cfoGenError && <div style={{ color: IPS_DANGER, fontSize: 12, marginTop: 8 }}>{cfoGenError}</div>}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => setCfoGenModal(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer" }}>Close</button>
               </div>
             </div>
           </div>
@@ -2734,6 +2727,9 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
         {/* ═══ CFO DASHBOARD VIEW ═══ */}
         {cfoView === "dashboard" && (<>
+          {(pdInvoicesLoading || pdExpensesLoading) && (
+            <div style={{ textAlign: "center", padding: 8, marginBottom: 12, fontSize: 11, color: TEXT_DIM, background: "rgba(87,181,200,0.08)", borderRadius: 6 }}>Loading financial data from Payday...</div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
               { l: "Revenue", v: fmtISK(cfoStats.revenue), c: IPS_SUCCESS, bc: IPS_SUCCESS },
@@ -2779,7 +2775,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <Card style={{ textAlign: "center", padding: 40 }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>$</div>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No Financial Data Yet</div>
-              <div style={{ fontSize: 13, color: TEXT_DIM }}>Start by adding contracts with rate cards, then generate invoices from port calls. Add expenses to see your full P&L.</div>
+              <div style={{ fontSize: 13, color: TEXT_DIM }}>{paydayConnected ? "Financial data loads live from Payday.is. Your invoices and expenses will appear here automatically." : "Connect to Payday.is in Settings to see live financial data."}</div>
             </Card>
           )}
 
@@ -2850,7 +2846,10 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
                 <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${BORDER}` }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                     <SL>Rate Cards</SL>
-                    <button onClick={() => { setCfoRateForm({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" }); setCfoShowRateForm(!cfoShowRateForm); }} style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{cfoShowRateForm ? "Cancel" : "+ Add Rate"}</button>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => { setCfoRateForm({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" }); setCfoShowRateForm(!cfoShowRateForm); }} style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{cfoShowRateForm ? "Cancel" : "+ Add Rate"}</button>
+                      {paydayConnected && <button onClick={() => openInvoiceGenerator(c)} style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: "rgba(34,197,94,0.15)", color: IPS_SUCCESS, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Generate Invoice</button>}
+                    </div>
                   </div>
                   {cfoShowRateForm && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 120px auto", gap: 8, marginBottom: 12, alignItems: "end" }}>
@@ -2923,7 +2922,15 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             {["all", "draft", "sent", "paid", "overdue"].map(s => (
               <FilterPill key={s} label={s === "all" ? "All" : CFO_INV_STATUS[s]?.label || s} active={cfoInvoiceFilter === s} color={s === "all" ? IPS_ACCENT : CFO_INV_STATUS[s]?.color} onClick={() => setCfoInvoiceFilter(s)} />
             ))}
+            <div style={{ flex: 1 }} />
+            <button onClick={refreshPaydayData} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}><IconSync /> Refresh</button>
           </div>
+          {pdInvoicesLoading && (
+            <Card style={{ textAlign: "center", padding: 16, marginBottom: 12 }}><div style={{ fontSize: 12, color: TEXT_DIM }}>Loading invoices from Payday...</div></Card>
+          )}
+          {pdInvoicesError && (
+            <Card style={{ textAlign: "center", padding: 16, marginBottom: 12, borderTop: `2px solid ${IPS_DANGER}` }}><div style={{ fontSize: 12, color: IPS_DANGER }}>Error: {pdInvoicesError}</div><button onClick={refreshPaydayData} style={{ marginTop: 8, padding: "4px 12px", borderRadius: 4, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 11, cursor: "pointer" }}>Retry</button></Card>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
               { l: "Total Invoiced", v: fmtISK(cfoStats.totalInvoiced), bc: IPS_ACCENT },
@@ -2932,11 +2939,11 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
               { l: "Overdue", v: fmtISK(cfoStats.overdueInvoiced), c: IPS_DANGER, bc: IPS_DANGER },
             ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 18, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div></div></Card>))}
           </div>
-          {cfoInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).length === 0 ? (
+          {pdInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).length === 0 && !pdInvoicesLoading ? (
             <Card style={{ textAlign: "center", padding: 40 }}>
-              <div style={{ fontSize: 14, color: TEXT_DIM }}>No invoices yet. Generate invoices from the Contracts view once rate cards are set up.</div>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>{paydayConnected ? "No invoices found for this period." : "Connect to Payday.is in Settings to see invoices."}</div>
             </Card>
-          ) : (
+          ) : !pdInvoicesLoading && (
             <Card>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -2951,9 +2958,9 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {cfoInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).map(inv => (
+                    {pdInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).map(inv => (
                       <tr key={inv.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                        <td style={{ padding: "8px", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{inv.invoice_number}{inv.payday_invoice_id ? <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9, background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontWeight: 500 }}>Payday</span> : null}</td>
+                        <td style={{ padding: "8px", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{inv.invoice_number}</td>
                         <td style={{ padding: "8px" }}>{inv.cruise_line_name}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.issue_date}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.due_date}</td>
@@ -2971,49 +2978,48 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
         {/* ═══ EXPENSES VIEW ═══ */}
         {cfoView === "expenses" && (<>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-            <button onClick={() => { setCfoExpenseForm({ category: "other", description: "", amount_isk: "", expense_date: new Date().toISOString().split("T")[0], recurring: false, recurrence: null, vendor: "", notes: "" }); setCfoExpenseModal("new"); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><IconPlus /> New Expense</button>
-            <div style={{ flex: 1 }} />
             {["all", ...Object.keys(CFO_EXPENSE_CATS)].map(k => (
               <FilterPill key={k} label={k === "all" ? "All" : CFO_EXPENSE_CATS[k]?.label} active={cfoExpenseCatFilter === k} color={k === "all" ? IPS_ACCENT : CFO_EXPENSE_CATS[k]?.color} onClick={() => setCfoExpenseCatFilter(k)} />
             ))}
+            <div style={{ flex: 1 }} />
+            <button onClick={refreshPaydayData} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}><IconSync /> Refresh</button>
           </div>
+          {pdExpensesLoading && (
+            <Card style={{ textAlign: "center", padding: 16, marginBottom: 12 }}><div style={{ fontSize: 12, color: TEXT_DIM }}>Loading expenses from Payday...</div></Card>
+          )}
+          {pdExpensesError && (
+            <Card style={{ textAlign: "center", padding: 16, marginBottom: 12, borderTop: `2px solid ${IPS_DANGER}` }}><div style={{ fontSize: 12, color: IPS_DANGER }}>Error: {pdExpensesError}</div><button onClick={refreshPaydayData} style={{ marginTop: 8, padding: "4px 12px", borderRadius: 4, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 11, cursor: "pointer" }}>Retry</button></Card>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
               { l: "Total", v: fmtISK(cfoStats.totalExpenses), bc: IPS_DANGER },
-              { l: "Monthly Avg", v: fmtISK(cfoExpenses.length > 0 ? cfoStats.totalExpenses / Math.max(1, new Set(cfoExpenses.map(e => (e.expense_date || "").slice(0, 7))).size) : 0), bc: IPS_WARN },
-              { l: "Recurring", v: cfoExpenses.filter(e => e.recurring).length, s: fmtISK(cfoExpenses.filter(e => e.recurring).reduce((s, e) => s + (parseFloat(e.amount_isk) || 0), 0)), bc: IPS_ACCENT },
+              { l: "Monthly Avg", v: fmtISK(pdExpenses.length > 0 ? cfoStats.totalExpenses / Math.max(1, new Set(pdExpenses.map(e => (e.expense_date || "").slice(0, 7))).size) : 0), bc: IPS_WARN },
+              { l: "Count", v: pdExpenses.length, bc: IPS_ACCENT },
             ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 18, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div>{x.s && <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 2 }}>{x.s}</div>}</div></Card>))}
           </div>
-          {cfoExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).length === 0 ? (
+          {pdExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).length === 0 && !pdExpensesLoading ? (
             <Card style={{ textAlign: "center", padding: 40 }}>
-              <div style={{ fontSize: 14, color: TEXT_DIM }}>No expenses logged yet.</div>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>{paydayConnected ? "No expenses found for this period." : "Connect to Payday.is in Settings to see expenses."}</div>
             </Card>
-          ) : (
+          ) : !pdExpensesLoading && (
             <Card>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
                       <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Date</th>
-                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Category</th>
                       <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Description</th>
                       <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Vendor</th>
                       <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Amount</th>
-                      <th style={{ textAlign: "center", padding: "8px", width: 60 }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cfoExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).map(exp => (
+                    {pdExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).map(exp => (
                       <tr key={exp.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
                         <td style={{ padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{exp.expense_date}</td>
-                        <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: `${CFO_EXPENSE_CATS[exp.category]?.color || "#64748B"}22`, color: CFO_EXPENSE_CATS[exp.category]?.color || TEXT_DIM }}>{CFO_EXPENSE_CATS[exp.category]?.label || exp.category}</span>{exp.recurring && <span style={{ marginLeft: 6, fontSize: 9, color: IPS_ACCENT, fontFamily: "JetBrains Mono" }}>{exp.recurrence}</span>}</td>
-                        <td style={{ padding: "8px" }}>{exp.description}{exp.payday_expense_id ? <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9, background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontWeight: 500 }}>Payday</span> : null}</td>
+                        <td style={{ padding: "8px" }}>{exp.description}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{exp.vendor || "—"}</td>
                         <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(exp.amount_isk)}</td>
-                        <td style={{ padding: "8px", textAlign: "center" }}>
-                          <button onClick={() => { setCfoExpenseForm({ category: exp.category, description: exp.description, amount_isk: exp.amount_isk, expense_date: exp.expense_date, recurring: exp.recurring, recurrence: exp.recurrence, vendor: exp.vendor || "", notes: exp.notes || "" }); setCfoExpenseModal(exp.id); }} style={{ background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", fontSize: 11, marginRight: 4 }}>edit</button>
-                          <button onClick={() => { if (confirm("Delete this expense?")) cfoDeleteExpense(exp.id); }} style={{ background: "none", border: "none", color: IPS_DANGER, cursor: "pointer", fontSize: 11 }}>x</button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -3095,8 +3101,8 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Customer Mapping</div>
-              <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydayLoadCustomers} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "customers" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
-                <IconSync /> {paydaySyncing === "customers" ? "Loading..." : "Load Payday Customers"}
+              <button disabled={paydayCustomersLoading || !paydayConnected} onClick={paydayLoadCustomers} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydayCustomersLoading ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydayCustomersLoading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
+                <IconSync /> {paydayCustomersLoading ? "Loading..." : "Load Payday Customers"}
               </button>
             </div>
             <Card>
@@ -3144,80 +3150,26 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             </Card>
           </div>
 
-          {/* Sync Controls */}
+          {/* Data Range */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Sync Data</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-              <label style={{ fontSize: 11, color: TEXT_DIM }}>From:</label>
-              <input type="date" value={paydaySyncDateFrom} onChange={e => setPaydaySyncDateFrom(e.target.value)} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
-              <label style={{ fontSize: 11, color: TEXT_DIM }}>To:</label>
-              <input type="date" value={paydaySyncDateTo} onChange={e => setPaydaySyncDateTo(e.target.value)} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-              {/* Invoice Sync Card */}
-              <Card style={{ padding: "16px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>Invoices</div>
-                    <div style={{ fontSize: 11, color: TEXT_DIM }}>Pull invoices from Payday</div>
-                  </div>
-                  <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydaySyncInvoices} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "invoices" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
-                    <IconSync /> {paydaySyncing === "invoices" ? "Syncing..." : "Sync Now"}
-                  </button>
+            <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Payday Data Range</div>
+            <Card style={{ padding: "16px 20px" }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, display: "block", marginBottom: 2 }}>From:</label>
+                  <input type="date" value={pdDateFrom} onChange={e => { setPdDateFrom(e.target.value); refreshPaydayData(); }} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "6px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
                 </div>
-                {(() => { const last = paydaySyncLog.find(l => l.sync_type === "invoices" && l.status === "completed"); return last ? (<div style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Last sync: {new Date(last.completed_at).toLocaleString()} · {last.records_synced} records</div>) : null; })()}
-              </Card>
-
-              {/* Expense Sync Card */}
-              <Card style={{ padding: "16px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>Expenses</div>
-                    <div style={{ fontSize: 11, color: TEXT_DIM }}>Import expenses from Payday</div>
-                  </div>
-                  <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydaySyncExpenses} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "expenses" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
-                    <IconSync /> {paydaySyncing === "expenses" ? "Syncing..." : "Sync Now"}
-                  </button>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, display: "block", marginBottom: 2 }}>To:</label>
+                  <input type="date" value={pdDateTo} onChange={e => { setPdDateTo(e.target.value); refreshPaydayData(); }} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "6px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
                 </div>
-                {(() => { const last = paydaySyncLog.find(l => l.sync_type === "expenses" && l.status === "completed"); return last ? (<div style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Last sync: {new Date(last.completed_at).toLocaleString()} · {last.records_synced} records</div>) : null; })()}
-              </Card>
-            </div>
+                <div style={{ flex: 1 }} />
+                <div style={{ fontSize: 11, color: TEXT_DIM }}>
+                  {pdInvoicesLoaded ? `${pdInvoices.length} invoices` : "..."} · {pdExpensesLoaded ? `${pdExpenses.length} expenses` : "..."} loaded
+                </div>
+              </div>
+            </Card>
           </div>
-
-          {/* Sync Log */}
-          {paydaySyncLog.length > 0 && (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Sync History</div>
-              <Card>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Type</th>
-                        <th style={{ textAlign: "center", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Status</th>
-                        <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Records</th>
-                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Started</th>
-                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Error</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paydaySyncLog.slice(0, 20).map(log => (
-                        <tr key={log.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                          <td style={{ padding: "8px", fontWeight: 600, textTransform: "capitalize" }}>{log.sync_type}</td>
-                          <td style={{ padding: "8px", textAlign: "center" }}>
-                            <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: log.status === "completed" ? "rgba(34,197,94,0.15)" : log.status === "failed" ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)", color: log.status === "completed" ? IPS_SUCCESS : log.status === "failed" ? IPS_DANGER : IPS_WARN }}>{log.status}</span>
-                          </td>
-                          <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono" }}>{log.records_synced}</td>
-                          <td style={{ padding: "8px", color: TEXT_DIM, fontSize: 11 }}>{new Date(log.started_at).toLocaleString()}</td>
-                          <td style={{ padding: "8px", color: IPS_DANGER, fontSize: 11 }}>{log.error_message || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </div>
-          )}
         </>)}
 
         </>)}

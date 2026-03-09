@@ -149,6 +149,7 @@ export const payday = {
   invoices: {
     list: (params) => fetchAllPages("/invoices", params),
     get: (id, params) => paydayRequest(`/invoices/${id}`, { params }),
+    create: (body) => paydayRequest("/invoices", { method: "POST", body }),
     update: (id, body) => paydayRequest(`/invoices/${id}`, { method: "PATCH", body }),
   },
 
