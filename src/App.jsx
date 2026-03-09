@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from "recharts";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
+import { payday } from "./payday.js";
 import ipsLogoWhite from "./assets/ips-logo-white.png";
 import ipsIconColor from "./assets/ips-icon-color.png";
 
@@ -14,6 +15,7 @@ const IconFinance = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill=
 const IconPlus = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>);
 const IconUpload = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>);
 const IconChevron = ({ down }) => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: down ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>);
+const IconSync = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPLETE 2026 REYKJAVÍK SEASON — CORRECTED DOKK DATA
@@ -434,6 +436,15 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   const [cfoStaffForm, setCfoStaffForm] = useState({ name: "", role: "", type: "employee", hourly_rate_isk: "", monthly_salary_isk: "", phone: "", email: "", notes: "" });
   const [cfoPayroll, setCfoPayroll] = useState([]);
 
+  // ─── PAYDAY INTEGRATION STATE ─────────────────────────────────────────────
+  const [paydayConnected, setPaydayConnected] = useState(null); // null=loading, true/false
+  const [paydayCompanyName, setPaydayCompanyName] = useState("");
+  const [paydaySyncing, setPaydaySyncing] = useState(null); // null | "invoices" | "expenses" | "customers"
+  const [paydayCustomers, setPaydayCustomers] = useState([]);
+  const [paydaySyncLog, setPaydaySyncLog] = useState([]);
+  const [paydaySyncDateFrom, setPaydaySyncDateFrom] = useState("2026-01-01");
+  const [paydaySyncDateTo, setPaydaySyncDateTo] = useState("2026-12-31");
+
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
     if (!SUPABASE_CONFIGURED) return null;
@@ -665,6 +676,128 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
       if (data) setCfoRateCards(data);
     })();
   }, [cfoExpandedContract]);
+
+  // ─── PAYDAY CONNECTION TEST & SYNC LOG LOAD ─────────────────────────────────
+  useEffect(() => {
+    if (activeModule !== "cfo" || !payday.connected()) {
+      if (!payday.connected()) setPaydayConnected(false);
+      return;
+    }
+    (async () => {
+      // Test connection by fetching 1 customer (no /company endpoint)
+      const result = await payday.customers.get_list_page({ perpage: 1 });
+      setPaydayConnected(result.ok);
+      if (result.ok) {
+        setPaydayCompanyName("Payday.is");
+      }
+      // Load sync log
+      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
+      if (logs) setPaydaySyncLog(logs);
+    })();
+  }, [activeModule]);
+
+  // ─── PAYDAY SYNC FUNCTIONS ─────────────────────────────────────────────────
+
+  const paydayLoadCustomers = useCallback(async () => {
+    setPaydaySyncing("customers");
+    try {
+      const result = await payday.customers.list();
+      if (result.ok) setPaydayCustomers(result.data || []);
+    } finally {
+      setPaydaySyncing(null);
+    }
+  }, []);
+
+  const paydayMapCustomer = useCallback(async (cruiseLineId, paydayCustomerId) => {
+    await supabase.from("cruise_lines").update({ payday_customer_id: paydayCustomerId || null }).eq("id", cruiseLineId);
+    setCfoCruiseLines(prev => prev.map(c => c.id === cruiseLineId ? { ...c, payday_customer_id: paydayCustomerId || null } : c));
+  }, []);
+
+  const mapPaydayInvoiceStatus = (s) => {
+    const map = { draft: "draft", open: "sent", sent: "sent", paid: "paid", overdue: "overdue", voided: "cancelled", cancelled: "cancelled", credit: "paid", unpaid: "sent" };
+    return map[(s || "").toLowerCase()] || "draft";
+  };
+
+  const paydaySyncInvoices = useCallback(async () => {
+    setPaydaySyncing("invoices");
+    const logEntry = { sync_type: "invoices", status: "started", records_synced: 0 };
+    const { data: logRow } = await supabase.from("payday_sync_log").insert(logEntry);
+    const logId = logRow?.[0]?.id;
+    try {
+      const result = await payday.invoices.list({ dateFrom: paydaySyncDateFrom, dateTo: paydaySyncDateTo });
+      if (!result.ok) throw new Error(result.error?.message || "Failed to fetch invoices");
+      let synced = 0;
+      for (const inv of (result.data || [])) {
+        const custId = String(inv.customer?.id || inv.customerId || "");
+        const cl = cfoCruiseLines.find(c => c.payday_customer_id === custId);
+        if (!cl) continue;
+        const existing = cfoInvoices.find(i => i.payday_invoice_id === String(inv.id));
+        const payload = {
+          invoice_number: inv.number ? `PD-${inv.number}` : `PD-${inv.id}`,
+          cruise_line_id: cl.id,
+          status: mapPaydayInvoiceStatus(inv.status),
+          issue_date: (inv.invoiceDate || inv.created || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+          due_date: (inv.dueDate || inv.finalDueDate || inv.invoiceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+          subtotal_isk: Math.abs(parseFloat(inv.amountExcludingVat || 0)),
+          tax_isk: Math.abs(parseFloat(inv.amountVat || 0)),
+          total_isk: Math.abs(parseFloat(inv.amountIncludingVat || 0)),
+          payday_invoice_id: String(inv.id),
+          payday_synced_at: new Date().toISOString(),
+        };
+        if (existing) {
+          await supabase.from("invoices").update(payload).eq("id", existing.id);
+        } else {
+          await supabase.from("invoices").insert(payload);
+        }
+        synced++;
+      }
+      if (logId) await supabase.from("payday_sync_log").update({ status: "completed", records_synced: synced, completed_at: new Date().toISOString() }).eq("id", logId);
+      setCfoInvoicesLoaded(false); // trigger reload
+      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
+      if (logs) setPaydaySyncLog(logs);
+    } catch (err) {
+      if (logId) await supabase.from("payday_sync_log").update({ status: "failed", error_message: err.message, completed_at: new Date().toISOString() }).eq("id", logId);
+    } finally {
+      setPaydaySyncing(null);
+    }
+  }, [cfoCruiseLines, cfoInvoices, paydaySyncDateFrom, paydaySyncDateTo]);
+
+  const paydaySyncExpenses = useCallback(async () => {
+    setPaydaySyncing("expenses");
+    const { data: logRow } = await supabase.from("payday_sync_log").insert({ sync_type: "expenses", status: "started", records_synced: 0 });
+    const logId = logRow?.[0]?.id;
+    try {
+      const result = await payday.expenses.list({ from: paydaySyncDateFrom, to: paydaySyncDateTo });
+      if (!result.ok) throw new Error(result.error?.message || "Failed to fetch expenses");
+      let synced = 0;
+      for (const exp of (result.data || [])) {
+        const existing = cfoExpenses.find(e => e.payday_expense_id === String(exp.id));
+        const payload = {
+          category: "other",
+          description: exp.description || exp.name || `Payday expense #${exp.id}`,
+          amount_isk: parseFloat(exp.amount || exp.totalAmount || 0),
+          expense_date: exp.date || exp.expenseDate || new Date().toISOString().slice(0, 10),
+          vendor: exp.vendor || exp.supplierName || null,
+          payday_expense_id: String(exp.id),
+          payday_synced_at: new Date().toISOString(),
+        };
+        if (existing) {
+          await supabase.from("expenses").update(payload).eq("id", existing.id);
+        } else {
+          await supabase.from("expenses").insert(payload);
+        }
+        synced++;
+      }
+      if (logId) await supabase.from("payday_sync_log").update({ status: "completed", records_synced: synced, completed_at: new Date().toISOString() }).eq("id", logId);
+      setCfoExpensesLoaded(false);
+      const { data: logs } = await supabase.from("payday_sync_log").select("*").order("started_at", { ascending: false });
+      if (logs) setPaydaySyncLog(logs);
+    } catch (err) {
+      if (logId) await supabase.from("payday_sync_log").update({ status: "failed", error_message: err.message, completed_at: new Date().toISOString() }).eq("id", logId);
+    } finally {
+      setPaydaySyncing(null);
+    }
+  }, [cfoExpenses, paydaySyncDateFrom, paydaySyncDateTo]);
 
   // ─── CFO CRUD OPERATIONS ────────────────────────────────────────────────────
   const cfoSaveContract = useCallback(async () => {
@@ -1140,6 +1273,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <SidebarNav label="Invoices" active={cfoView === "invoices"} onClick={() => setCfoView("invoices")} />
             <SidebarNav label="Expenses" active={cfoView === "expenses"} onClick={() => setCfoView("expenses")} />
             <SidebarNav label="Staff" active={cfoView === "staff"} onClick={() => setCfoView("staff")} />
+            <SidebarNav label="Payday Sync" active={cfoView === "payday"} onClick={() => setCfoView("payday")} badge={paydayConnected === true ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_SUCCESS, display: "inline-block" }} />) : paydayConnected === false ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_DANGER, display: "inline-block" }} />) : null} />
           </>) : (<>
             <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={wsDrafts.length > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{wsDrafts.length}</span>) : null} />
             <SidebarNav label="Calendar" active={wsView === "calendar"} onClick={() => setWsView("calendar")} />
@@ -2819,7 +2953,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
                   <tbody>
                     {cfoInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).map(inv => (
                       <tr key={inv.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                        <td style={{ padding: "8px", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{inv.invoice_number}</td>
+                        <td style={{ padding: "8px", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{inv.invoice_number}{inv.payday_invoice_id ? <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9, background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontWeight: 500 }}>Payday</span> : null}</td>
                         <td style={{ padding: "8px" }}>{inv.cruise_line_name}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.issue_date}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.due_date}</td>
@@ -2873,7 +3007,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
                       <tr key={exp.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
                         <td style={{ padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{exp.expense_date}</td>
                         <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: `${CFO_EXPENSE_CATS[exp.category]?.color || "#64748B"}22`, color: CFO_EXPENSE_CATS[exp.category]?.color || TEXT_DIM }}>{CFO_EXPENSE_CATS[exp.category]?.label || exp.category}</span>{exp.recurring && <span style={{ marginLeft: 6, fontSize: 9, color: IPS_ACCENT, fontFamily: "JetBrains Mono" }}>{exp.recurrence}</span>}</td>
-                        <td style={{ padding: "8px" }}>{exp.description}</td>
+                        <td style={{ padding: "8px" }}>{exp.description}{exp.payday_expense_id ? <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9, background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontWeight: 500 }}>Payday</span> : null}</td>
                         <td style={{ padding: "8px", color: TEXT_DIM }}>{exp.vendor || "—"}</td>
                         <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(exp.amount_isk)}</td>
                         <td style={{ padding: "8px", textAlign: "center" }}>
@@ -2894,6 +3028,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <button onClick={() => { setCfoStaffForm({ name: "", role: "", type: "employee", hourly_rate_isk: "", monthly_salary_isk: "", phone: "", email: "", notes: "" }); setCfoStaffModal("new"); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><IconPlus /> Add Staff</button>
           </div>
+          {/* Staff view content continues below */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
               { l: "Total Staff", v: cfoStaff.length, bc: IPS_ACCENT },
@@ -2937,6 +3072,151 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
                 </table>
               </div>
             </Card>
+          )}
+        </>)}
+
+        {/* ═══ PAYDAY SYNC VIEW ═══ */}
+        {cfoView === "payday" && (<>
+          {/* Connection Status */}
+          <Card style={{ marginBottom: 16, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: paydayConnected === true ? IPS_SUCCESS : paydayConnected === false ? IPS_DANGER : TEXT_DIM }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{paydayConnected === true ? `Connected to ${paydayCompanyName}` : paydayConnected === false ? "Not connected" : "Checking connection..."}</div>
+                <div style={{ fontSize: 11, color: TEXT_DIM }}>Payday.is accounting integration</div>
+              </div>
+            </div>
+            {paydayConnected === false && (
+              <div style={{ fontSize: 11, color: TEXT_DIM, maxWidth: 300, textAlign: "right" }}>Check your VITE_PAYDAY_CLIENT_ID and VITE_PAYDAY_CLIENT_SECRET in .env</div>
+            )}
+          </Card>
+
+          {/* Customer Mapping */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Customer Mapping</div>
+              <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydayLoadCustomers} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "customers" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
+                <IconSync /> {paydaySyncing === "customers" ? "Loading..." : "Load Payday Customers"}
+              </button>
+            </div>
+            <Card>
+              {cfoCruiseLines.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center", color: TEXT_DIM, fontSize: 13 }}>No cruise lines in database.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Cruise Line</th>
+                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Payday Customer</th>
+                        <th style={{ textAlign: "center", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cfoCruiseLines.map(cl => (
+                        <tr key={cl.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                          <td style={{ padding: "8px", fontWeight: 600 }}>{cl.name}</td>
+                          <td style={{ padding: "8px" }}>
+                            {paydayCustomers.length > 0 ? (
+                              <select value={cl.payday_customer_id || ""} onChange={e => paydayMapCustomer(cl.id, e.target.value)} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, width: "100%", maxWidth: 300 }}>
+                                <option value="">— Not mapped —</option>
+                                {paydayCustomers.map(pc => (
+                                  <option key={pc.id} value={String(pc.id)}>{pc.name || pc.companyName || `Customer #${pc.id}`}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span style={{ color: TEXT_DIM, fontSize: 11 }}>{cl.payday_customer_id ? `ID: ${cl.payday_customer_id}` : "Not mapped"}</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "8px", textAlign: "center" }}>
+                            {cl.payday_customer_id ? (
+                              <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: "rgba(34,197,94,0.15)", color: IPS_SUCCESS }}>Mapped</span>
+                            ) : (
+                              <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: "rgba(255,255,255,0.05)", color: TEXT_DIM }}>Unmapped</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Sync Controls */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Sync Data</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+              <label style={{ fontSize: 11, color: TEXT_DIM }}>From:</label>
+              <input type="date" value={paydaySyncDateFrom} onChange={e => setPaydaySyncDateFrom(e.target.value)} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
+              <label style={{ fontSize: 11, color: TEXT_DIM }}>To:</label>
+              <input type="date" value={paydaySyncDateTo} onChange={e => setPaydaySyncDateTo(e.target.value)} style={{ background: IPS_BLUE, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, fontFamily: "JetBrains Mono" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+              {/* Invoice Sync Card */}
+              <Card style={{ padding: "16px 20px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Invoices</div>
+                    <div style={{ fontSize: 11, color: TEXT_DIM }}>Pull invoices from Payday</div>
+                  </div>
+                  <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydaySyncInvoices} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "invoices" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
+                    <IconSync /> {paydaySyncing === "invoices" ? "Syncing..." : "Sync Now"}
+                  </button>
+                </div>
+                {(() => { const last = paydaySyncLog.find(l => l.sync_type === "invoices" && l.status === "completed"); return last ? (<div style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Last sync: {new Date(last.completed_at).toLocaleString()} · {last.records_synced} records</div>) : null; })()}
+              </Card>
+
+              {/* Expense Sync Card */}
+              <Card style={{ padding: "16px 20px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Expenses</div>
+                    <div style={{ fontSize: 11, color: TEXT_DIM }}>Import expenses from Payday</div>
+                  </div>
+                  <button disabled={paydaySyncing !== null || !paydayConnected} onClick={paydaySyncExpenses} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: paydaySyncing === "expenses" ? TEXT_DIM : IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: paydaySyncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !paydayConnected ? 0.4 : 1 }}>
+                    <IconSync /> {paydaySyncing === "expenses" ? "Syncing..." : "Sync Now"}
+                  </button>
+                </div>
+                {(() => { const last = paydaySyncLog.find(l => l.sync_type === "expenses" && l.status === "completed"); return last ? (<div style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Last sync: {new Date(last.completed_at).toLocaleString()} · {last.records_synced} records</div>) : null; })()}
+              </Card>
+            </div>
+          </div>
+
+          {/* Sync Log */}
+          {paydaySyncLog.length > 0 && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Sync History</div>
+              <Card>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Type</th>
+                        <th style={{ textAlign: "center", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Status</th>
+                        <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Records</th>
+                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Started</th>
+                        <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paydaySyncLog.slice(0, 20).map(log => (
+                        <tr key={log.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                          <td style={{ padding: "8px", fontWeight: 600, textTransform: "capitalize" }}>{log.sync_type}</td>
+                          <td style={{ padding: "8px", textAlign: "center" }}>
+                            <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: log.status === "completed" ? "rgba(34,197,94,0.15)" : log.status === "failed" ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)", color: log.status === "completed" ? IPS_SUCCESS : log.status === "failed" ? IPS_DANGER : IPS_WARN }}>{log.status}</span>
+                          </td>
+                          <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono" }}>{log.records_synced}</td>
+                          <td style={{ padding: "8px", color: TEXT_DIM, fontSize: 11 }}>{new Date(log.started_at).toLocaleString()}</td>
+                          <td style={{ padding: "8px", color: IPS_DANGER, fontSize: 11 }}>{log.error_message || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
           )}
         </>)}
 
