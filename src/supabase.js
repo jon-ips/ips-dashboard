@@ -113,6 +113,26 @@ function createQueryBuilder(table) {
       return builder;
     },
 
+    gte(column, value) {
+      state.filters.push(`${encodeURIComponent(column)}=gte.${encodeURIComponent(value)}`);
+      return builder;
+    },
+
+    lte(column, value) {
+      state.filters.push(`${encodeURIComponent(column)}=lte.${encodeURIComponent(value)}`);
+      return builder;
+    },
+
+    neq(column, value) {
+      state.filters.push(`${encodeURIComponent(column)}=neq.${encodeURIComponent(value)}`);
+      return builder;
+    },
+
+    in_(column, values) {
+      state.filters.push(`${encodeURIComponent(column)}=in.(${values.map(v => encodeURIComponent(v)).join(",")})`);
+      return builder;
+    },
+
     order(column, { ascending = true } = {}) {
       state.orderClause = `${encodeURIComponent(column)}.${ascending ? "asc" : "desc"}`;
       return builder;

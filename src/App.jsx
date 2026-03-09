@@ -10,6 +10,10 @@ const IconClipboard = () => (<svg width="16" height="16" viewBox="0 0 24 24" fil
 const IconLogout = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
 const IconMenu = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>);
 const IconX = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
+const IconFinance = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>);
+const IconPlus = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>);
+const IconUpload = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>);
+const IconChevron = ({ down }) => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: down ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPLETE 2026 REYKJAVÍK SEASON — CORRECTED DOKK DATA
@@ -296,6 +300,40 @@ const WS_PRIORITIES = {
 };
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 
+// ─── CFO CONFIG ─────────────────────────────────────────────────────────────
+const CFO_SERVICE_TYPES = {
+  luggage_handling:   { label: "Luggage Handling",   color: "#57B5C8" },
+  provision_loading:  { label: "Provision Loading",  color: "#22C55E" },
+  waste_offload:      { label: "Waste Offload",      color: "#F59E0B" },
+  other:              { label: "Other",              color: "#64748B" },
+};
+const CFO_UNITS = {
+  per_pax:    "Per Pax",
+  per_pallet: "Per Pallet",
+  per_call:   "Per Call",
+  per_hour:   "Per Hour",
+  flat:       "Flat Rate",
+};
+const CFO_EXPENSE_CATS = {
+  payroll:     { label: "Payroll",     color: "#57B5C8" },
+  equipment:   { label: "Equipment",   color: "#F59E0B" },
+  fuel:        { label: "Fuel",        color: "#EF4444" },
+  maintenance: { label: "Maintenance", color: "#A78BFA" },
+  insurance:   { label: "Insurance",   color: "#22C55E" },
+  rent:        { label: "Rent",        color: "#458CA7" },
+  utilities:   { label: "Utilities",   color: "#64748B" },
+  other:       { label: "Other",       color: "#475569" },
+};
+const CFO_STAFF_TYPES = { employee: "Employee", contractor: "Contractor", seasonal: "Seasonal" };
+const CFO_INV_STATUS = {
+  draft:     { label: "Draft",     color: "#64748B" },
+  sent:      { label: "Sent",      color: "#57B5C8" },
+  paid:      { label: "Paid",      color: "#22C55E" },
+  overdue:   { label: "Overdue",   color: "#EF4444" },
+  cancelled: { label: "Cancelled", color: "#475569" },
+};
+const fmtISK = (a) => a == null ? "—" : Number(a).toLocaleString("is-IS") + " kr.";
+
 // Supabase config is now imported from ./supabase.js
 
 export default function IPSDashboard({ accessLevel = "team", onLogout }) {
@@ -364,6 +402,37 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   const [wsDrafts, setWsDrafts] = useState([]);
   const [wsDraftsLoading, setWsDraftsLoading] = useState(false);
   const [wsDraftsCollapsed, setWsDraftsCollapsed] = useState(false);
+
+  // ─── CFO MODULE STATE ──────────────────────────────────────────────────────
+  const [cfoView, setCfoView] = useState("dashboard");
+  const [cfoCruiseLines, setCfoCruiseLines] = useState([]);
+  // Contracts
+  const [cfoContracts, setCfoContracts] = useState([]);
+  const [cfoContractsLoaded, setCfoContractsLoaded] = useState(false);
+  const [cfoContractModal, setCfoContractModal] = useState(null); // null | "new" | contractId
+  const [cfoContractForm, setCfoContractForm] = useState({ cruise_line_id: "", season: "2026", status: "draft", start_date: "2026-05-01", end_date: "2026-09-30", payment_terms: "Net 30", notes: "" });
+  const [cfoExpandedContract, setCfoExpandedContract] = useState(null);
+  const [cfoRateCards, setCfoRateCards] = useState([]);
+  const [cfoRateForm, setCfoRateForm] = useState({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" });
+  const [cfoShowRateForm, setCfoShowRateForm] = useState(false);
+  // Invoices
+  const [cfoInvoices, setCfoInvoices] = useState([]);
+  const [cfoInvoicesLoaded, setCfoInvoicesLoaded] = useState(false);
+  const [cfoInvoiceModal, setCfoInvoiceModal] = useState(null);
+  const [cfoInvoiceFilter, setCfoInvoiceFilter] = useState("all");
+  const [cfoInvoiceLines, setCfoInvoiceLines] = useState([]);
+  // Expenses
+  const [cfoExpenses, setCfoExpenses] = useState([]);
+  const [cfoExpensesLoaded, setCfoExpensesLoaded] = useState(false);
+  const [cfoExpenseModal, setCfoExpenseModal] = useState(null);
+  const [cfoExpenseForm, setCfoExpenseForm] = useState({ category: "other", description: "", amount_isk: "", expense_date: "", recurring: false, recurrence: null, vendor: "", notes: "" });
+  const [cfoExpenseCatFilter, setCfoExpenseCatFilter] = useState("all");
+  // Staff & Payroll
+  const [cfoStaff, setCfoStaff] = useState([]);
+  const [cfoStaffLoaded, setCfoStaffLoaded] = useState(false);
+  const [cfoStaffModal, setCfoStaffModal] = useState(null);
+  const [cfoStaffForm, setCfoStaffForm] = useState({ name: "", role: "", type: "employee", hourly_rate_isk: "", monthly_salary_isk: "", phone: "", email: "", notes: "" });
+  const [cfoPayroll, setCfoPayroll] = useState([]);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -541,6 +610,261 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
       setWsDrafts(d => d.filter(x => x.id !== draftId));
     } catch (e) { console.warn("Failed to dismiss draft:", e); }
   }, []);
+
+  // ─── CFO DATA LOADING ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED) return;
+    // Load cruise lines for dropdowns
+    (async () => {
+      const { data } = await supabase.from("cruise_lines").select("id,name,status").order("name", { ascending: true });
+      if (data) setCfoCruiseLines(data);
+    })();
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoContractsLoaded) return;
+    (async () => {
+      const { data } = await supabase.from("contracts").select("*,cruise_lines(name)").order("created_at", { ascending: false });
+      if (data) setCfoContracts(data.map(c => ({ ...c, cruise_line_name: c.cruise_lines?.name || "Unknown" })));
+      setCfoContractsLoaded(true);
+    })();
+  }, [activeModule, cfoContractsLoaded]);
+
+  useEffect(() => {
+    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoInvoicesLoaded) return;
+    (async () => {
+      const { data } = await supabase.from("invoices").select("*,cruise_lines(name)").order("created_at", { ascending: false });
+      if (data) setCfoInvoices(data.map(inv => ({ ...inv, cruise_line_name: inv.cruise_lines?.name || "Unknown" })));
+      setCfoInvoicesLoaded(true);
+    })();
+  }, [activeModule, cfoInvoicesLoaded]);
+
+  useEffect(() => {
+    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoExpensesLoaded) return;
+    (async () => {
+      const { data } = await supabase.from("expenses").select("*").order("expense_date", { ascending: false });
+      if (data) setCfoExpenses(data);
+      setCfoExpensesLoaded(true);
+    })();
+  }, [activeModule, cfoExpensesLoaded]);
+
+  useEffect(() => {
+    if (activeModule !== "cfo" || !SUPABASE_CONFIGURED || cfoStaffLoaded) return;
+    (async () => {
+      const { data } = await supabase.from("staff").select("*").order("name", { ascending: true });
+      if (data) setCfoStaff(data);
+      setCfoStaffLoaded(true);
+    })();
+  }, [activeModule, cfoStaffLoaded]);
+
+  // Load rate cards when expanding a contract
+  useEffect(() => {
+    if (!cfoExpandedContract || !SUPABASE_CONFIGURED) return;
+    (async () => {
+      const { data } = await supabase.from("rate_cards").select("*").eq("contract_id", cfoExpandedContract).order("service_type", { ascending: true });
+      if (data) setCfoRateCards(data);
+    })();
+  }, [cfoExpandedContract]);
+
+  // ─── CFO CRUD OPERATIONS ────────────────────────────────────────────────────
+  const cfoSaveContract = useCallback(async () => {
+    if (!cfoContractForm.cruise_line_id) return;
+    const payload = {
+      cruise_line_id: cfoContractForm.cruise_line_id,
+      season: cfoContractForm.season,
+      status: cfoContractForm.status,
+      start_date: cfoContractForm.start_date,
+      end_date: cfoContractForm.end_date,
+      payment_terms: cfoContractForm.payment_terms || null,
+      notes: cfoContractForm.notes || null,
+    };
+    if (cfoContractModal === "new") {
+      const { data } = await supabase.from("contracts").insert(payload);
+      if (data?.[0]) {
+        const cl = cfoCruiseLines.find(c => c.id === payload.cruise_line_id);
+        setCfoContracts(prev => [{ ...data[0], cruise_line_name: cl?.name || "Unknown" }, ...prev]);
+      }
+    } else {
+      await supabase.from("contracts").update(payload).eq("id", cfoContractModal);
+      const cl = cfoCruiseLines.find(c => c.id === payload.cruise_line_id);
+      setCfoContracts(prev => prev.map(c => c.id === cfoContractModal ? { ...c, ...payload, cruise_line_name: cl?.name || c.cruise_line_name } : c));
+    }
+    setCfoContractModal(null);
+  }, [cfoContractModal, cfoContractForm, cfoCruiseLines]);
+
+  const cfoDeleteContract = useCallback(async (id) => {
+    await supabase.from("contracts").delete().eq("id", id);
+    setCfoContracts(prev => prev.filter(c => c.id !== id));
+    if (cfoExpandedContract === id) setCfoExpandedContract(null);
+  }, [cfoExpandedContract]);
+
+  const cfoSaveRateCard = useCallback(async () => {
+    if (!cfoRateForm.rate_isk || !cfoExpandedContract) return;
+    const payload = {
+      contract_id: cfoExpandedContract,
+      service_type: cfoRateForm.service_type,
+      description: cfoRateForm.description || null,
+      unit: cfoRateForm.unit,
+      rate_isk: parseFloat(cfoRateForm.rate_isk),
+      min_charge_isk: parseFloat(cfoRateForm.min_charge_isk) || 0,
+    };
+    const { data } = await supabase.from("rate_cards").insert(payload);
+    if (data?.[0]) setCfoRateCards(prev => [...prev, data[0]]);
+    setCfoRateForm({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" });
+    setCfoShowRateForm(false);
+  }, [cfoRateForm, cfoExpandedContract]);
+
+  const cfoDeleteRateCard = useCallback(async (id) => {
+    await supabase.from("rate_cards").delete().eq("id", id);
+    setCfoRateCards(prev => prev.filter(r => r.id !== id));
+  }, []);
+
+  const cfoSaveExpense = useCallback(async () => {
+    if (!cfoExpenseForm.description || !cfoExpenseForm.amount_isk) return;
+    const payload = {
+      category: cfoExpenseForm.category,
+      description: cfoExpenseForm.description,
+      amount_isk: parseFloat(cfoExpenseForm.amount_isk),
+      expense_date: cfoExpenseForm.expense_date || new Date().toISOString().split("T")[0],
+      recurring: cfoExpenseForm.recurring,
+      recurrence: cfoExpenseForm.recurring ? cfoExpenseForm.recurrence : null,
+      vendor: cfoExpenseForm.vendor || null,
+      notes: cfoExpenseForm.notes || null,
+    };
+    if (cfoExpenseModal === "new") {
+      const { data } = await supabase.from("expenses").insert(payload);
+      if (data?.[0]) setCfoExpenses(prev => [data[0], ...prev]);
+    } else {
+      await supabase.from("expenses").update(payload).eq("id", cfoExpenseModal);
+      setCfoExpenses(prev => prev.map(e => e.id === cfoExpenseModal ? { ...e, ...payload } : e));
+    }
+    setCfoExpenseModal(null);
+  }, [cfoExpenseModal, cfoExpenseForm]);
+
+  const cfoDeleteExpense = useCallback(async (id) => {
+    await supabase.from("expenses").delete().eq("id", id);
+    setCfoExpenses(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const cfoSaveStaff = useCallback(async () => {
+    if (!cfoStaffForm.name || !cfoStaffForm.role) return;
+    const payload = {
+      name: cfoStaffForm.name,
+      role: cfoStaffForm.role,
+      type: cfoStaffForm.type,
+      hourly_rate_isk: cfoStaffForm.hourly_rate_isk ? parseFloat(cfoStaffForm.hourly_rate_isk) : null,
+      monthly_salary_isk: cfoStaffForm.monthly_salary_isk ? parseFloat(cfoStaffForm.monthly_salary_isk) : null,
+      phone: cfoStaffForm.phone || null,
+      email: cfoStaffForm.email || null,
+      notes: cfoStaffForm.notes || null,
+    };
+    if (cfoStaffModal === "new") {
+      const { data } = await supabase.from("staff").insert(payload);
+      if (data?.[0]) setCfoStaff(prev => [...prev, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
+    } else {
+      await supabase.from("staff").update(payload).eq("id", cfoStaffModal);
+      setCfoStaff(prev => prev.map(s => s.id === cfoStaffModal ? { ...s, ...payload } : s));
+    }
+    setCfoStaffModal(null);
+  }, [cfoStaffModal, cfoStaffForm]);
+
+  const cfoToggleStaffActive = useCallback(async (id, active) => {
+    await supabase.from("staff").update({ active: !active }).eq("id", id);
+    setCfoStaff(prev => prev.map(s => s.id === id ? { ...s, active: !active } : s));
+  }, []);
+
+  // CSV Import for rate cards
+  const cfoImportCSV = useCallback(async (text) => {
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) return { imported: 0, errors: ["File has no data rows"] };
+    const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, "_"));
+    const clMap = {};
+    cfoCruiseLines.forEach(cl => { clMap[cl.name.toLowerCase()] = cl.id; });
+    const errors = [];
+    const byLine = {};
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(",").map(v => v.trim());
+      const row = {};
+      header.forEach((h, j) => { row[h] = vals[j]; });
+      const clName = (row.cruise_line || "").toLowerCase();
+      const clId = clMap[clName];
+      if (!clId) { errors.push(`Row ${i + 1}: cruise line "${row.cruise_line}" not found`); continue; }
+      if (!byLine[clId]) byLine[clId] = [];
+      byLine[clId].push({
+        service_type: row.service_type || "other",
+        description: row.description || "",
+        unit: row.unit || "per_call",
+        rate_isk: parseFloat(row.rate_isk) || 0,
+        min_charge_isk: parseFloat(row.min_charge_isk) || 0,
+      });
+    }
+    let imported = 0;
+    for (const [clId, rates] of Object.entries(byLine)) {
+      // Find or create draft contract
+      let contract = cfoContracts.find(c => c.cruise_line_id === clId && c.season === "2026");
+      if (!contract) {
+        const { data } = await supabase.from("contracts").insert({ cruise_line_id: clId, season: "2026", status: "draft", start_date: "2026-05-01", end_date: "2026-09-30", payment_terms: "Net 30" });
+        if (data?.[0]) {
+          const cl = cfoCruiseLines.find(c => c.id === clId);
+          contract = { ...data[0], cruise_line_name: cl?.name || "Unknown" };
+          setCfoContracts(prev => [contract, ...prev]);
+        }
+      }
+      if (contract) {
+        const ratePayloads = rates.map(r => ({ ...r, contract_id: contract.id }));
+        const { data } = await supabase.from("rate_cards").insert(ratePayloads);
+        if (data) imported += data.length;
+      }
+    }
+    return { imported, errors };
+  }, [cfoCruiseLines, cfoContracts]);
+
+  // ─── CFO COMPUTED DATA ──────────────────────────────────────────────────────
+  const cfoStats = useMemo(() => {
+    const activeContracts = cfoContracts.filter(c => c.status === "active").length;
+    const draftContracts = cfoContracts.filter(c => c.status === "draft").length;
+    const totalInvoiced = cfoInvoices.reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const paidInvoiced = cfoInvoices.filter(i => i.status === "paid").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const outstandingInvoiced = cfoInvoices.filter(i => i.status === "sent" || i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const overdueInvoiced = cfoInvoices.filter(i => i.status === "overdue").reduce((s, i) => s + (parseFloat(i.total_isk) || 0), 0);
+    const totalExpenses = cfoExpenses.reduce((s, e) => s + (parseFloat(e.amount_isk) || 0), 0);
+    const revenue = paidInvoiced;
+    const profit = revenue - totalExpenses;
+    const margin = revenue > 0 ? (profit / revenue * 100) : 0;
+    // Monthly revenue breakdown from invoices
+    const revenueByMonth = {};
+    const expenseByMonth = {};
+    cfoInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => {
+      const m = (i.issue_date || "").slice(0, 7);
+      revenueByMonth[m] = (revenueByMonth[m] || 0) + (parseFloat(i.total_isk) || 0);
+    });
+    cfoExpenses.forEach(e => {
+      const m = (e.expense_date || "").slice(0, 7);
+      expenseByMonth[m] = (expenseByMonth[m] || 0) + (parseFloat(e.amount_isk) || 0);
+    });
+    const months = [...new Set([...Object.keys(revenueByMonth), ...Object.keys(expenseByMonth)])].sort();
+    const monthlyData = months.map(m => ({
+      month: m,
+      revenue: revenueByMonth[m] || 0,
+      expenses: expenseByMonth[m] || 0,
+      profit: (revenueByMonth[m] || 0) - (expenseByMonth[m] || 0),
+    }));
+    // Revenue by service type from invoices
+    const revByService = {};
+    // Expense by category
+    const expByCat = {};
+    cfoExpenses.forEach(e => {
+      expByCat[e.category] = (expByCat[e.category] || 0) + (parseFloat(e.amount_isk) || 0);
+    });
+    const expensePie = Object.entries(expByCat).map(([k, v]) => ({ name: CFO_EXPENSE_CATS[k]?.label || k, value: v, color: CFO_EXPENSE_CATS[k]?.color || "#64748B" }));
+    // Revenue by cruise line
+    const revByLine = {};
+    cfoInvoices.filter(i => i.status === "paid" || i.status === "sent").forEach(i => {
+      revByLine[i.cruise_line_name] = (revByLine[i.cruise_line_name] || 0) + (parseFloat(i.total_isk) || 0);
+    });
+    const revByLineSorted = Object.entries(revByLine).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value]) => ({ name, value }));
+    return { activeContracts, draftContracts, totalInvoiced, paidInvoiced, outstandingInvoiced, overdueInvoiced, totalExpenses, revenue, profit, margin, monthlyData, expensePie, revByLineSorted };
+  }, [cfoContracts, cfoInvoices, cfoExpenses]);
 
   const filteredTasks = useMemo(() => {
     let result = [...wsTasks];
@@ -792,6 +1116,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "4px 16px 6px", fontWeight: 500 }}>Modules</div>
           <ModuleTab label="Market Intel" mod="market" icon={<IconChart />} />
           <ModuleTab label="Workspace" mod="workspace" icon={<IconClipboard />} />
+          {accessLevel === "ceo" && <ModuleTab label="CFO Workspace" mod="cfo" icon={<IconFinance />} />}
         </div>
 
         {/* Divider */}
@@ -800,7 +1125,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
         {/* Sub navigation */}
         <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
           <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "8px 16px 6px", fontWeight: 500 }}>
-            {activeModule === "market" ? "Views" : "Workspace"}
+            {activeModule === "market" ? "Views" : activeModule === "cfo" ? "Financial" : "Workspace"}
           </div>
           {activeModule === "market" ? (<>
             <SidebarNav label="Overview" active={activeView === "overview"} onClick={() => setActiveView("overview")} />
@@ -809,6 +1134,12 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <SidebarNav label="Port Calendar" active={activeView === "portcal"} onClick={() => setActiveView("portcal")} />
             <SidebarNav label="Operations" active={activeView === "operations"} onClick={() => setActiveView("operations")} />
             <SidebarNav label="Fleet Intel" active={activeView === "fleet"} onClick={() => setActiveView("fleet")} />
+          </>) : activeModule === "cfo" ? (<>
+            <SidebarNav label="Dashboard" active={cfoView === "dashboard"} onClick={() => setCfoView("dashboard")} />
+            <SidebarNav label="Contracts" active={cfoView === "contracts"} onClick={() => setCfoView("contracts")} badge={cfoStats.activeContracts > 0 ? (<span style={{ background: IPS_SUCCESS, color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{cfoStats.activeContracts}</span>) : null} />
+            <SidebarNav label="Invoices" active={cfoView === "invoices"} onClick={() => setCfoView("invoices")} />
+            <SidebarNav label="Expenses" active={cfoView === "expenses"} onClick={() => setCfoView("expenses")} />
+            <SidebarNav label="Staff" active={cfoView === "staff"} onClick={() => setCfoView("staff")} />
           </>) : (<>
             <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={wsDrafts.length > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{wsDrafts.length}</span>) : null} />
             <SidebarNav label="Calendar" active={wsView === "calendar"} onClick={() => setWsView("calendar")} />
@@ -837,8 +1168,8 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
         <div className="page-header" style={{ padding: "20px 28px 16px", marginBottom: 4, display: "flex", alignItems: "flex-start", gap: 12, borderBottom: `1px solid ${BORDER}` }}>
           <button onClick={() => setSidebarOpen(true)} className="mobile-hamburger" style={{ display: "none", background: "none", border: "none", color: TEXT, cursor: "pointer", padding: 4, marginTop: 2 }}><IconMenu /></button>
           <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "Market Intelligence" : "Workspace"}</h1>
-          <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : "Task & Project Management"}</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "Market Intelligence" : activeModule === "cfo" ? "CFO Workspace" : "Workspace"}</h1>
+          <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : activeModule === "cfo" ? "Financial Management & Analysis" : "Task & Project Management"}</div>
           </div>
         </div>
 
@@ -2105,10 +2436,516 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
         </>)}
 
+        {/* ═══════════════════════════════════════════════════════════════════════ */}
+        {/* ═══ CFO WORKSPACE MODULE ═══ */}
+        {/* ═══════════════════════════════════════════════════════════════════════ */}
+        {activeModule === "cfo" && (<>
+
+        {/* ═══ CONTRACT MODAL ═══ */}
+        {cfoContractModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{cfoContractModal === "new" ? "New Contract" : "Edit Contract"}</h3>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Cruise Line</label>
+                  <select value={cfoContractForm.cruise_line_id} onChange={e => setCfoContractForm(f => ({ ...f, cruise_line_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }}>
+                    <option value="">Select cruise line...</option>
+                    {cfoCruiseLines.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Season</label>
+                    <input value={cfoContractForm.season} onChange={e => setCfoContractForm(f => ({ ...f, season: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Status</label>
+                    <select value={cfoContractForm.status} onChange={e => setCfoContractForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }}>
+                      <option value="draft">Draft</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Start Date</label>
+                    <input type="date" value={cfoContractForm.start_date} onChange={e => setCfoContractForm(f => ({ ...f, start_date: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>End Date</label>
+                    <input type="date" value={cfoContractForm.end_date} onChange={e => setCfoContractForm(f => ({ ...f, end_date: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Payment Terms</label>
+                  <input value={cfoContractForm.payment_terms} onChange={e => setCfoContractForm(f => ({ ...f, payment_terms: e.target.value }))} placeholder="e.g. Net 30" style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Notes</label>
+                  <textarea value={cfoContractForm.notes} onChange={e => setCfoContractForm(f => ({ ...f, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13, resize: "vertical" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => setCfoContractModal(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                <button onClick={cfoSaveContract} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ EXPENSE MODAL ═══ */}
+        {cfoExpenseModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{cfoExpenseModal === "new" ? "New Expense" : "Edit Expense"}</h3>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Category</label>
+                    <select value={cfoExpenseForm.category} onChange={e => setCfoExpenseForm(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }}>
+                      {Object.entries(CFO_EXPENSE_CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Date</label>
+                    <input type="date" value={cfoExpenseForm.expense_date} onChange={e => setCfoExpenseForm(f => ({ ...f, expense_date: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Description</label>
+                  <input value={cfoExpenseForm.description} onChange={e => setCfoExpenseForm(f => ({ ...f, description: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Amount (ISK)</label>
+                    <input type="number" value={cfoExpenseForm.amount_isk} onChange={e => setCfoExpenseForm(f => ({ ...f, amount_isk: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Vendor</label>
+                    <input value={cfoExpenseForm.vendor} onChange={e => setCfoExpenseForm(f => ({ ...f, vendor: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="checkbox" checked={cfoExpenseForm.recurring} onChange={e => setCfoExpenseForm(f => ({ ...f, recurring: e.target.checked }))} />
+                  <span style={{ fontSize: 13 }}>Recurring</span>
+                  {cfoExpenseForm.recurring && (
+                    <select value={cfoExpenseForm.recurrence || "monthly"} onChange={e => setCfoExpenseForm(f => ({ ...f, recurrence: e.target.value }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12, marginLeft: 8 }}>
+                      <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annual</option>
+                    </select>
+                  )}
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Notes</label>
+                  <textarea value={cfoExpenseForm.notes} onChange={e => setCfoExpenseForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13, resize: "vertical" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => setCfoExpenseModal(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                <button onClick={cfoSaveExpense} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ STAFF MODAL ═══ */}
+        {cfoStaffModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{cfoStaffModal === "new" ? "Add Staff" : "Edit Staff"}</h3>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Name</label>
+                    <input value={cfoStaffForm.name} onChange={e => setCfoStaffForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Role</label>
+                    <input value={cfoStaffForm.role} onChange={e => setCfoStaffForm(f => ({ ...f, role: e.target.value }))} placeholder="e.g. stevedore, manager" style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Type</label>
+                  <select value={cfoStaffForm.type} onChange={e => setCfoStaffForm(f => ({ ...f, type: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }}>
+                    <option value="employee">Employee</option><option value="contractor">Contractor</option><option value="seasonal">Seasonal</option>
+                  </select>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Hourly Rate (ISK)</label>
+                    <input type="number" value={cfoStaffForm.hourly_rate_isk} onChange={e => setCfoStaffForm(f => ({ ...f, hourly_rate_isk: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Monthly Salary (ISK)</label>
+                    <input type="number" value={cfoStaffForm.monthly_salary_isk} onChange={e => setCfoStaffForm(f => ({ ...f, monthly_salary_isk: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Phone</label>
+                    <input value={cfoStaffForm.phone} onChange={e => setCfoStaffForm(f => ({ ...f, phone: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "block", marginBottom: 4 }}>Email</label>
+                    <input value={cfoStaffForm.email} onChange={e => setCfoStaffForm(f => ({ ...f, email: e.target.value }))} style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 13 }} />
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => setCfoStaffModal(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                <button onClick={cfoSaveStaff} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ CFO DASHBOARD VIEW ═══ */}
+        {cfoView === "dashboard" && (<>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {[
+              { l: "Revenue", v: fmtISK(cfoStats.revenue), c: IPS_SUCCESS, bc: IPS_SUCCESS },
+              { l: "Expenses", v: fmtISK(cfoStats.totalExpenses), c: IPS_DANGER, bc: IPS_DANGER },
+              { l: "Net Profit", v: fmtISK(cfoStats.profit), c: cfoStats.profit >= 0 ? IPS_SUCCESS : IPS_DANGER, bc: cfoStats.profit >= 0 ? IPS_SUCCESS : IPS_DANGER },
+              { l: "Margin", v: cfoStats.margin.toFixed(1) + "%", c: cfoStats.margin >= 20 ? IPS_SUCCESS : IPS_WARN, bc: IPS_ACCENT },
+              { l: "Outstanding", v: fmtISK(cfoStats.outstandingInvoiced), c: IPS_WARN, bc: IPS_WARN },
+              { l: "Contracts", v: cfoStats.activeContracts, s: `${cfoStats.draftContracts} draft`, c: IPS_ACCENT, bc: IPS_ACCENT },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "16px 12px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{x.l}</div><div style={{ fontSize: 22, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{x.v}</div>{x.s && <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{x.s}</div>}</div></Card>))}
+          </div>
+
+          {cfoStats.monthlyData.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 20 }}>
+              <Card>
+                <SL>Revenue vs Expenses</SL>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={cfoStats.monthlyData} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => (v / 1000).toFixed(0) + "K"} />
+                    <Tooltip content={<CTip />} />
+                    <Bar dataKey="revenue" name="Revenue" fill={IPS_SUCCESS} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expenses" name="Expenses" fill={IPS_DANGER} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+              {cfoStats.expensePie.length > 0 && (
+                <Card>
+                  <SL>Expense Breakdown</SL>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={cfoStats.expensePie} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value">
+                        {cfoStats.expensePie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v) => fmtISK(v)} />
+                      <Legend formatter={(v) => <span style={{ color: TEXT_DIM, fontSize: 11 }}>{v}</span>} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Card>
+              )}
+            </div>
+          ) : (
+            <Card style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>$</div>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No Financial Data Yet</div>
+              <div style={{ fontSize: 13, color: TEXT_DIM }}>Start by adding contracts with rate cards, then generate invoices from port calls. Add expenses to see your full P&L.</div>
+            </Card>
+          )}
+
+          {cfoStats.revByLineSorted.length > 0 && (
+            <Card style={{ marginBottom: 20 }}>
+              <SL>Revenue by Cruise Line</SL>
+              <ResponsiveContainer width="100%" height={Math.max(200, cfoStats.revByLineSorted.length * 36)}>
+                <BarChart data={cfoStats.revByLineSorted} layout="vertical" barSize={20}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis type="number" tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => (v / 1000).toFixed(0) + "K"} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} width={120} />
+                  <Tooltip formatter={(v) => fmtISK(v)} />
+                  <Bar dataKey="value" name="Revenue" fill={IPS_ACCENT} radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
+        </>)}
+
+        {/* ═══ CONTRACTS VIEW ═══ */}
+        {cfoView === "contracts" && (<>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <button onClick={() => { setCfoContractForm({ cruise_line_id: "", season: "2026", status: "draft", start_date: "2026-05-01", end_date: "2026-09-30", payment_terms: "Net 30", notes: "" }); setCfoContractModal("new"); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><IconPlus /> New Contract</button>
+            <label style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              <IconUpload /> Import CSV
+              <input type="file" accept=".csv" style={{ display: "none" }} onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const text = await file.text();
+                const result = await cfoImportCSV(text);
+                alert(`Imported ${result.imported} rate cards.${result.errors.length > 0 ? "\n\nWarnings:\n" + result.errors.join("\n") : ""}`);
+                e.target.value = "";
+              }} />
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {[
+              { l: "Total", v: cfoContracts.length, bc: TEXT_DIM },
+              { l: "Active", v: cfoStats.activeContracts, c: IPS_SUCCESS, bc: IPS_SUCCESS },
+              { l: "Draft", v: cfoStats.draftContracts, c: IPS_WARN, bc: IPS_WARN },
+              { l: "Expired", v: cfoContracts.filter(c => c.status === "expired").length, bc: TEXT_DIM },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 22, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div></div></Card>))}
+          </div>
+
+          {cfoContracts.length === 0 ? (
+            <Card style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>No contracts yet. Create one or import from CSV.</div>
+            </Card>
+          ) : cfoContracts.map(c => (
+            <Card key={c.id} style={{ marginBottom: 8, cursor: "pointer", borderLeft: c.status === "active" ? `3px solid ${IPS_SUCCESS}` : c.status === "draft" ? `3px solid ${IPS_WARN}` : `3px solid ${BORDER}` }} onClick={() => setCfoExpandedContract(cfoExpandedContract === c.id ? null : c.id)}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <IconChevron down={cfoExpandedContract === c.id} />
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{c.cruise_line_name}</div>
+                    <div style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{c.season} · {c.start_date} → {c.end_date} · {c.payment_terms || "—"}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600, fontFamily: "JetBrains Mono", background: c.status === "active" ? "rgba(34,197,94,0.15)" : c.status === "draft" ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.05)", color: c.status === "active" ? IPS_SUCCESS : c.status === "draft" ? IPS_WARN : TEXT_DIM }}>{c.status.toUpperCase()}</span>
+                  <button onClick={(e) => { e.stopPropagation(); const cl = cfoCruiseLines.find(x => x.id === c.cruise_line_id); setCfoContractForm({ cruise_line_id: c.cruise_line_id, season: c.season, status: c.status, start_date: c.start_date, end_date: c.end_date, payment_terms: c.payment_terms || "", notes: c.notes || "" }); setCfoContractModal(c.id); }} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT_DIM, fontSize: 11, cursor: "pointer" }}>Edit</button>
+                  <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this contract and all its rate cards?")) cfoDeleteContract(c.id); }} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid rgba(239,68,68,0.3)`, background: "transparent", color: IPS_DANGER, fontSize: 11, cursor: "pointer" }}>Delete</button>
+                </div>
+              </div>
+              {/* Expanded: Rate cards */}
+              {cfoExpandedContract === c.id && (
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${BORDER}` }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <SL>Rate Cards</SL>
+                    <button onClick={() => { setCfoRateForm({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" }); setCfoShowRateForm(!cfoShowRateForm); }} style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: "rgba(87,181,200,0.15)", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{cfoShowRateForm ? "Cancel" : "+ Add Rate"}</button>
+                  </div>
+                  {cfoShowRateForm && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 120px auto", gap: 8, marginBottom: 12, alignItems: "end" }}>
+                      <div>
+                        <label style={{ fontSize: 10, color: TEXT_DIM, display: "block", marginBottom: 2 }}>Service</label>
+                        <select value={cfoRateForm.service_type} onChange={e => setCfoRateForm(f => ({ ...f, service_type: e.target.value }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12 }}>
+                          {Object.entries(CFO_SERVICE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: TEXT_DIM, display: "block", marginBottom: 2 }}>Description</label>
+                        <input value={cfoRateForm.description} onChange={e => setCfoRateForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Per pax handling" style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12 }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: TEXT_DIM, display: "block", marginBottom: 2 }}>Unit</label>
+                        <select value={cfoRateForm.unit} onChange={e => setCfoRateForm(f => ({ ...f, unit: e.target.value }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12 }}>
+                          {Object.entries(CFO_UNITS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: TEXT_DIM, display: "block", marginBottom: 2 }}>Rate (ISK)</label>
+                        <input type="number" value={cfoRateForm.rate_isk} onChange={e => setCfoRateForm(f => ({ ...f, rate_isk: e.target.value }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12 }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, color: TEXT_DIM, display: "block", marginBottom: 2 }}>Min Charge</label>
+                        <input type="number" value={cfoRateForm.min_charge_isk} onChange={e => setCfoRateForm(f => ({ ...f, min_charge_isk: e.target.value }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${BORDER}`, background: IPS_BLUE, color: TEXT, fontSize: 12 }} />
+                      </div>
+                      <button onClick={cfoSaveRateCard} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save</button>
+                    </div>
+                  )}
+                  {cfoRateCards.length === 0 ? (
+                    <div style={{ fontSize: 12, color: TEXT_DIM, padding: 8 }}>No rate cards yet. Add one above.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Service</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Description</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Unit</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Rate (ISK)</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Min Charge</th>
+                            <th style={{ width: 40 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cfoRateCards.map(r => (
+                            <tr key={r.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                              <td style={{ padding: "6px 8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: `${CFO_SERVICE_TYPES[r.service_type]?.color || "#64748B"}22`, color: CFO_SERVICE_TYPES[r.service_type]?.color || TEXT_DIM }}>{CFO_SERVICE_TYPES[r.service_type]?.label || r.service_type}</span></td>
+                              <td style={{ padding: "6px 8px", color: TEXT_DIM }}>{r.description || "—"}</td>
+                              <td style={{ padding: "6px 8px", color: TEXT_DIM }}>{CFO_UNITS[r.unit] || r.unit}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(r.rate_isk)}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", color: TEXT_DIM }}>{fmtISK(r.min_charge_isk)}</td>
+                              <td style={{ padding: "6px 4px", textAlign: "center" }}><button onClick={() => cfoDeleteRateCard(r.id)} style={{ background: "none", border: "none", color: IPS_DANGER, cursor: "pointer", fontSize: 11 }}>x</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          ))}
+        </>)}
+
+        {/* ═══ INVOICES VIEW ═══ */}
+        {cfoView === "invoices" && (<>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            {["all", "draft", "sent", "paid", "overdue"].map(s => (
+              <FilterPill key={s} label={s === "all" ? "All" : CFO_INV_STATUS[s]?.label || s} active={cfoInvoiceFilter === s} color={s === "all" ? IPS_ACCENT : CFO_INV_STATUS[s]?.color} onClick={() => setCfoInvoiceFilter(s)} />
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {[
+              { l: "Total Invoiced", v: fmtISK(cfoStats.totalInvoiced), bc: IPS_ACCENT },
+              { l: "Paid", v: fmtISK(cfoStats.paidInvoiced), c: IPS_SUCCESS, bc: IPS_SUCCESS },
+              { l: "Outstanding", v: fmtISK(cfoStats.outstandingInvoiced), c: IPS_WARN, bc: IPS_WARN },
+              { l: "Overdue", v: fmtISK(cfoStats.overdueInvoiced), c: IPS_DANGER, bc: IPS_DANGER },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 18, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div></div></Card>))}
+          </div>
+          {cfoInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).length === 0 ? (
+            <Card style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>No invoices yet. Generate invoices from the Contracts view once rate cards are set up.</div>
+            </Card>
+          ) : (
+            <Card>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Invoice #</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Cruise Line</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Issue Date</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Due Date</th>
+                      <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Total</th>
+                      <th style={{ textAlign: "center", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cfoInvoices.filter(i => cfoInvoiceFilter === "all" || i.status === cfoInvoiceFilter).map(inv => (
+                      <tr key={inv.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                        <td style={{ padding: "8px", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{inv.invoice_number}</td>
+                        <td style={{ padding: "8px" }}>{inv.cruise_line_name}</td>
+                        <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.issue_date}</td>
+                        <td style={{ padding: "8px", color: TEXT_DIM }}>{inv.due_date}</td>
+                        <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(inv.total_isk)}</td>
+                        <td style={{ padding: "8px", textAlign: "center" }}><span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600, fontFamily: "JetBrains Mono", background: `${CFO_INV_STATUS[inv.status]?.color || "#64748B"}22`, color: CFO_INV_STATUS[inv.status]?.color || TEXT_DIM }}>{(inv.status || "").toUpperCase()}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>)}
+
+        {/* ═══ EXPENSES VIEW ═══ */}
+        {cfoView === "expenses" && (<>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <button onClick={() => { setCfoExpenseForm({ category: "other", description: "", amount_isk: "", expense_date: new Date().toISOString().split("T")[0], recurring: false, recurrence: null, vendor: "", notes: "" }); setCfoExpenseModal("new"); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><IconPlus /> New Expense</button>
+            <div style={{ flex: 1 }} />
+            {["all", ...Object.keys(CFO_EXPENSE_CATS)].map(k => (
+              <FilterPill key={k} label={k === "all" ? "All" : CFO_EXPENSE_CATS[k]?.label} active={cfoExpenseCatFilter === k} color={k === "all" ? IPS_ACCENT : CFO_EXPENSE_CATS[k]?.color} onClick={() => setCfoExpenseCatFilter(k)} />
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {[
+              { l: "Total", v: fmtISK(cfoStats.totalExpenses), bc: IPS_DANGER },
+              { l: "Monthly Avg", v: fmtISK(cfoExpenses.length > 0 ? cfoStats.totalExpenses / Math.max(1, new Set(cfoExpenses.map(e => (e.expense_date || "").slice(0, 7))).size) : 0), bc: IPS_WARN },
+              { l: "Recurring", v: cfoExpenses.filter(e => e.recurring).length, s: fmtISK(cfoExpenses.filter(e => e.recurring).reduce((s, e) => s + (parseFloat(e.amount_isk) || 0), 0)), bc: IPS_ACCENT },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 18, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div>{x.s && <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 2 }}>{x.s}</div>}</div></Card>))}
+          </div>
+          {cfoExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).length === 0 ? (
+            <Card style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>No expenses logged yet.</div>
+            </Card>
+          ) : (
+            <Card>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Category</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Description</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Vendor</th>
+                      <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Amount</th>
+                      <th style={{ textAlign: "center", padding: "8px", width: 60 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cfoExpenses.filter(e => cfoExpenseCatFilter === "all" || e.category === cfoExpenseCatFilter).map(exp => (
+                      <tr key={exp.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                        <td style={{ padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{exp.expense_date}</td>
+                        <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: `${CFO_EXPENSE_CATS[exp.category]?.color || "#64748B"}22`, color: CFO_EXPENSE_CATS[exp.category]?.color || TEXT_DIM }}>{CFO_EXPENSE_CATS[exp.category]?.label || exp.category}</span>{exp.recurring && <span style={{ marginLeft: 6, fontSize: 9, color: IPS_ACCENT, fontFamily: "JetBrains Mono" }}>{exp.recurrence}</span>}</td>
+                        <td style={{ padding: "8px" }}>{exp.description}</td>
+                        <td style={{ padding: "8px", color: TEXT_DIM }}>{exp.vendor || "—"}</td>
+                        <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(exp.amount_isk)}</td>
+                        <td style={{ padding: "8px", textAlign: "center" }}>
+                          <button onClick={() => { setCfoExpenseForm({ category: exp.category, description: exp.description, amount_isk: exp.amount_isk, expense_date: exp.expense_date, recurring: exp.recurring, recurrence: exp.recurrence, vendor: exp.vendor || "", notes: exp.notes || "" }); setCfoExpenseModal(exp.id); }} style={{ background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", fontSize: 11, marginRight: 4 }}>edit</button>
+                          <button onClick={() => { if (confirm("Delete this expense?")) cfoDeleteExpense(exp.id); }} style={{ background: "none", border: "none", color: IPS_DANGER, cursor: "pointer", fontSize: 11 }}>x</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>)}
+
+        {/* ═══ STAFF VIEW ═══ */}
+        {cfoView === "staff" && (<>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            <button onClick={() => { setCfoStaffForm({ name: "", role: "", type: "employee", hourly_rate_isk: "", monthly_salary_isk: "", phone: "", email: "", notes: "" }); setCfoStaffModal("new"); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: IPS_ACCENT, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><IconPlus /> Add Staff</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {[
+              { l: "Total Staff", v: cfoStaff.length, bc: IPS_ACCENT },
+              { l: "Active", v: cfoStaff.filter(s => s.active).length, c: IPS_SUCCESS, bc: IPS_SUCCESS },
+              { l: "Employees", v: cfoStaff.filter(s => s.type === "employee").length, bc: TEXT_DIM },
+              { l: "Contractors", v: cfoStaff.filter(s => s.type === "contractor").length, bc: IPS_WARN },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "12px 10px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 22, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono" }}>{x.v}</div></div></Card>))}
+          </div>
+          {cfoStaff.length === 0 ? (
+            <Card style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 14, color: TEXT_DIM }}>No staff members yet.</div>
+            </Card>
+          ) : (
+            <Card>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Name</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Role</th>
+                      <th style={{ textAlign: "left", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Type</th>
+                      <th style={{ textAlign: "right", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Rate</th>
+                      <th style={{ textAlign: "center", padding: "8px", color: TEXT_DIM, fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 500 }}>Status</th>
+                      <th style={{ textAlign: "center", padding: "8px", width: 80 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cfoStaff.map(s => (
+                      <tr key={s.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)`, opacity: s.active ? 1 : 0.5 }}>
+                        <td style={{ padding: "8px", fontWeight: 600 }}>{s.name}</td>
+                        <td style={{ padding: "8px", color: TEXT_DIM }}>{s.role}</td>
+                        <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: s.type === "employee" ? "rgba(87,181,200,0.15)" : s.type === "contractor" ? "rgba(245,158,11,0.15)" : "rgba(167,139,250,0.15)", color: s.type === "employee" ? IPS_ACCENT : s.type === "contractor" ? IPS_WARN : PROSPECT_COLOR }}>{CFO_STAFF_TYPES[s.type] || s.type}</span></td>
+                        <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono" }}>{s.hourly_rate_isk ? fmtISK(s.hourly_rate_isk) + "/hr" : s.monthly_salary_isk ? fmtISK(s.monthly_salary_isk) + "/mo" : "—"}</td>
+                        <td style={{ padding: "8px", textAlign: "center" }}><button onClick={() => cfoToggleStaffActive(s.id, s.active)} style={{ background: "none", border: `1px solid ${s.active ? IPS_SUCCESS : TEXT_DIM}`, color: s.active ? IPS_SUCCESS : TEXT_DIM, borderRadius: 4, padding: "2px 8px", fontSize: 10, cursor: "pointer", fontFamily: "JetBrains Mono" }}>{s.active ? "Active" : "Inactive"}</button></td>
+                        <td style={{ padding: "8px", textAlign: "center" }}>
+                          <button onClick={() => { setCfoStaffForm({ name: s.name, role: s.role, type: s.type, hourly_rate_isk: s.hourly_rate_isk || "", monthly_salary_isk: s.monthly_salary_isk || "", phone: s.phone || "", email: s.email || "", notes: s.notes || "" }); setCfoStaffModal(s.id); }} style={{ background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", fontSize: 11 }}>edit</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>)}
+
+        </>)}
+
         {/* FOOTER */}
         <div style={{ marginTop: 24, padding: "16px 0", borderTop: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", fontSize: 11, color: TEXT_DIM }}>
-          <span>{activeModule === "market" ? "Source: DOKK portal · Corrected Feb 2026 · Tiered (T): <300p=1× · 300–600p=3× · 600–1200p=6× · 1200+p=11× · 🌙 = overnight" : "IPS Workspace · Shared task management for Jón & Tristan"}</span>
-          <span style={{ fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? "IPS Market Intelligence v3.0" : "IPS Workspace v1.0"}</span>
+          <span>{activeModule === "market" ? "Source: DOKK portal · Corrected Feb 2026 · Tiered (T): <300p=1× · 300–600p=3× · 600–1200p=6× · 1200+p=11× · 🌙 = overnight" : activeModule === "cfo" ? "CEO-only · Financial data is confidential" : "IPS Workspace · Shared task management for Jón & Tristan"}</span>
+          <span style={{ fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? "IPS Market Intelligence v3.0" : activeModule === "cfo" ? "IPS CFO Workspace v1.0" : "IPS Workspace v1.0"}</span>
         </div>
         </div>
       </main>
