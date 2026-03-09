@@ -4,6 +4,13 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_CONFIGURED, supabas
 import ipsLogoWhite from "./assets/ips-logo-white.png";
 import ipsIconColor from "./assets/ips-icon-color.png";
 
+// ─── SVG ICONS ──────────────────────────────────────────────────────────────
+const IconChart = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>);
+const IconClipboard = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>);
+const IconLogout = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
+const IconMenu = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>);
+const IconX = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPLETE 2026 REYKJAVÍK SEASON — CORRECTED DOKK DATA
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -340,6 +347,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
   // ─── MODULE & WORKSPACE STATE ──────────────────────────────────────────────
   const [activeModule, setActiveModule] = useState("market");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [wsView, setWsView] = useState("tasks");
   const [wsTasks, setWsTasks] = useState([]);
   const [wsLoaded, setWsLoaded] = useState(false);
@@ -693,9 +701,9 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   const tieredPie = [{ name: "IPS", value: stats.ipsTieredW, color: IPS_ACCENT }, { name: "Other", value: stats.otherTieredW, color: "#334155" }];
 
   // ─── COMPONENTS ─────────────────────────────────────────────────────────────
-  const Card = ({ children, style, onClick }) => (<div onClick={onClick} className="card" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, transition: "border-color 0.2s, box-shadow 0.2s", ...style }}>{children}</div>);
+  const Card = ({ children, style, onClick }) => (<div onClick={onClick} className="card" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", transition: "border-color 0.2s, box-shadow 0.2s", ...style }}>{children}</div>);
   const SL = ({ children }) => (<div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 16, fontWeight: 500 }}>{children}</div>);
-  const SidebarNav = ({ label, active, onClick, badge }) => (<button onClick={onClick} className="sidebar-nav" style={{ background: active ? "rgba(87,181,200,0.1)" : "transparent", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: active ? `3px solid ${IPS_ACCENT}` : "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "9px 14px", cursor: "pointer", color: active ? TEXT : TEXT_DIM, fontSize: 13, fontWeight: active ? 600 : 400, transition: "all 0.15s", fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8, marginBottom: 1 }}>{label}{badge}</button>);
+  const SidebarNav = ({ label, active, onClick, badge }) => (<button onClick={() => { onClick(); setSidebarOpen(false); }} className="sidebar-nav" style={{ background: active ? "rgba(87,181,200,0.1)" : "transparent", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: active ? `3px solid ${IPS_ACCENT}` : "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "9px 14px", cursor: "pointer", color: active ? TEXT : TEXT_DIM, fontSize: 13, fontWeight: active ? 600 : 400, transition: "all 0.15s", fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8, marginBottom: 1 }}>{label}{badge}</button>);
 
   const CTip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -724,7 +732,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
   // ─── WORKSPACE COMPONENTS ───────────────────────────────────────────────────
   const ModuleTab = ({ label, mod, icon }) => (
-    <button onClick={() => setActiveModule(mod)} className="sidebar-nav" style={{
+    <button onClick={() => { setActiveModule(mod); setSidebarOpen(false); }} className="sidebar-nav" style={{
       background: activeModule === mod ? "rgba(87,181,200,0.1)" : "transparent",
       borderTop: "none", borderRight: "none", borderBottom: "none",
       borderLeft: activeModule === mod ? `3px solid ${IPS_ACCENT}` : "3px solid transparent",
@@ -733,7 +741,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
       fontSize: 13, fontWeight: activeModule === mod ? 700 : 500, transition: "all 0.15s",
       fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 8,
       width: "100%", textAlign: "left", marginBottom: 2,
-    }}>{icon} {label}</button>
+    }}>{icon}{label}</button>
   );
   const FilterPill = ({ label, active, color, onClick }) => (
     <button onClick={onClick} style={{
@@ -766,20 +774,24 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
   return (
     <div style={{ fontFamily: "'Satoshi', 'Inter', sans-serif", background: IPS_BLUE, color: TEXT, minHeight: "100vh", display: "flex" }}>
-      <style>{`@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700,800,900&display=swap');@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${IPS_BLUE}}::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}*{box-sizing:border-box;margin:0;padding:0}.sidebar-nav:hover{background:rgba(87,181,200,0.06)!important}.card:hover{border-color:rgba(87,181,200,0.25)!important;box-shadow:0 2px 12px rgba(0,0,0,0.15)!important}button:active{transform:scale(0.98)}`}</style>
+      <style>{`@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700,800,900&display=swap');@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${IPS_BLUE}}::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}*{box-sizing:border-box;margin:0;padding:0}.sidebar-nav:hover{background:rgba(87,181,200,0.06)!important}.card:hover{border-color:rgba(87,181,200,0.25)!important;box-shadow:0 4px 16px rgba(0,0,0,0.2)!important}button:active{transform:scale(0.98)}@media(max-width:768px){aside{position:fixed!important;left:-240px;transition:left 0.25s ease!important;z-index:200!important}aside.open{left:0!important}main{margin-left:0!important}.mobile-hamburger{display:flex!important}.mobile-close{display:flex!important}.mobile-overlay{display:block!important}.page-header{padding:16px 16px 12px!important}.page-content{padding:12px 16px!important}h1{font-size:18px!important}}`}</style>
+
+      {/* Mobile overlay */}
+      {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 199, display: "none" }} className="mobile-overlay" />}
 
       {/* SIDEBAR */}
-      <aside style={{ width: 240, minWidth: 240, background: SURFACE, borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", height: "100vh", position: "sticky", top: 0, zIndex: 100 }}>
+      <aside className={sidebarOpen ? "open" : ""} style={{ width: 240, minWidth: 240, background: SURFACE, borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", height: "100vh", position: "sticky", top: 0, zIndex: 200 }}>
         {/* Logo */}
-        <div style={{ padding: "20px 20px 16px" }}>
+        <div style={{ padding: "20px 20px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <img src={ipsLogoWhite} alt="Iceland Port Services" style={{ height: 28 }} />
+          <button onClick={() => setSidebarOpen(false)} className="mobile-close" style={{ display: "none", background: "none", border: "none", color: TEXT_DIM, cursor: "pointer", padding: 4 }}><IconX /></button>
         </div>
 
         {/* Module selector */}
         <div style={{ padding: "0 0 0 0", marginBottom: 4 }}>
           <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "4px 16px 6px", fontWeight: 500 }}>Modules</div>
-          <ModuleTab label="Market Intel" mod="market" icon="📊" />
-          <ModuleTab label="Workspace" mod="workspace" icon="📋" />
+          <ModuleTab label="Market Intel" mod="market" icon={<IconChart />} />
+          <ModuleTab label="Workspace" mod="workspace" icon={<IconClipboard />} />
         </div>
 
         {/* Divider */}
@@ -812,8 +824,8 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             </div>
           </div>
           {onLogout && (
-            <button onClick={onLogout} className="sidebar-nav" style={{ background: "rgba(255,255,255,0.03)", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "8px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left" }}>
-              Sign Out
+            <button onClick={onLogout} className="sidebar-nav" style={{ background: "rgba(255,255,255,0.03)", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: "3px solid transparent", borderRadius: "0 6px 6px 0", padding: "8px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif", width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
+              <IconLogout /> Sign Out
             </button>
           )}
         </div>
@@ -822,12 +834,15 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
       {/* MAIN CONTENT */}
       <main style={{ flex: 1, overflowY: "auto", height: "100vh" }}>
         {/* Page header */}
-        <div style={{ padding: "20px 28px 0", marginBottom: 4 }}>
+        <div className="page-header" style={{ padding: "20px 28px 16px", marginBottom: 4, display: "flex", alignItems: "flex-start", gap: 12, borderBottom: `1px solid ${BORDER}` }}>
+          <button onClick={() => setSidebarOpen(true)} className="mobile-hamburger" style={{ display: "none", background: "none", border: "none", color: TEXT, cursor: "pointer", padding: 4, marginTop: 2 }}><IconMenu /></button>
+          <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "Market Intelligence" : "Workspace"}</h1>
           <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : "Task & Project Management"}</div>
+          </div>
         </div>
 
-        <div style={{ padding: "16px 28px", maxWidth: 1440 }}>
+        <div className="page-content" style={{ padding: "20px 28px", maxWidth: 1440 }}>
 
         {activeModule === "market" && (<>
         {/* WHAT-IF */}
@@ -962,21 +977,21 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
         {/* ═══ OVERVIEW ═══ */}
         {activeView === "overview" && (<>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
-              { l: "Port Total", v: stats.totalCalls, s: "all calls" },
-              { l: "IPS Calls", v: stats.ipsCalls, c: IPS_ACCENT },
-              { l: "IPS (T)", v: stats.ipsTurnarounds, c: IPS_WARN, s: "turnarounds" },
-              { l: "IPS Transit", v: stats.ipsTransits, s: "transit" },
-              { l: "(T) Pax Vol", v: (stats.ipsTurnaroundPax / 1000).toFixed(1) + "K", c: IPS_WARN, s: "turnaround pax" },
-              { l: "Tiered Pts", v: stats.ipsTieredW, c: IPS_SUCCESS, s: `of ${stats.totalTieredW}` },
-            ].map((x, i) => (<Card key={i}><div style={{ textAlign: "center" }}><div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 4 }}>{x.l}</div><div style={{ fontSize: 28, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{x.v}</div>{x.s && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>{x.s}</div>}</div></Card>))}
+              { l: "Port Total", v: stats.totalCalls, s: "all calls", bc: TEXT_DIM },
+              { l: "IPS Calls", v: stats.ipsCalls, c: IPS_ACCENT, bc: IPS_ACCENT },
+              { l: "IPS (T)", v: stats.ipsTurnarounds, c: IPS_WARN, s: "turnarounds", bc: IPS_WARN },
+              { l: "IPS Transit", v: stats.ipsTransits, s: "transit", bc: IPS_ACCENT },
+              { l: "(T) Pax Vol", v: (stats.ipsTurnaroundPax / 1000).toFixed(1) + "K", c: IPS_WARN, s: "turnaround pax", bc: IPS_WARN },
+              { l: "Tiered Pts", v: stats.ipsTieredW, c: IPS_SUCCESS, s: `of ${stats.totalTieredW}`, bc: IPS_SUCCESS },
+            ].map((x, i) => (<Card key={i} style={{ borderTop: `2px solid ${x.bc || BORDER}`, padding: "16px 12px" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{x.l}</div><div style={{ fontSize: 26, fontWeight: 700, color: x.c || TEXT, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{x.v}</div>{x.s && <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{x.s}</div>}</div></Card>))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 20 }}>
             <PieCard data={callPie} sharePercent={stats.callShare} title="Call Count Share" />
             <PieCard data={tieredPie} sharePercent={stats.tieredShare} title="Tiered Weighted (by pax)" />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
             <Card><SL>Monthly Call Volume</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsCalls" name="IPS" fill={IPS_ACCENT} radius={[4, 4, 0, 0]} /><Bar dataKey="otherCalls" name="Other" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
             <Card><SL>Monthly Tiered Weighted Points</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsTieredW" name="IPS Tiered" fill={IPS_SUCCESS} radius={[4, 4, 0, 0]} /><Bar dataKey="otherTieredW" name="Other Tiered" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
           </div>
@@ -2030,7 +2045,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 20 }}>
               {/* Tasks by Project */}
               <Card>
                 <SL>Tasks by Project</SL>
