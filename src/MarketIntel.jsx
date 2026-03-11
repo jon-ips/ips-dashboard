@@ -682,10 +682,13 @@ export default function MarketIntel({ portCalls, activeView }) {
                     {isAlert && <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, background: `${color}20`, color, padding: "2px 6px", borderRadius: 3, fontFamily: "JetBrains Mono", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>{d.ipsTurnarounds >= 3 ? "Critical" : "Alert"}</div>}
                     <div style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM, marginBottom: 4 }}>{dateObj.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 6, background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color, fontFamily: "JetBrains Mono" }}>{d.ipsTurnarounds}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: 6, background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color, fontFamily: "JetBrains Mono" }}>{d.ipsTurnarounds}</div>
+                        {showNonTurnaround && d.ipsNonTurnarounds > 0 && <div style={{ width: 28, height: 28, borderRadius: 6, background: "rgba(87,181,200,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: IPS_ACCENT2, fontFamily: "JetBrains Mono" }}>{d.ipsNonTurnarounds}</div>}
+                      </div>
                       <div>
-                        <span style={{ fontSize: 11, color: TEXT_DIM }}>(T) calls{showNonTurnaround && d.ipsNonTurnarounds > 0 ? <span style={{ color: IPS_ACCENT2 }}> + {d.ipsNonTurnarounds} transit</span> : ""}</span>
-                        <div style={{ fontSize: 10, color: TEXT_DIM }}>~{Math.ceil(totalCrew)} crew</div>
+                        <span style={{ fontSize: 11, color: TEXT_DIM }}>{showNonTurnaround && d.ipsNonTurnarounds > 0 ? <><span style={{ color }}>(T)</span> + <span style={{ color: IPS_ACCENT2 }}>transit</span></> : "(T) calls"}</span>
+                        <div style={{ fontSize: 10, color: TEXT_DIM }}>~{Math.ceil(totalCrew)} crew · {totalOps} total</div>
                       </div>
                     </div>
                     <div style={{ fontSize: 11, lineHeight: 1.7 }}>
