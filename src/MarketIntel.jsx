@@ -7,6 +7,7 @@ import {
   LUGGAGE_PER_PAX_TURNAROUND, CREW_PER_1000_PAX_TRANSIT, CREW_PER_1000_PAX_TURNAROUND,
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM, PROSPECT_COLOR, OTHER_COLOR,
+  SAMSKIP_COLOR, PROSPECT_GROUPS,
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
@@ -27,6 +28,21 @@ export default function MarketIntel({ portCalls, activeView }) {
     setWonLines((prev) => {
       const next = new Set(prev);
       if (next.has(line)) next.delete(line); else next.add(line);
+      return next;
+    });
+  }, []);
+
+  const toggleGroup = useCallback((groupKey) => {
+    const group = PROSPECT_GROUPS[groupKey];
+    if (!group) return;
+    setWonLines((prev) => {
+      const next = new Set(prev);
+      const allSelected = group.lines.every((l) => next.has(l));
+      if (allSelected) {
+        group.lines.forEach((l) => next.delete(l));
+      } else {
+        group.lines.forEach((l) => next.add(l));
+      }
       return next;
     });
   }, []);
@@ -194,12 +210,45 @@ export default function MarketIntel({ portCalls, activeView }) {
                     background: SURFACE, border: `1px solid ${PROSPECT_COLOR}`, borderRadius: 8,
                     maxHeight: 320, overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
                   }}>
+                    {/* Prospect Groups */}
+                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
+                      Prospect Groups
+                    </div>
+                    {Object.entries(PROSPECT_GROUPS).map(([key, group]) => {
+                      const groupLinesInPort = group.lines.filter((l) => allNonContractedLines.some(([nl]) => nl === l));
+                      const allChecked = groupLinesInPort.length > 0 && groupLinesInPort.every((l) => wonLines.has(l));
+                      const someChecked = groupLinesInPort.some((l) => wonLines.has(l));
+                      const totalCalls = groupLinesInPort.reduce((sum, l) => {
+                        const found = allNonContractedLines.find(([nl]) => nl === l);
+                        return sum + (found ? found[1].calls : 0);
+                      }, 0);
+                      const totalTurnarounds = groupLinesInPort.reduce((sum, l) => {
+                        const found = allNonContractedLines.find(([nl]) => nl === l);
+                        return sum + (found ? found[1].turnarounds : 0);
+                      }, 0);
+                      return (
+                        <button key={key} onClick={() => toggleGroup(key)} style={{
+                          width: "100%", display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
+                          background: allChecked ? "rgba(249,115,22,0.1)" : someChecked ? "rgba(249,115,22,0.05)" : "transparent",
+                          borderLeft: `3px solid ${allChecked ? group.color : someChecked ? "rgba(249,115,22,0.4)" : "transparent"}`,
+                        }}>
+                          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${allChecked ? group.color : someChecked ? "rgba(249,115,22,0.6)" : BORDER}`, background: allChecked ? group.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
+                            {allChecked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
+                            {someChecked && !allChecked && <span style={{ color: group.color, fontSize: 12, fontWeight: 700 }}>–</span>}
+                          </div>
+                          <span style={{ color: allChecked || someChecked ? TEXT : TEXT_DIM, fontWeight: 600, fontSize: 13, flex: 1, textAlign: "left" }}>{group.label}</span>
+                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{groupLinesInPort.length} lines · {totalCalls} calls · {totalTurnarounds}(T)</span>
+                        </button>
+                      );
+                    })}
                     {/* Prospects section */}
-                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
+                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, borderTop: `1px solid ${BORDER}` }}>
                       Prospects
                     </div>
                     {allNonContractedLines.filter(([_, d]) => d.status === "prospect").map(([line, data]) => {
                       const checked = wonLines.has(line);
+                      const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
                       return (
                         <button key={line} onClick={() => toggleLine(line)} style={{
                           width: "100%", display: "flex", alignItems: "center", gap: 10,
@@ -210,7 +259,10 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? PROSPECT_COLOR : BORDER}`, background: checked ? PROSPECT_COLOR : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
                           </div>
-                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left" }}>{line}</span>
+                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}>
+                            {line}
+                            {inGroup && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "rgba(249,115,22,0.15)", color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", fontWeight: 600, letterSpacing: 0.5 }}>{inGroup.label}</span>}
+                          </span>
                           <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
                         </button>
                       );
