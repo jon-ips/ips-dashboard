@@ -716,6 +716,142 @@ export default function MarketIntel({ portCalls, activeView }) {
           </Card>
         )}
 
+        {/* ═══ EQUIPMENT ═══ */}
+        {activeView === "equipment" && (() => {
+          // Build daily equipment needs from IPS ops
+          const equipDays = {};
+          portCalls.forEach((s) => {
+            if (!isIPS(s)) return;
+            let opsDate = null;
+            if (s.turnaround) {
+              opsDate = getTurnaroundOpsDate(s);
+            } else {
+              opsDate = getNonTurnaroundOpsDate(s);
+            }
+            if (!opsDate) return;
+            if (!equipDays[opsDate]) equipDays[opsDate] = { date: opsDate, ships: [], telescopics: 0, conveyors: 0, forklifts: 0 };
+            if (s.turnaround) {
+              // Turnaround = 1 conveyor + 1 forklift + 1 telescopic
+              equipDays[opsDate].telescopics += 1;
+              equipDays[opsDate].conveyors += 1;
+              equipDays[opsDate].forklifts += 1;
+            } else {
+              // Transit = 1 telescopic
+              equipDays[opsDate].telescopics += 1;
+            }
+            equipDays[opsDate].ships.push({ ship: s.ship, line: s.line, pax: s.pax, turnaround: s.turnaround, overnight: isOvernight(s) });
+          });
+          const sortedEquipDays = Object.values(equipDays).sort((a, b) => a.date.localeCompare(b.date));
+
+          const peakTelescopic = sortedEquipDays.reduce((max, d) => Math.max(max, d.telescopics), 0);
+          const peakConveyor = sortedEquipDays.reduce((max, d) => Math.max(max, d.conveyors), 0);
+          const peakForklift = sortedEquipDays.reduce((max, d) => Math.max(max, d.forklifts), 0);
+          const heavyDays = sortedEquipDays.filter(d => d.telescopics >= 3 || d.conveyors >= 2).length;
+
+          return (
+            <>
+              {/* Summary cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+                {[
+                  { l: "Ops Days", v: sortedEquipDays.length, c: IPS_ACCENT, s: "total" },
+                  { l: "Peak Telescopic", v: peakTelescopic, c: IPS_WARN, s: "forklifts/day" },
+                  { l: "Peak Conveyor", v: peakConveyor, c: IPS_DANGER, s: "belts/day" },
+                  { l: "Peak Forklift", v: peakForklift, c: IPS_SUCCESS, s: "forklifts/day" },
+                  { l: "Heavy Days", v: heavyDays, c: IPS_DANGER, s: "3+ telescopic or 2+ conveyor" },
+                ].map((x, i) => (
+                  <Card key={i} style={{ borderTop: `2px solid ${x.c}`, padding: "16px 12px" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{x.l}</div>
+                      <div style={{ fontSize: 26, fontWeight: 700, color: x.c, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{x.v}</div>
+                      {x.s && <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{x.s}</div>}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Equipment grid */}
+              <Card>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <SL>Equipment Calendar — Daily Requirements</SL>
+                    <div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8 }}>Turnaround = 1 conveyor + 1 forklift + 1 telescopic · Transit = 1 telescopic</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    {[{ color: IPS_WARN, label: "Telescopic" }, { color: IPS_DANGER, label: "Conveyor" }, { color: IPS_SUCCESS, label: "Forklift" }].map((l, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: TEXT_DIM }}><div style={{ width: 10, height: 10, borderRadius: 2, background: l.color }} />{l.label}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>
+                  {sortedEquipDays.map((d) => {
+                    const isHeavy = d.telescopics >= 3 || d.conveyors >= 2;
+                    const dateObj = new Date(d.date + "T12:00:00");
+                    const turnaroundCount = d.ships.filter(s => s.turnaround).length;
+                    const transitCount = d.ships.filter(s => !s.turnaround).length;
+                    return (
+                      <div key={d.date} style={{
+                        background: isHeavy ? "rgba(239,68,68,0.06)" : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${isHeavy ? IPS_DANGER : BORDER}`,
+                        borderRadius: 8, padding: 12, position: "relative",
+                      }}>
+                        {isHeavy && <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, background: "rgba(239,68,68,0.15)", color: IPS_DANGER, padding: "2px 6px", borderRadius: 3, fontFamily: "JetBrains Mono", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Heavy</div>}
+                        <div style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM, marginBottom: 6 }}>
+                          {dateObj.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                        </div>
+
+                        {/* Equipment counts */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                          {[
+                            { v: d.telescopics, label: "Telescopic", color: IPS_WARN },
+                            { v: d.conveyors, label: "Conveyor", color: IPS_DANGER },
+                            { v: d.forklifts, label: "Forklift", color: IPS_SUCCESS },
+                          ].filter(e => e.v > 0).map((e, i) => (
+                            <div key={i} style={{
+                              display: "flex", alignItems: "center", gap: 4,
+                              background: `${e.color}15`, border: `1px solid ${e.color}30`,
+                              borderRadius: 5, padding: "3px 8px",
+                            }}>
+                              <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "JetBrains Mono", color: e.color }}>{e.v}</span>
+                              <span style={{ fontSize: 9, color: TEXT_DIM }}>{e.label}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Ops breakdown */}
+                        <div style={{ fontSize: 10, color: TEXT_DIM, marginBottom: 6, fontFamily: "JetBrains Mono" }}>
+                          {turnaroundCount > 0 && <span style={{ color: IPS_WARN }}>{turnaroundCount}(T)</span>}
+                          {turnaroundCount > 0 && transitCount > 0 && " + "}
+                          {transitCount > 0 && <span style={{ color: IPS_ACCENT2 }}>{transitCount} transit</span>}
+                        </div>
+
+                        {/* Ship list */}
+                        <div style={{ fontSize: 11, lineHeight: 1.7 }}>
+                          {d.ships.map((s, i) => (
+                            <div key={i} style={{ color: s.turnaround ? TEXT : TEXT_DIM, display: "flex", justifyContent: "space-between", alignItems: "center", opacity: s.turnaround ? 1 : 0.75 }}>
+                              <span>{s.turnaround ? "⛴" : "↔"} {s.ship}{!s.turnaround ? <span style={{ fontSize: 9, color: IPS_ACCENT2, marginLeft: 4 }}>(transit)</span> : ""}</span>
+                              <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{s.pax}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary bar */}
+                <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 8, background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)", display: "flex", gap: 24, fontSize: 12, color: TEXT_DIM, flexWrap: "wrap" }}>
+                  <span>Ops days: <strong style={{ color: IPS_ACCENT }}>{sortedEquipDays.length}</strong></span>
+                  <span>Peak telescopic: <strong style={{ color: IPS_WARN }}>{peakTelescopic}</strong></span>
+                  <span>Peak conveyor: <strong style={{ color: IPS_DANGER }}>{peakConveyor}</strong></span>
+                  <span>Peak forklift: <strong style={{ color: IPS_SUCCESS }}>{peakForklift}</strong></span>
+                  <span>Heavy days: <strong style={{ color: IPS_DANGER }}>{heavyDays}</strong></span>
+                </div>
+              </Card>
+            </>
+          );
+        })()}
+
         {/* ═══ OPERATIONS ═══ */}
         {activeView === "operations" && (<>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
