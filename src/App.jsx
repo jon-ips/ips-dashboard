@@ -39,7 +39,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             ship: pc.ships?.name || "Unknown",
             turnaround: pc.turnaround,
             pax: pc.pax,
-            status: pc.status || "other",
+            status: (pc.ships?.cruise_lines?.name === "Cunard") ? "contracted" : (pc.status || "other"),
           }));
           setDbPortCalls(mapped);
         }
@@ -162,7 +162,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
         <div className="page-header" style={{ padding: "20px 28px 16px", marginBottom: 4, display: "flex", alignItems: "flex-start", gap: 12, borderBottom: `1px solid ${BORDER}` }}>
           <button onClick={() => setSidebarOpen(true)} className="mobile-hamburger" style={{ display: "none", background: "none", border: "none", color: TEXT, cursor: "pointer", padding: 4, marginTop: 2 }}><IconMenu /></button>
           <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "Market Intelligence" : activeModule === "cfo" ? "CFO Workspace" : "Workspace"}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "MARKET INTELLIGENCE" : activeModule === "cfo" ? "CFO Workspace" : "Workspace"}</h1>
           <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : activeModule === "cfo" ? "Financial Management & Analysis" : "Task & Project Management"}</div>
           </div>
         </div>
