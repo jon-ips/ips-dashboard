@@ -719,6 +719,14 @@ export default function MarketIntel({ portCalls, activeView }) {
         {/* ═══ EQUIPMENT ═══ */}
         {activeView === "equipment" && (() => {
           // Build daily equipment needs from IPS ops
+          // Ship-specific equipment configs: { telescopics, regulars, conveyors }
+          const SHIP_EQUIP = {
+            "Rotterdam": { turnaround: { telescopics: 2, regulars: 2, conveyors: 0 } },
+            "Zuiderdam": { transit: { telescopics: 1, regulars: 3, conveyors: 0 } },
+            "Volendam": { transit: { telescopics: 1, regulars: 3, conveyors: 0 } },
+            "Seabourn Venture": { turnaround: { telescopics: 1, regulars: 1, conveyors: 1 } },
+            "Seabourn Ovation": { turnaround: { telescopics: 1, regulars: 2, conveyors: 1 } },
+          };
           const equipDays = {};
           portCalls.forEach((s) => {
             if (!isIPS(s)) return;
@@ -729,18 +737,21 @@ export default function MarketIntel({ portCalls, activeView }) {
               opsDate = getNonTurnaroundOpsDate(s);
             }
             if (!opsDate) return;
-            if (!equipDays[opsDate]) equipDays[opsDate] = { date: opsDate, ships: [], telescopics: 0, conveyors: 0, forklifts: 0 };
-            // All ops = 1 telescopic
-            equipDays[opsDate].telescopics += 1;
-            // All turnarounds = 1 conveyor
-            if (s.turnaround) equipDays[opsDate].conveyors += 1;
-            // Forklifts: HAL transit = 2, Seabourn (any) = 2, other turnarounds = 1
-            if (s.line === "Seabourn") {
-              equipDays[opsDate].forklifts += 2;
-            } else if (s.line === "Holland America" && !s.turnaround) {
-              equipDays[opsDate].forklifts += 2;
-            } else if (s.turnaround) {
-              equipDays[opsDate].forklifts += 1;
+            if (!equipDays[opsDate]) equipDays[opsDate] = { date: opsDate, ships: [], telescopics: 0, conveyors: 0, regulars: 0 };
+            // Ship-specific equipment lookup
+            const opType = s.turnaround ? "turnaround" : "transit";
+            const shipConfig = SHIP_EQUIP[s.ship] && SHIP_EQUIP[s.ship][opType];
+            if (shipConfig) {
+              equipDays[opsDate].telescopics += shipConfig.telescopics;
+              equipDays[opsDate].regulars += shipConfig.regulars;
+              equipDays[opsDate].conveyors += shipConfig.conveyors;
+            } else {
+              // Default: 1 telescopic for all, 1 conveyor + 1 regular for turnarounds
+              equipDays[opsDate].telescopics += 1;
+              if (s.turnaround) {
+                equipDays[opsDate].conveyors += 1;
+                equipDays[opsDate].regulars += 1;
+              }
             }
             equipDays[opsDate].ships.push({ ship: s.ship, line: s.line, pax: s.pax, turnaround: s.turnaround, overnight: isOvernight(s) });
           });
@@ -748,7 +759,7 @@ export default function MarketIntel({ portCalls, activeView }) {
 
           const peakTelescopic = sortedEquipDays.reduce((max, d) => Math.max(max, d.telescopics), 0);
           const peakConveyor = sortedEquipDays.reduce((max, d) => Math.max(max, d.conveyors), 0);
-          const peakForklift = sortedEquipDays.reduce((max, d) => Math.max(max, d.forklifts), 0);
+          const peakRegular = sortedEquipDays.reduce((max, d) => Math.max(max, d.regulars), 0);
           const heavyDays = sortedEquipDays.filter(d => d.telescopics >= 3 || d.conveyors >= 2).length;
 
           return (
@@ -759,7 +770,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                   { l: "Ops Days", v: sortedEquipDays.length, c: IPS_ACCENT, s: "total" },
                   { l: "Peak Telescopic", v: peakTelescopic, c: IPS_WARN, s: "forklifts/day" },
                   { l: "Peak Conveyor", v: peakConveyor, c: IPS_DANGER, s: "belts/day" },
-                  { l: "Peak Forklift", v: peakForklift, c: IPS_SUCCESS, s: "forklifts/day" },
+                  { l: "Peak Regular", v: peakRegular, c: IPS_SUCCESS, s: "gangways/day" },
                   { l: "Heavy Days", v: heavyDays, c: IPS_DANGER, s: "3+ telescopic or 2+ conveyor" },
                 ].map((x, i) => (
                   <Card key={i} style={{ borderTop: `2px solid ${x.c}`, padding: "16px 12px" }}>
@@ -777,10 +788,10 @@ export default function MarketIntel({ portCalls, activeView }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
                   <div>
                     <SL>Equipment Calendar — Daily Requirements</SL>
-                    <div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8 }}>Turnaround = 1 conveyor + 1 forklift + 1 telescopic · Transit = 1 telescopic</div>
+                    <div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8 }}>Equipment per ship varies — see ship-specific configs</div>
                   </div>
                   <div style={{ display: "flex", gap: 12 }}>
-                    {[{ color: IPS_WARN, label: "Telescopic" }, { color: IPS_DANGER, label: "Conveyor" }, { color: IPS_SUCCESS, label: "Forklift" }].map((l, i) => (
+                    {[{ color: IPS_WARN, label: "Telescopic" }, { color: IPS_DANGER, label: "Conveyor" }, { color: IPS_SUCCESS, label: "Regular" }].map((l, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: TEXT_DIM }}><div style={{ width: 10, height: 10, borderRadius: 2, background: l.color }} />{l.label}</div>
                     ))}
                   </div>
@@ -808,7 +819,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                           {[
                             { v: d.telescopics, label: "Telescopic", color: IPS_WARN },
                             { v: d.conveyors, label: "Conveyor", color: IPS_DANGER },
-                            { v: d.forklifts, label: "Forklift", color: IPS_SUCCESS },
+                            { v: d.regulars, label: "Regular", color: IPS_SUCCESS },
                           ].filter(e => e.v > 0).map((e, i) => (
                             <div key={i} style={{
                               display: "flex", alignItems: "center", gap: 4,
@@ -847,7 +858,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                   <span>Ops days: <strong style={{ color: IPS_ACCENT }}>{sortedEquipDays.length}</strong></span>
                   <span>Peak telescopic: <strong style={{ color: IPS_WARN }}>{peakTelescopic}</strong></span>
                   <span>Peak conveyor: <strong style={{ color: IPS_DANGER }}>{peakConveyor}</strong></span>
-                  <span>Peak forklift: <strong style={{ color: IPS_SUCCESS }}>{peakForklift}</strong></span>
+                  <span>Peak regular: <strong style={{ color: IPS_SUCCESS }}>{peakRegular}</strong></span>
                   <span>Heavy days: <strong style={{ color: IPS_DANGER }}>{heavyDays}</strong></span>
                 </div>
               </Card>
