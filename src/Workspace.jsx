@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
 import {
   IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
-  SURFACE, BORDER, TEXT, TEXT_DIM, PROSPECT_COLOR,
+  SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";

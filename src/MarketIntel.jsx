@@ -6,7 +6,7 @@ import {
   PALLETS_PER_PAX_TRANSIT, PALLETS_PER_PAX_TURNAROUND,
   LUGGAGE_PER_PAX_TURNAROUND, CREW_PER_1000_PAX_TRANSIT, CREW_PER_1000_PAX_TURNAROUND,
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
-  SURFACE, BORDER, TEXT, TEXT_DIM, PROSPECT_COLOR, OTHER_COLOR,
+  SURFACE, BORDER, TEXT, TEXT_DIM, OTHER_COLOR,
   SAMSKIP_COLOR, PROSPECT_GROUPS,
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
@@ -66,11 +66,7 @@ export default function MarketIntel({ portCalls, activeView }) {
         if (s.turnaround) lines[s.line].turnarounds++;
       }
     });
-    return Object.entries(lines).sort((a, b) => {
-      if (a[1].status === "prospect" && b[1].status !== "prospect") return -1;
-      if (b[1].status === "prospect" && a[1].status !== "prospect") return 1;
-      return a[0].localeCompare(b[0]);
-    });
+    return Object.entries(lines).sort((a, b) => a[0].localeCompare(b[0]));
   }, [portCalls]);
 
   const isOvernight = (s) => s.endDate !== null;
@@ -175,10 +171,10 @@ export default function MarketIntel({ portCalls, activeView }) {
   // ─── RENDER ─────────────────────────────────────────────────────────────────
   return (<>
         {/* WHAT-IF */}
-        <Card style={{ marginBottom: 20, background: `linear-gradient(90deg, rgba(167,139,250,0.05) 0%, ${SURFACE} 100%)`, border: `1px solid rgba(167,139,250,0.2)` }}>
+        <Card style={{ marginBottom: 20, background: `linear-gradient(90deg, rgba(249,115,22,0.05) 0%, ${SURFACE} 100%)`, border: `1px solid rgba(249,115,22,0.2)` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setWhatIfOpen(o => !o)}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", fontWeight: 500 }}>What-If Scenario</div>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", fontWeight: 500 }}>What-If Scenario</div>
               {!whatIfOpen && wonLines.size > 0 && <span style={{ fontSize: 11, color: TEXT_DIM }}>· {wonLines.size} line{wonLines.size > 1 ? "s" : ""} selected</span>}
             </div>
             <span style={{ color: TEXT_DIM, fontSize: 14, transform: whatIfOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
@@ -193,7 +189,7 @@ export default function MarketIntel({ portCalls, activeView }) {
               <div style={{ position: "relative" }}>
                 <button onClick={() => setDropdownOpen(!dropdownOpen)} style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "rgba(255,255,255,0.03)", border: `1px solid ${dropdownOpen ? PROSPECT_COLOR : BORDER}`,
+                  background: "rgba(255,255,255,0.03)", border: `1px solid ${dropdownOpen ? SAMSKIP_COLOR : BORDER}`,
                   borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.2s", color: TEXT,
                   fontFamily: "'Satoshi', 'Inter', sans-serif", fontSize: 13,
                 }}>
@@ -207,7 +203,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                 {dropdownOpen && (
                   <div style={{
                     position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
-                    background: SURFACE, border: `1px solid ${PROSPECT_COLOR}`, borderRadius: 8,
+                    background: SURFACE, border: `1px solid ${SAMSKIP_COLOR}`, borderRadius: 8,
                     maxHeight: 320, overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
                   }}>
                     {/* Prospect Groups */}
@@ -242,37 +238,13 @@ export default function MarketIntel({ portCalls, activeView }) {
                         </button>
                       );
                     })}
-                    {/* Prospects section */}
-                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, borderTop: `1px solid ${BORDER}` }}>
-                      Prospects
-                    </div>
-                    {allNonContractedLines.filter(([_, d]) => d.status === "prospect").map(([line, data]) => {
-                      const checked = wonLines.has(line);
-                      const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
-                      return (
-                        <button key={line} onClick={() => toggleLine(line)} style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                          background: checked ? "rgba(167,139,250,0.1)" : "transparent",
-                          borderLeft: `3px solid ${checked ? PROSPECT_COLOR : "transparent"}`,
-                        }}>
-                          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? PROSPECT_COLOR : BORDER}`, background: checked ? PROSPECT_COLOR : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
-                            {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                          </div>
-                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}>
-                            {line}
-                            {inGroup && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "rgba(249,115,22,0.15)", color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", fontWeight: 600, letterSpacing: 0.5 }}>{inGroup.label}</span>}
-                          </span>
-                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
-                        </button>
-                      );
-                    })}
                     {/* Other lines section */}
                     <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: OTHER_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, borderTop: `1px solid ${BORDER}` }}>
                       Other Lines in Port
                     </div>
-                    {allNonContractedLines.filter(([_, d]) => d.status !== "prospect").map(([line, data]) => {
+                    {allNonContractedLines.map(([line, data]) => {
                       const checked = wonLines.has(line);
+                      const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
                       return (
                         <button key={line} onClick={() => toggleLine(line)} style={{
                           width: "100%", display: "flex", alignItems: "center", gap: 10,
@@ -283,7 +255,10 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? IPS_ACCENT : BORDER}`, background: checked ? IPS_ACCENT : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
                           </div>
-                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left" }}>{line}</span>
+                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}>
+                            {line}
+                            {inGroup && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "rgba(249,115,22,0.15)", color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", fontWeight: 600, letterSpacing: 0.5 }}>{inGroup.label}</span>}
+                          </span>
                           <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
                         </button>
                       );
@@ -296,16 +271,17 @@ export default function MarketIntel({ portCalls, activeView }) {
               {wonLines.size > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                   {[...wonLines].map((line) => {
-                    const isProspect = allNonContractedLines.find(([l]) => l === line)?.[1]?.status === "prospect";
+                    const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
+                    const chipColor = inGroup ? SAMSKIP_COLOR : IPS_ACCENT;
                     return (
                       <button key={line} onClick={() => toggleLine(line)} style={{
                         display: "flex", alignItems: "center", gap: 6,
-                        background: isProspect ? "rgba(167,139,250,0.15)" : "rgba(87,181,200,0.1)",
-                        border: `1px solid ${isProspect ? PROSPECT_COLOR : IPS_ACCENT}`,
+                        background: inGroup ? "rgba(249,115,22,0.15)" : "rgba(87,181,200,0.1)",
+                        border: `1px solid ${chipColor}`,
                         borderRadius: 6, padding: "4px 10px", cursor: "pointer", transition: "all 0.15s",
                       }}>
-                        <span style={{ color: isProspect ? PROSPECT_COLOR : IPS_ACCENT, fontSize: 12, fontWeight: 500 }}>{line}</span>
-                        <span style={{ color: isProspect ? PROSPECT_COLOR : IPS_ACCENT, fontSize: 14, lineHeight: 1 }}>×</span>
+                        <span style={{ color: chipColor, fontSize: 12, fontWeight: 500 }}>{line}</span>
+                        <span style={{ color: chipColor, fontSize: 14, lineHeight: 1 }}>×</span>
                       </button>
                     );
                   })}
@@ -389,11 +365,7 @@ export default function MarketIntel({ portCalls, activeView }) {
               if (s.turnaround) nonIPSLines[s.line].turnarounds++;
             }
           });
-          const sortedCalLines = Object.entries(nonIPSLines).sort((a, b) => {
-            if (a[1].status === "prospect" && b[1].status !== "prospect") return -1;
-            if (b[1].status === "prospect" && a[1].status !== "prospect") return 1;
-            return a[0].localeCompare(b[0]);
-          });
+          const sortedCalLines = Object.entries(nonIPSLines).sort((a, b) => a[0].localeCompare(b[0]));
 
           const toggleCalLine = (line) => {
             setCalFilter((prev) => {
@@ -470,34 +442,10 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <div style={{ display: "flex", gap: 6, padding: "8px 12px", borderBottom: `1px solid ${BORDER}` }}>
                             <button onClick={() => setCalFilter(new Set(sortedCalLines.map(([l]) => l)))} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Show all</button>
                             <button onClick={() => setCalFilter(new Set())} style={{ background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>IPS only</button>
-                            <button onClick={() => { const pLines = sortedCalLines.filter(([_, d]) => d.status === "prospect").map(([l]) => l); setCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(167,139,250,0.1)", border: `1px solid rgba(167,139,250,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: PROSPECT_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Prospects</button>
                           </div>
-                          {/* Prospects */}
-                          {sortedCalLines.filter(([_, d]) => d.status === "prospect").length > 0 && (
-                            <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>Prospects</div>
-                          )}
-                          {sortedCalLines.filter(([_, d]) => d.status === "prospect").map(([line, data]) => {
-                            const checked = calFilter.has(line);
-                            return (
-                              <button key={line} onClick={() => toggleCalLine(line)} style={{
-                                width: "100%", display: "flex", alignItems: "center", gap: 10,
-                                padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                                background: checked ? "rgba(167,139,250,0.1)" : "transparent",
-                                borderLeft: `3px solid ${checked ? PROSPECT_COLOR : "transparent"}`,
-                              }}>
-                                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? PROSPECT_COLOR : BORDER}`, background: checked ? PROSPECT_COLOR : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
-                                  {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                                </div>
-                                <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left" }}>{line}</span>
-                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
-                              </button>
-                            );
-                          })}
-                          {/* Other */}
-                          {sortedCalLines.filter(([_, d]) => d.status !== "prospect").length > 0 && (
-                            <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: OTHER_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, borderTop: `1px solid ${BORDER}` }}>Other Lines</div>
-                          )}
-                          {sortedCalLines.filter(([_, d]) => d.status !== "prospect").map(([line, data]) => {
+                          {/* Other Lines */}
+                          <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: OTHER_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>Other Lines</div>
+                          {sortedCalLines.map(([line, data]) => {
                             const checked = calFilter.has(line);
                             return (
                               <button key={line} onClick={() => toggleCalLine(line)} style={{
@@ -522,16 +470,15 @@ export default function MarketIntel({ portCalls, activeView }) {
                     {calFilter.size > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                         {[...calFilter].sort().map((line) => {
-                          const isPrsp = sortedCalLines.find(([l]) => l === line)?.[1]?.status === "prospect";
                           return (
                             <button key={line} onClick={() => toggleCalLine(line)} style={{
                               display: "flex", alignItems: "center", gap: 6,
-                              background: isPrsp ? "rgba(167,139,250,0.15)" : "rgba(71,85,105,0.15)",
-                              border: `1px solid ${isPrsp ? PROSPECT_COLOR : OTHER_COLOR}`,
+                              background: "rgba(71,85,105,0.15)",
+                              border: `1px solid ${OTHER_COLOR}`,
                               borderRadius: 6, padding: "4px 10px", cursor: "pointer", transition: "all 0.15s",
                             }}>
-                              <span style={{ color: isPrsp ? PROSPECT_COLOR : TEXT_DIM, fontSize: 12, fontWeight: 500 }}>{line}</span>
-                              <span style={{ color: isPrsp ? PROSPECT_COLOR : TEXT_DIM, fontSize: 14, lineHeight: 1 }}>×</span>
+                              <span style={{ color: TEXT_DIM, fontSize: 12, fontWeight: 500 }}>{line}</span>
+                              <span style={{ color: TEXT_DIM, fontSize: 14, lineHeight: 1 }}>×</span>
                             </button>
                           );
                         })}
@@ -621,8 +568,8 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                             {ships.map((s, si) => {
                               const ips = isIPS(s);
-                              const isPrsp = s.status === "prospect" && !wonLines.has(s.line);
-                              const chipColor = ips ? IPS_ACCENT : isPrsp ? PROSPECT_COLOR : OTHER_COLOR;
+                              const inSamskip = !ips && Object.values(PROSPECT_GROUPS).some((g) => g.lines.includes(s.line));
+                              const chipColor = ips ? IPS_ACCENT : inSamskip ? SAMSKIP_COLOR : OTHER_COLOR;
                               const opsDate = getTurnaroundOpsDate(s);
                               const isOpsDay = opsDate === dateStr;
                               const isArrival = s.date === dateStr;
@@ -642,7 +589,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                                     {isOpsDay && s.turnaround && <span style={{ fontSize: 8 }}>⚙</span>}
                                     {isArrival && s.endDate && <span style={{ fontSize: 7, color: IPS_SUCCESS, fontFamily: "JetBrains Mono", fontWeight: 700 }}>▶</span>}
                                     {isDeparture && <span style={{ fontSize: 7, color: IPS_DANGER, fontFamily: "JetBrains Mono", fontWeight: 700 }}>◀</span>}
-                                    {isMidStay && <span style={{ fontSize: 7, color: PROSPECT_COLOR, fontFamily: "JetBrains Mono" }}>◆</span>}
+                                    {isMidStay && <span style={{ fontSize: 7, color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono" }}>◆</span>}
                                   </div>
                                   <span style={{
                                     fontSize: 9, color: chipColor, fontWeight: ips ? 600 : 400,
@@ -673,7 +620,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: IPS_ACCENT, display: "inline-block" }} /> IPS Contracted
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: PROSPECT_COLOR, display: "inline-block" }} /> Prospect
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: SAMSKIP_COLOR, display: "inline-block" }} /> Samskip
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: OTHER_COLOR, display: "inline-block" }} /> Other
@@ -682,7 +629,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                   <span>⚙ = Ops Day</span>
                   <span><span style={{ color: IPS_SUCCESS, fontFamily: "JetBrains Mono", fontWeight: 700 }}>▶</span> Arrival</span>
                   <span><span style={{ color: IPS_DANGER, fontFamily: "JetBrains Mono", fontWeight: 700 }}>◀</span> Departure</span>
-                  <span><span style={{ color: PROSPECT_COLOR, fontFamily: "JetBrains Mono" }}>◆</span> Mid-stay</span>
+                  <span><span style={{ color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono" }}>◆</span> Mid-stay</span>
                 </div>
               </Card>
             </>
@@ -745,7 +692,7 @@ export default function MarketIntel({ portCalls, activeView }) {
               <Card key={m.month} onClick={() => setSelectedMonth(selectedMonth === m.month ? null : m.month)} style={{ cursor: "pointer", border: selectedMonth === m.month ? `1px solid ${IPS_ACCENT}` : `1px solid ${BORDER}`, background: selectedMonth === m.month ? "rgba(87,181,200,0.05)" : SURFACE }}>
                 <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>{m.month} 2026</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {[{ v: m.ipsCalls, l: "IPS Calls", c: IPS_ACCENT }, { v: m.pallets, l: "Pallets", c: IPS_WARN }, { v: m.crew, l: "Peak Crew", c: IPS_SUCCESS }, { v: m.luggage, l: "Luggage", c: PROSPECT_COLOR }].map((x, i) => (
+                  {[{ v: m.ipsCalls, l: "IPS Calls", c: IPS_ACCENT }, { v: m.pallets, l: "Pallets", c: IPS_WARN }, { v: m.crew, l: "Peak Crew", c: IPS_SUCCESS }, { v: m.luggage, l: "Luggage", c: SAMSKIP_COLOR }].map((x, i) => (
                     <div key={i}><div style={{ fontSize: 20, fontWeight: 700, fontFamily: "JetBrains Mono", color: x.c }}>{x.v}</div><div style={{ fontSize: 10, color: TEXT_DIM }}>{x.l}</div></div>
                   ))}
                 </div>
@@ -786,8 +733,9 @@ export default function MarketIntel({ portCalls, activeView }) {
                 <span>Line</span><span>Status</span><span style={{ textAlign: "right" }}>Calls</span><span style={{ textAlign: "right" }}>(T)</span><span style={{ textAlign: "right" }}>Trn</span><span style={{ textAlign: "right" }}>O/N</span><span style={{ textAlign: "right" }}>Tiered</span><span style={{ textAlign: "right" }}>Call%</span><span style={{ textAlign: "right" }}>Tier%</span>
               </div>
               {sortedLines.map(([line, data], i) => {
-                const sc = data.status === "contracted" ? IPS_ACCENT : data.status === "prospect" ? PROSPECT_COLOR : OTHER_COLOR;
-                const sl = data.status === "contracted" && data.baseStatus !== "contracted" ? "What-If" : data.status === "contracted" ? "Contract" : data.status === "prospect" ? "Prospect" : "—";
+                const inGroup = Object.values(PROSPECT_GROUPS).some((g) => g.lines.includes(line));
+                const sc = data.status === "contracted" ? IPS_ACCENT : inGroup ? SAMSKIP_COLOR : OTHER_COLOR;
+                const sl = data.status === "contracted" && data.baseStatus !== "contracted" ? "What-If" : data.status === "contracted" ? "Contract" : inGroup ? "Samskip" : "—";
                 return (
                   <div key={line} style={{ display: "grid", gridTemplateColumns: "1.4fr 90px 55px 55px 55px 55px 70px 70px 70px", gap: 8, padding: "8px 12px", fontSize: 12, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4, borderLeft: `3px solid ${sc}` }}>
                     <span style={{ fontWeight: 600, fontSize: 11 }}>{line}</span>
@@ -805,7 +753,7 @@ export default function MarketIntel({ portCalls, activeView }) {
             </div>
             <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 8, background: "rgba(87,181,200,0.05)", border: `1px solid rgba(87,181,200,0.15)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
               <div style={{ fontSize: 12, color: TEXT_DIM }}>
-                <strong style={{ color: IPS_ACCENT }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "contracted").length}</strong> contracted · <strong style={{ color: PROSPECT_COLOR }}>{wonLines.size}</strong> what-if · <strong style={{ color: OTHER_COLOR }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "other").length}</strong> other
+                <strong style={{ color: IPS_ACCENT }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "contracted").length}</strong> contracted · <strong style={{ color: SAMSKIP_COLOR }}>{wonLines.size}</strong> what-if · <strong style={{ color: OTHER_COLOR }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "other").length}</strong> other
               </div>
               <div style={{ fontFamily: "JetBrains Mono", fontSize: 12 }}>IPS: <strong style={{ color: IPS_ACCENT }}>{stats.callShare}%</strong> calls · <strong style={{ color: IPS_WARN }}>{stats.simpleWShare}%</strong> simple · <strong style={{ color: IPS_SUCCESS }}>{stats.tieredShare}%</strong> tiered</div>
             </div>
@@ -874,12 +822,13 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <button onClick={() => setPortCalFilter(new Set(allLines))} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>Select all</button>
                           <button onClick={() => setPortCalFilter(new Set())} style={{ background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>Clear all</button>
                           <button onClick={() => { const ipsLines = [...new Set(portCalls.filter(s => s.status === "contracted").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); ipsLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ IPS</button>
-                          <button onClick={() => { const pLines = [...new Set(portCalls.filter(s => s.status === "prospect").map(s => s.line))]; setPortCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(167,139,250,0.1)", border: `1px solid rgba(167,139,250,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: PROSPECT_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Prospects</button>
+                          <button onClick={() => { const pLines = PROSPECT_GROUPS.samskip.lines.filter(l => allLines.includes(l)); setPortCalFilter(prev => { const next = new Set(prev); pLines.forEach(l => next.add(l)); return next; }); }} style={{ background: "rgba(249,115,22,0.1)", border: `1px solid rgba(249,115,22,0.2)`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", color: SAMSKIP_COLOR, fontSize: 10, fontFamily: "JetBrains Mono" }}>+ Samskip</button>
                         </div>
                         {allLines.map((line) => {
                           const checked = portCalFilter.has(line);
                           const lineStatus = portCalls.find(s => s.line === line)?.status || "other";
-                          const sc = lineStatus === "contracted" ? IPS_ACCENT : lineStatus === "prospect" ? PROSPECT_COLOR : TEXT_DIM;
+                          const inSamskip = PROSPECT_GROUPS.samskip.lines.includes(line);
+                          const sc = lineStatus === "contracted" ? IPS_ACCENT : inSamskip ? SAMSKIP_COLOR : TEXT_DIM;
                           return (
                             <button key={line} onClick={() => togglePortCalLine(line)} style={{
                               width: "100%", display: "flex", alignItems: "center", gap: 10,
@@ -892,7 +841,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                               </div>
                               <span style={{ color: checked ? TEXT : TEXT_DIM, fontSize: 12, fontWeight: 500, flex: 1, textAlign: "left" }}>{line}</span>
                               <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: `${sc}15`, color: sc, fontFamily: "JetBrains Mono" }}>
-                                {lineStatus === "contracted" ? "IPS" : lineStatus === "prospect" ? "PRSP" : ""}
+                                {lineStatus === "contracted" ? "IPS" : inSamskip ? "SMSK" : ""}
                               </span>
                             </button>
                           );
@@ -904,7 +853,8 @@ export default function MarketIntel({ portCalls, activeView }) {
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
                         {[...portCalFilter].sort().map((line) => {
                           const lineStatus = portCalls.find(s => s.line === line)?.status || "other";
-                          const sc = lineStatus === "contracted" ? IPS_ACCENT : lineStatus === "prospect" ? PROSPECT_COLOR : OTHER_COLOR;
+                          const inSamskip = PROSPECT_GROUPS.samskip.lines.includes(line);
+                          const sc = lineStatus === "contracted" ? IPS_ACCENT : inSamskip ? SAMSKIP_COLOR : OTHER_COLOR;
                           return (
                             <button key={line} onClick={() => togglePortCalLine(line)} style={{
                               display: "flex", alignItems: "center", gap: 4,
@@ -962,8 +912,8 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                             {ships.map((s, j) => {
                               const ips = isIPS(s);
-                              const isProspect = s.status === "prospect";
-                              const chipColor = ips ? IPS_ACCENT : isProspect ? PROSPECT_COLOR : OTHER_COLOR;
+                              const inSamskip = !ips && Object.values(PROSPECT_GROUPS).some((g) => g.lines.includes(s.line));
+                              const chipColor = ips ? IPS_ACCENT : inSamskip ? SAMSKIP_COLOR : OTHER_COLOR;
                               const opsDate = getTurnaroundOpsDate(s);
                               const isOpsDay = opsDate === date;
                               return (
@@ -981,7 +931,7 @@ export default function MarketIntel({ portCalls, activeView }) {
                           <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 12, color: turnarounds > 0 ? IPS_WARN : TEXT_DIM }}>
                             {turnarounds > 0 ? turnarounds : "—"}
                           </span>
-                          <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 12, color: overnights > 0 ? PROSPECT_COLOR : TEXT_DIM }}>
+                          <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 12, color: overnights > 0 ? SAMSKIP_COLOR : TEXT_DIM }}>
                             {overnights > 0 ? overnights : "—"}
                           </span>
                         </div>
@@ -989,11 +939,11 @@ export default function MarketIntel({ portCalls, activeView }) {
                         <div style={{ padding: "0 12px 6px", display: "flex", gap: 2 }}>
                           {ships.map((s, j) => {
                             const ips = isIPS(s);
-                            const isProspect = s.status === "prospect";
+                            const inSamskip = !ips && Object.values(PROSPECT_GROUPS).some((g) => g.lines.includes(s.line));
                             return (
                               <div key={j} style={{
                                 height: 3, borderRadius: 2, flex: 1,
-                                background: ips ? IPS_ACCENT : isProspect ? PROSPECT_COLOR : "rgba(255,255,255,0.08)",
+                                background: ips ? IPS_ACCENT : inSamskip ? SAMSKIP_COLOR : "rgba(255,255,255,0.08)",
                               }} />
                             );
                           })}
