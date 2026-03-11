@@ -22,6 +22,7 @@ export default function MarketIntel({ portCalls, activeView }) {
   const [calMonth, setCalMonth] = useState(5); // May=5
   const [calFilter, setCalFilter] = useState(new Set()); // extra lines toggled visible on calendar
   const [calDropOpen, setCalDropOpen] = useState(false);
+  const [showNonTurnaround, setShowNonTurnaround] = useState(false);
 
   // ─── COMPUTED DATA ────────────────────────────────────────────────────────
   const toggleLine = useCallback((line) => {
@@ -90,6 +91,12 @@ export default function MarketIntel({ portCalls, activeView }) {
     return s.date;
   };
 
+  // Non-turnaround ops date: double-day calls = ops on first day, single-day = that day
+  const getNonTurnaroundOpsDate = (s) => {
+    if (s.turnaround) return null;
+    return s.date; // always first day for non-turnaround
+  };
+
   // ─── STATS ──────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     let ipsCalls = 0, otherCalls = 0;
@@ -147,16 +154,23 @@ export default function MarketIntel({ portCalls, activeView }) {
   const crunchData = useMemo(() => {
     const allDates = {};
     portCalls.forEach((s) => {
-      if (!isIPS(s) || !s.turnaround) return;
-      // Only flag the actual turnaround operations day
-      const opsDate = getTurnaroundOpsDate(s);
-      if (!opsDate) return;
-      if (!allDates[opsDate]) allDates[opsDate] = { date: opsDate, ipsTurnarounds: 0, ipsShips: [] };
-      allDates[opsDate].ipsTurnarounds++;
-      allDates[opsDate].ipsShips.push({ ship: s.ship, line: s.line, pax: s.pax, overnight: isOvernight(s), arrivalDate: s.date, endDate: s.endDate });
+      if (!isIPS(s)) return;
+      if (s.turnaround) {
+        const opsDate = getTurnaroundOpsDate(s);
+        if (!opsDate) return;
+        if (!allDates[opsDate]) allDates[opsDate] = { date: opsDate, ipsTurnarounds: 0, ipsNonTurnarounds: 0, ipsShips: [] };
+        allDates[opsDate].ipsTurnarounds++;
+        allDates[opsDate].ipsShips.push({ ship: s.ship, line: s.line, pax: s.pax, overnight: isOvernight(s), arrivalDate: s.date, endDate: s.endDate, turnaround: true });
+      } else if (showNonTurnaround) {
+        const opsDate = getNonTurnaroundOpsDate(s);
+        if (!opsDate) return;
+        if (!allDates[opsDate]) allDates[opsDate] = { date: opsDate, ipsTurnarounds: 0, ipsNonTurnarounds: 0, ipsShips: [] };
+        allDates[opsDate].ipsNonTurnarounds++;
+        allDates[opsDate].ipsShips.push({ ship: s.ship, line: s.line, pax: s.pax, overnight: isOvernight(s), arrivalDate: s.date, endDate: s.endDate, turnaround: false });
+      }
     });
-    return Object.values(allDates).filter((d) => d.ipsTurnarounds > 0).sort((a, b) => a.date.localeCompare(b.date));
-  }, [isIPS]);
+    return Object.values(allDates).filter((d) => (d.ipsTurnarounds + d.ipsNonTurnarounds) > 0).sort((a, b) => a.date.localeCompare(b.date));
+  }, [isIPS, showNonTurnaround]);
 
   const callPie = [{ name: "IPS", value: stats.ipsCalls, color: IPS_ACCENT }, { name: "Other", value: stats.otherCalls, color: "#334155" }];
   const simpleWPie = [{ name: "IPS", value: stats.ipsSimpleW, color: IPS_ACCENT }, { name: "Other", value: stats.otherSimpleW, color: "#334155" }];
@@ -640,8 +654,17 @@ export default function MarketIntel({ portCalls, activeView }) {
         {activeView === "crunch" && (
           <Card>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-              <div><SL>Turnaround Crunch Calendar — IPS (T) Ops Days</SL><div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8 }}>Ops day: 2-night stays = middle day · 1-night = arrival day · Red = 2+ simultaneous</div></div>
-              <div style={{ display: "flex", gap: 12 }}>
+              <div><SL>Crunch Calendar — IPS Ops Days{showNonTurnaround ? " (T + Transit)" : " (T)"}</SL><div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8 }}>Ops day: 2-night stays = middle day · 1-night = arrival day{showNonTurnaround ? " · Transit ops = arrival day" : ""} · Red = 2+ simultaneous</div></div>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <div
+                  onClick={() => setShowNonTurnaround(v => !v)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", background: showNonTurnaround ? "rgba(87,181,200,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${showNonTurnaround ? IPS_ACCENT : BORDER}`, color: showNonTurnaround ? IPS_ACCENT : TEXT_DIM, transition: "all 0.15s", userSelect: "none" }}
+                >
+                  <div style={{ width: 24, height: 14, borderRadius: 7, background: showNonTurnaround ? IPS_ACCENT : "#334155", position: "relative", transition: "background 0.15s" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, background: "#fff", position: "absolute", top: 2, left: showNonTurnaround ? 12 : 2, transition: "left 0.15s" }} />
+                  </div>
+                  Non-T ops
+                </div>
                 {[{ color: IPS_SUCCESS, label: "1 (T)" }, { color: IPS_WARN, label: "2 (T)" }, { color: IPS_DANGER, label: "3+ (T)" }].map((l, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: TEXT_DIM }}><div style={{ width: 10, height: 10, borderRadius: 2, background: l.color }} />{l.label}</div>
                 ))}
@@ -649,25 +672,29 @@ export default function MarketIntel({ portCalls, activeView }) {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8 }}>
               {crunchData.map((d) => {
+                const totalOps = d.ipsTurnarounds + d.ipsNonTurnarounds;
                 const color = d.ipsTurnarounds >= 3 ? IPS_DANGER : d.ipsTurnarounds >= 2 ? IPS_WARN : IPS_SUCCESS;
                 const isAlert = d.ipsTurnarounds >= 2;
                 const dateObj = new Date(d.date + "T12:00:00");
-                const totalCrew = d.ipsShips.reduce((sum, s) => sum + (s.pax / 1000) * CREW_PER_1000_PAX_TURNAROUND, 0);
+                const totalCrew = d.ipsShips.reduce((sum, s) => sum + (s.pax / 1000) * (s.turnaround ? CREW_PER_1000_PAX_TURNAROUND : CREW_PER_1000_PAX_TRANSIT), 0);
                 return (
                   <div key={d.date} style={{ background: isAlert ? `rgba(${color === IPS_DANGER ? "239,68,68" : "245,158,11"},0.08)` : "rgba(255,255,255,0.02)", border: `1px solid ${isAlert ? color : BORDER}`, borderRadius: 8, padding: 12, position: "relative" }}>
                     {isAlert && <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, background: `${color}20`, color, padding: "2px 6px", borderRadius: 3, fontFamily: "JetBrains Mono", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>{d.ipsTurnarounds >= 3 ? "Critical" : "Alert"}</div>}
                     <div style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM, marginBottom: 4 }}>{dateObj.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                       <div style={{ width: 28, height: 28, borderRadius: 6, background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color, fontFamily: "JetBrains Mono" }}>{d.ipsTurnarounds}</div>
-                      <div><span style={{ fontSize: 11, color: TEXT_DIM }}>(T) calls</span><div style={{ fontSize: 10, color: TEXT_DIM }}>~{Math.ceil(totalCrew)} crew</div></div>
+                      <div>
+                        <span style={{ fontSize: 11, color: TEXT_DIM }}>(T) calls{showNonTurnaround && d.ipsNonTurnarounds > 0 ? <span style={{ color: IPS_ACCENT2 }}> + {d.ipsNonTurnarounds} transit</span> : ""}</span>
+                        <div style={{ fontSize: 10, color: TEXT_DIM }}>~{Math.ceil(totalCrew)} crew</div>
+                      </div>
                     </div>
                     <div style={{ fontSize: 11, lineHeight: 1.7 }}>
                       {d.ipsShips.map((s, i) => {
                         const isMultiDay = s.endDate !== null;
-                        const opsNote = isMultiDay ? (s.arrivalDate !== d.date ? `arr. ${new Date(s.arrivalDate + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "") : "";
+                        const opsNote = isMultiDay && s.turnaround ? (s.arrivalDate !== d.date ? `arr. ${new Date(s.arrivalDate + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "") : "";
                         return (
-                          <div key={i} style={{ color: TEXT, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span>⛴ {s.ship} {s.overnight ? "🌙" : ""}{opsNote ? <span style={{ fontSize: 9, color: TEXT_DIM, marginLeft: 4 }}>({opsNote})</span> : ""}</span>
+                          <div key={i} style={{ color: s.turnaround ? TEXT : TEXT_DIM, display: "flex", justifyContent: "space-between", alignItems: "center", opacity: s.turnaround ? 1 : 0.75 }}>
+                            <span>{s.turnaround ? "⛴" : "↔"} {s.ship} {s.overnight ? "🌙" : ""}{!s.turnaround ? <span style={{ fontSize: 9, color: IPS_ACCENT2, marginLeft: 4 }}>(transit)</span> : ""}{opsNote ? <span style={{ fontSize: 9, color: TEXT_DIM, marginLeft: 4 }}>({opsNote})</span> : ""}</span>
                             <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{s.pax}</span>
                           </div>
                         );
@@ -677,10 +704,11 @@ export default function MarketIntel({ portCalls, activeView }) {
                 );
               })}
             </div>
-            <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 8, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", display: "flex", gap: 24, fontSize: 12, color: TEXT_DIM }}>
-              <span>IPS (T) days: <strong style={{ color: IPS_ACCENT }}>{crunchData.length}</strong></span>
-              <span>Alert (2+): <strong style={{ color: IPS_WARN }}>{crunchData.filter(d => d.ipsTurnarounds >= 2).length}</strong></span>
-              <span>Critical (3+): <strong style={{ color: IPS_DANGER }}>{crunchData.filter(d => d.ipsTurnarounds >= 3).length}</strong></span>
+            <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 8, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", display: "flex", gap: 24, fontSize: 12, color: TEXT_DIM, flexWrap: "wrap" }}>
+              <span>IPS ops days: <strong style={{ color: IPS_ACCENT }}>{crunchData.length}</strong></span>
+              <span>Alert (2+ T): <strong style={{ color: IPS_WARN }}>{crunchData.filter(d => d.ipsTurnarounds >= 2).length}</strong></span>
+              <span>Critical (3+ T): <strong style={{ color: IPS_DANGER }}>{crunchData.filter(d => d.ipsTurnarounds >= 3).length}</strong></span>
+              {showNonTurnaround && <span>Transit ops: <strong style={{ color: IPS_ACCENT2 }}>{crunchData.reduce((sum, d) => sum + d.ipsNonTurnarounds, 0)}</strong></span>}
             </div>
           </Card>
         )}
