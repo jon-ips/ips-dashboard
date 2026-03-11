@@ -160,14 +160,20 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
 
   // ─── PAYDAY CONNECTION TEST ─────────────────────────────────────────────────
   useEffect(() => {
-    if (activeModule !== "cfo" || !payday.connected()) {
-      if (!payday.connected()) setPaydayConnected(false);
+    if (activeModule !== "cfo") return;
+    if (!payday.connected()) {
+      console.warn("Payday: env vars missing — VITE_PAYDAY_CLIENT_ID or VITE_PAYDAY_CLIENT_SECRET is empty");
+      setPaydayConnected(false);
       return;
     }
     (async () => {
-      const result = await payday.customers.get_list_page({ perpage: 1 });
+      console.log("Payday: testing connection...");
+      const result = await payday.company.get();
+      console.log("Payday: connection result", result.ok, result.error);
       setPaydayConnected(result.ok);
-      if (result.ok) setPaydayCompanyName("Payday.is");
+      if (result.ok && result.data) {
+        setPaydayCompanyName(result.data.name || result.data.companyName || "Payday.is");
+      }
     })();
   }, [activeModule]);
 
