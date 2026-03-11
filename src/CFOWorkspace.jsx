@@ -4,7 +4,7 @@ import { supabase, SUPABASE_CONFIGURED } from "./supabase.js";
 import { payday } from "./payday.js";
 import {
   IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
-  SURFACE, BORDER, TEXT, TEXT_DIM, PROSPECT_COLOR,
+  SURFACE, BORDER, TEXT, TEXT_DIM,
   CFO_SERVICE_TYPES, CFO_UNITS, CFO_EXPENSE_CATS, CFO_STAFF_TYPES, CFO_INV_STATUS, fmtISK,
 } from "./constants.js";
 import { Card, SL, CTip, FilterPill, IconPlus, IconUpload, IconChevron, IconSync } from "./shared.jsx";
@@ -926,7 +926,7 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
                   <tr key={s.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)`, opacity: s.active ? 1 : 0.5 }}>
                     <td style={{ padding: "8px", fontWeight: 600 }}>{s.name}</td>
                     <td style={{ padding: "8px", color: TEXT_DIM }}>{s.role}</td>
-                    <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: s.type === "employee" ? "rgba(87,181,200,0.15)" : s.type === "contractor" ? "rgba(245,158,11,0.15)" : "rgba(167,139,250,0.15)", color: s.type === "employee" ? IPS_ACCENT : s.type === "contractor" ? IPS_WARN : PROSPECT_COLOR }}>{CFO_STAFF_TYPES[s.type] || s.type}</span></td>
+                    <td style={{ padding: "8px" }}><span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 10, background: s.type === "employee" ? "rgba(87,181,200,0.15)" : s.type === "contractor" ? "rgba(245,158,11,0.15)" : "rgba(167,139,250,0.15)", color: s.type === "employee" ? IPS_ACCENT : s.type === "contractor" ? IPS_WARN : "#A78BFA" }}>{CFO_STAFF_TYPES[s.type] || s.type}</span></td>
                     <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono" }}>{s.hourly_rate_isk ? fmtISK(s.hourly_rate_isk) + "/hr" : s.monthly_salary_isk ? fmtISK(s.monthly_salary_isk) + "/mo" : "—"}</td>
                     <td style={{ padding: "8px", textAlign: "center" }}><button onClick={() => cfoToggleStaffActive(s.id, s.active)} style={{ background: "none", border: `1px solid ${s.active ? IPS_SUCCESS : TEXT_DIM}`, color: s.active ? IPS_SUCCESS : TEXT_DIM, borderRadius: 4, padding: "2px 8px", fontSize: 10, cursor: "pointer", fontFamily: "JetBrains Mono" }}>{s.active ? "Active" : "Inactive"}</button></td>
                     <td style={{ padding: "8px", textAlign: "center" }}>
