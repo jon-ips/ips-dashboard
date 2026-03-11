@@ -168,11 +168,12 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
     }
     (async () => {
       console.log("Payday: testing connection...");
-      const result = await payday.company.get();
+      // Use customers endpoint (page 1, 1 result) to verify connection — /company doesn't exist
+      const result = await payday.customers.get_list_page({ page: 1, perpage: 1 });
       console.log("Payday: connection result", result.ok, result.error);
       setPaydayConnected(result.ok);
-      if (result.ok && result.data) {
-        setPaydayCompanyName(result.data.name || result.data.companyName || "Payday.is");
+      if (result.ok) {
+        setPaydayCompanyName("Payday.is");
       }
     })();
   }, [activeModule]);
