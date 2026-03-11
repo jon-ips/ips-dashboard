@@ -730,13 +730,19 @@ export default function MarketIntel({ portCalls, activeView }) {
             }
             if (!opsDate) return;
             if (!equipDays[opsDate]) equipDays[opsDate] = { date: opsDate, ships: [], telescopics: 0, conveyors: 0, forklifts: 0 };
-            if (s.turnaround) {
-              // Turnaround = 1 conveyor + 1 forklift + 1 telescopic
+            if (s.line === "Seabourn") {
+              // Seabourn (turnaround or transit) = 2 forklifts
+              equipDays[opsDate].forklifts += 2;
+            } else if (s.line === "Holland America" && !s.turnaround) {
+              // HAL transit = 2 forklifts
+              equipDays[opsDate].forklifts += 2;
+            } else if (s.turnaround) {
+              // Default turnaround = 1 conveyor + 1 forklift + 1 telescopic
               equipDays[opsDate].telescopics += 1;
               equipDays[opsDate].conveyors += 1;
               equipDays[opsDate].forklifts += 1;
             } else {
-              // Transit = 1 telescopic
+              // Default transit = 1 telescopic
               equipDays[opsDate].telescopics += 1;
             }
             equipDays[opsDate].ships.push({ ship: s.ship, line: s.line, pax: s.pax, turnaround: s.turnaround, overnight: isOvernight(s) });
