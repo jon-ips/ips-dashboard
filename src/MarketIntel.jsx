@@ -716,6 +716,101 @@ export default function MarketIntel({ portCalls, activeView }) {
           </Card>
         )}
 
+        {/* ═══ SIMPLE CALENDAR ═══ */}
+        {activeView === "simple" && (
+          <Card>
+            <div style={{ marginBottom: 20 }}>
+              <SL>Simple Ops Calendar — Summer 2026</SL>
+              <div style={{ fontSize: 13, color: TEXT_DIM, marginTop: -8 }}>One card per ops day. Big ship name. Big operation type.</div>
+              <div style={{ display: "flex", gap: 12, marginTop: 12, alignItems: "center" }}>
+                <div
+                  onClick={() => setShowNonTurnaround(v => !v)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", background: showNonTurnaround ? "rgba(87,181,200,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${showNonTurnaround ? IPS_ACCENT : BORDER}`, color: showNonTurnaround ? IPS_ACCENT : TEXT_DIM, transition: "all 0.15s", userSelect: "none" }}
+                >
+                  <div style={{ width: 24, height: 14, borderRadius: 7, background: showNonTurnaround ? IPS_ACCENT : "#334155", position: "relative", transition: "background 0.15s" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, background: "#fff", position: "absolute", top: 2, left: showNonTurnaround ? 12 : 2, transition: "left 0.15s" }} />
+                  </div>
+                  Show transit ops
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+              {crunchData.map((d) => {
+                const dateObj = new Date(d.date + "T12:00:00");
+                return (
+                  <div key={d.date} style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 12,
+                    padding: 20,
+                  }}>
+                    {/* Date header */}
+                    <div style={{
+                      fontFamily: "JetBrains Mono",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: IPS_ACCENT,
+                      marginBottom: 16,
+                      paddingBottom: 10,
+                      borderBottom: `1px solid ${BORDER}`,
+                    }}>
+                      {dateObj.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+                    </div>
+
+                    {/* Ships */}
+                    {d.ipsShips.map((s, i) => {
+                      const isTurnaround = s.turnaround;
+                      return (
+                        <div key={i} style={{
+                          marginBottom: i < d.ipsShips.length - 1 ? 16 : 0,
+                          padding: 16,
+                          borderRadius: 10,
+                          background: isTurnaround ? "rgba(245,158,11,0.08)" : "rgba(87,181,200,0.08)",
+                          border: `2px solid ${isTurnaround ? IPS_WARN : IPS_ACCENT2}`,
+                        }}>
+                          {/* Ship name - BIG */}
+                          <div style={{
+                            fontSize: 28,
+                            fontWeight: 900,
+                            color: TEXT,
+                            lineHeight: 1.2,
+                            marginBottom: 8,
+                          }}>
+                            {s.ship}
+                          </div>
+
+                          {/* Operation type - VERY BIG */}
+                          <div style={{
+                            fontSize: 36,
+                            fontWeight: 900,
+                            fontFamily: "JetBrains Mono",
+                            color: isTurnaround ? IPS_WARN : IPS_ACCENT2,
+                            letterSpacing: 2,
+                            textTransform: "uppercase",
+                            lineHeight: 1.1,
+                          }}>
+                            {isTurnaround ? "TURNAROUND" : "GARBAGE"}
+                          </div>
+
+                          {/* Pax count */}
+                          <div style={{
+                            fontSize: 14,
+                            color: TEXT_DIM,
+                            marginTop: 8,
+                            fontFamily: "JetBrains Mono",
+                          }}>
+                            {s.pax} pax
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {/* ═══ EQUIPMENT ═══ */}
         {activeView === "equipment" && (() => {
           // Build daily equipment needs from IPS ops
