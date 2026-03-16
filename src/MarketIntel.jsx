@@ -8,6 +8,7 @@ import {
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM, OTHER_COLOR,
   SAMSKIP_COLOR, PROSPECT_GROUPS,
+  SDK_COLOR, SDK_LINES,
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
@@ -23,6 +24,23 @@ export default function MarketIntel({ portCalls, activeView }) {
   const [calFilter, setCalFilter] = useState(new Set()); // extra lines toggled visible on calendar
   const [calDropOpen, setCalDropOpen] = useState(false);
   const [showNonTurnaround, setShowNonTurnaround] = useState(false);
+  const [sdkLines, setSdkLines] = useState(new Set(SDK_LINES)); // SDK lines toggled on by default
+  const [sdkOpen, setSdkOpen] = useState(false);
+
+  const toggleSdkLine = useCallback((line) => {
+    setSdkLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(line)) next.delete(line); else next.add(line);
+      return next;
+    });
+  }, []);
+
+  const toggleAllSdk = useCallback(() => {
+    setSdkLines((prev) => {
+      if (prev.size === SDK_LINES.length) return new Set();
+      return new Set(SDK_LINES);
+    });
+  }, []);
 
   // ─── COMPUTED DATA ────────────────────────────────────────────────────────
   const toggleLine = useCallback((line) => {
@@ -50,9 +68,10 @@ export default function MarketIntel({ portCalls, activeView }) {
 
   const isIPS = useCallback((ship) => {
     if (ship.status === "contracted") return true;
+    if (ship.status === "sdk" && sdkLines.has(ship.line)) return true;
     if (wonLines.has(ship.line)) return true;
     return false;
-  }, [wonLines]);
+  }, [wonLines, sdkLines]);
 
   // Build sorted list of all non-contracted lines for the dropdown
   const allNonContractedLines = useMemo(() => {
@@ -177,7 +196,7 @@ export default function MarketIntel({ portCalls, activeView }) {
   const tieredPie = [{ name: "IPS", value: stats.ipsTieredW, color: IPS_ACCENT }, { name: "Other", value: stats.otherTieredW, color: "#334155" }];
 
   const sortedLines = Object.entries(stats.lineBreakdown).sort((a, b) => {
-    const order = { contracted: 0, prospect: 1, other: 2 };
+    const order = { contracted: 0, sdk: 1, prospect: 2, other: 3 };
     const diff = order[a[1].status] - order[b[1].status];
     return diff !== 0 ? diff : b[1].tieredW - a[1].tieredW;
   });
@@ -328,6 +347,59 @@ export default function MarketIntel({ portCalls, activeView }) {
             </div>
           </div>
           </div>)}
+        </Card>
+
+        {/* SDK TOGGLE */}
+        <Card style={{ marginBottom: 20, background: `linear-gradient(90deg, rgba(139,92,246,0.05) 0%, ${SURFACE} 100%)`, border: `1px solid rgba(139,92,246,0.2)` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setSdkOpen(o => !o)}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: SDK_COLOR, fontFamily: "JetBrains Mono", fontWeight: 500 }}>SDK</div>
+              <span style={{ fontSize: 11, color: TEXT_DIM }}>· {sdkLines.size}/{SDK_LINES.length} lines active</span>
+            </div>
+            <span style={{ color: TEXT_DIM, fontSize: 14, transform: sdkOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+          </div>
+          {sdkOpen && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <button onClick={toggleAllSdk} style={{
+                  background: sdkLines.size === SDK_LINES.length ? SDK_COLOR : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${sdkLines.size === SDK_LINES.length ? SDK_COLOR : BORDER}`,
+                  borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 11,
+                  color: sdkLines.size === SDK_LINES.length ? "#fff" : TEXT_DIM, fontFamily: "JetBrains Mono",
+                }}>
+                  {sdkLines.size === SDK_LINES.length ? "Deselect All" : "Select All"}
+                </button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {SDK_LINES.map((line) => {
+                  const active = sdkLines.has(line);
+                  const lineData = portCalls.filter(s => s.line === line && s.status === "sdk");
+                  const calls = lineData.length;
+                  const turnarounds = lineData.filter(s => s.turnaround).length;
+                  return (
+                    <button key={line} onClick={() => toggleSdkLine(line)} style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "6px 12px", borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
+                      background: active ? "rgba(139,92,246,0.12)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${active ? SDK_COLOR : BORDER}`,
+                    }}>
+                      <div style={{
+                        width: 16, height: 16, borderRadius: 4,
+                        border: `2px solid ${active ? SDK_COLOR : BORDER}`,
+                        background: active ? SDK_COLOR : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.15s", flexShrink: 0,
+                      }}>
+                        {active && <span style={{ color: "#fff", fontSize: 10, fontWeight: 700 }}>✓</span>}
+                      </div>
+                      <span style={{ color: active ? TEXT : TEXT_DIM, fontSize: 12, fontWeight: 500 }}>{line}</span>
+                      <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{calls}c · {turnarounds}T</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* ═══ OVERVIEW ═══ */}
