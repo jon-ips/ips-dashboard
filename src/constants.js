@@ -269,6 +269,11 @@ export const SDK_LINES = ["Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd"
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
 export const PROSPECT_GROUPS = {
+  sdk: {
+    label: "SDK",
+    color: SDK_COLOR,
+    lines: SDK_LINES,
+  },
   samskip: {
     label: "Samskip",
     color: SAMSKIP_COLOR,
