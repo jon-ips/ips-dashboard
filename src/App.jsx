@@ -39,7 +39,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             ship: pc.ships?.name || "Unknown",
             turnaround: pc.turnaround,
             pax: pc.pax,
-            status: (pc.ships?.cruise_lines?.name === "Cunard") ? "contracted" : (pc.status || "other"),
+            status: ["Holland America", "Seabourn", "Viking"].includes(pc.ships?.cruise_lines?.name) ? "contracted" : "other",
           }));
           setDbPortCalls(mapped);
         }
