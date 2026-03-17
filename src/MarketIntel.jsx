@@ -23,6 +23,7 @@ export default function MarketIntel({ portCalls, activeView }) {
   const [calFilter, setCalFilter] = useState(new Set()); // extra lines toggled visible on calendar
   const [calDropOpen, setCalDropOpen] = useState(false);
   const [showNonTurnaround, setShowNonTurnaround] = useState(false);
+  const [activePaxBrackets, setActivePaxBrackets] = useState(new Set(["small", "medium", "large", "mega"]));
 
   // ─── COMPUTED DATA ────────────────────────────────────────────────────────
   const toggleLine = useCallback((line) => {
@@ -147,7 +148,33 @@ export default function MarketIntel({ portCalls, activeView }) {
       if (isOvernight(s)) lineBreakdown[s.line].overnights++;
     });
 
-    return { ipsCalls, otherCalls, totalCalls, callShare, simpleWShare, tieredShare, ipsSimpleW, otherSimpleW, totalSimpleW, ipsTieredW, otherTieredW, totalTieredW, ipsTurnarounds, ipsTransits, ipsTurnaroundPax, monthly, lineBreakdown };
+    // Transit vs Turnaround market breakdown
+    let totalTurnarounds = 0, totalTransits = 0;
+    let ipsTurnaroundCount = 0, ipsTransitCount = 0;
+    const paxBrackets = {
+      small:  { label: "Small (<300)",     range: [0, 299],    ipsTurnarounds: 0, totalTurnarounds: 0, ipsPax: 0, totalPax: 0 },
+      medium: { label: "Medium (300–600)", range: [300, 600],  ipsTurnarounds: 0, totalTurnarounds: 0, ipsPax: 0, totalPax: 0 },
+      large:  { label: "Large (600–1200)", range: [601, 1200], ipsTurnarounds: 0, totalTurnarounds: 0, ipsPax: 0, totalPax: 0 },
+      mega:   { label: "Mega (1200+)",     range: [1201, Infinity], ipsTurnarounds: 0, totalTurnarounds: 0, ipsPax: 0, totalPax: 0 },
+    };
+    portCalls.forEach((s) => {
+      if (s.turnaround) {
+        totalTurnarounds++;
+        if (isIPS(s)) ipsTurnaroundCount++;
+        // Pax bracket
+        const bk = s.pax < 300 ? "small" : s.pax <= 600 ? "medium" : s.pax <= 1200 ? "large" : "mega";
+        paxBrackets[bk].totalTurnarounds++;
+        paxBrackets[bk].totalPax += s.pax;
+        if (isIPS(s)) { paxBrackets[bk].ipsTurnarounds++; paxBrackets[bk].ipsPax += s.pax; }
+      } else {
+        totalTransits++;
+        if (isIPS(s)) ipsTransitCount++;
+      }
+    });
+    const turnaroundShare = totalTurnarounds > 0 ? ((ipsTurnaroundCount / totalTurnarounds) * 100).toFixed(1) : 0;
+    const transitShare = totalTransits > 0 ? ((ipsTransitCount / totalTransits) * 100).toFixed(1) : 0;
+
+    return { ipsCalls, otherCalls, totalCalls, callShare, simpleWShare, tieredShare, ipsSimpleW, otherSimpleW, totalSimpleW, ipsTieredW, otherTieredW, totalTieredW, ipsTurnarounds, ipsTransits, ipsTurnaroundPax, monthly, lineBreakdown, totalTurnarounds, totalTransits, ipsTurnaroundCount, ipsTransitCount, turnaroundShare, transitShare, paxBrackets };
   }, [isIPS, wonLines, portCalls]);
 
   // ─── CRUNCH ─────────────────────────────────────────────────────────────────
@@ -346,6 +373,75 @@ export default function MarketIntel({ portCalls, activeView }) {
             <PieCard data={callPie} sharePercent={stats.callShare} title="Call Count Share" />
             <PieCard data={tieredPie} sharePercent={stats.tieredShare} title="Tiered Weighted (by pax)" />
           </div>
+          {/* Transit vs Turnaround Market Share */}
+          <Card style={{ marginBottom: 20 }}>
+            <SL>Market Share — Transit vs Turnaround</SL>
+            <div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -8, marginBottom: 16 }}>IPS share of each call type across the full port season · affected by what-if scenarios</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+              {/* Transit share */}
+              <div style={{ background: "rgba(87,181,200,0.05)", border: `1px solid rgba(87,181,200,0.15)`, borderRadius: 10, padding: 20, textAlign: "center" }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Transit Calls</div>
+                <div style={{ fontSize: 40, fontWeight: 800, color: IPS_ACCENT, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{stats.transitShare}%</div>
+                <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 6 }}>IPS: <strong style={{ color: IPS_ACCENT }}>{stats.ipsTransitCount}</strong> of <strong>{stats.totalTransits}</strong> transit calls</div>
+                <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 3, background: IPS_ACCENT, width: `${stats.transitShare}%`, transition: "width 0.4s" }} />
+                </div>
+              </div>
+              {/* Turnaround share */}
+              <div style={{ background: "rgba(245,158,11,0.05)", border: `1px solid rgba(245,158,11,0.15)`, borderRadius: 10, padding: 20, textAlign: "center" }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Turnaround Calls</div>
+                <div style={{ fontSize: 40, fontWeight: 800, color: IPS_WARN, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{stats.turnaroundShare}%</div>
+                <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 6 }}>IPS: <strong style={{ color: IPS_WARN }}>{stats.ipsTurnaroundCount}</strong> of <strong>{stats.totalTurnarounds}</strong> turnaround calls</div>
+                <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 3, background: IPS_WARN, width: `${stats.turnaroundShare}%`, transition: "width 0.4s" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Pax Bracket Breakdown for Turnarounds */}
+            <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>Turnaround Share by Pax Bracket</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {Object.entries(stats.paxBrackets).map(([key, b]) => {
+                    const active = activePaxBrackets.has(key);
+                    return (
+                      <button key={key} onClick={() => setActivePaxBrackets(prev => {
+                        const next = new Set(prev);
+                        if (next.has(key)) { if (next.size > 1) next.delete(key); } else next.add(key);
+                        return next;
+                      })} style={{
+                        background: active ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${active ? IPS_WARN : BORDER}`,
+                        borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                        color: active ? IPS_WARN : TEXT_DIM, fontSize: 10, fontWeight: 600,
+                        fontFamily: "JetBrains Mono", transition: "all 0.15s",
+                      }}>{b.label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${[...activePaxBrackets].length}, 1fr)`, gap: 10 }}>
+                {Object.entries(stats.paxBrackets).filter(([key]) => activePaxBrackets.has(key)).map(([key, b]) => {
+                  const share = b.totalTurnarounds > 0 ? ((b.ipsTurnarounds / b.totalTurnarounds) * 100).toFixed(1) : 0;
+                  const bracketColors = { small: "#22C55E", medium: "#57B5C8", large: "#F59E0B", mega: "#EF4444" };
+                  const bc = bracketColors[key];
+                  return (
+                    <div key={key} style={{ background: `${bc}08`, border: `1px solid ${bc}25`, borderRadius: 8, padding: 14, textAlign: "center" }}>
+                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{b.label}</div>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: bc, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{share}%</div>
+                      <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{b.ipsTurnarounds}/{b.totalTurnarounds} calls</div>
+                      <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 2, background: bc, width: `${share}%`, transition: "width 0.4s" }} />
+                      </div>
+                      <div style={{ fontSize: 9, color: TEXT_DIM, marginTop: 4 }}>{(b.ipsPax / 1000).toFixed(1)}K / {(b.totalPax / 1000).toFixed(1)}K pax</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
             <Card><SL>Monthly Call Volume</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsCalls" name="IPS" fill={IPS_ACCENT} radius={[4, 4, 0, 0]} /><Bar dataKey="otherCalls" name="Other" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
             <Card><SL>Monthly Tiered Weighted Points</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsTieredW" name="IPS Tiered" fill={IPS_SUCCESS} radius={[4, 4, 0, 0]} /><Bar dataKey="otherTieredW" name="Other Tiered" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
