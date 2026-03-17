@@ -277,7 +277,7 @@ export const PROSPECT_GROUPS = {
   samskip: {
     label: "Samskip",
     color: SAMSKIP_COLOR,
-    lines: ["Oceania", "Norwegian Cruise Line", "Regent", "Carnival", "Peace Boat", "Princess", "Virgin"],
+    lines: ["Oceania", "Norwegian Cruise Line", "Regent", "Carnival", "Peace Boat", "Virgin"],
   },
 };
 

@@ -7,7 +7,7 @@ import { createCanvas } from "canvas";
 // ── Samskip prospect lines ──────────────────────────────────────────────────
 const SAMSKIP_LINES = new Set([
   "Oceania", "Norwegian Cruise Line", "Regent", "Carnival",
-  "Peace Boat", "Princess", "Virgin",
+  "Peace Boat", "Virgin",
 ]);
 
 // ── IPS lines (excludes SDK calls) ──────────────────────────────────────────
