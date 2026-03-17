@@ -10,9 +10,15 @@ const SAMSKIP_LINES = new Set([
   "Peace Boat", "Princess", "Virgin",
 ]);
 
-// ── IPS lines (former IPS contracted, excludes SDK calls) ───────────────────
+// ── IPS lines (excludes SDK calls) ──────────────────────────────────────────
 const IPS_LINES = new Set([
   "Holland America", "Seabourn", "Viking",
+]);
+
+// ── SDK lines ───────────────────────────────────────────────────────────────
+const SDK_LINES = new Set([
+  "Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd",
+  "P&O", "Phoenix Reisen", "TUI",
 ]);
 
 // ── Port calls data (same as main app) ──────────────────────────────────────
@@ -255,13 +261,21 @@ function getNonTurnaroundOpsDate(s) {
   return s.date;
 }
 
-// ── Build ops-day data: IPS contracted + Samskip lines ──────────────────────
-function buildSamskipOpsData() {
+// ── Build ops-day data for a given set of included lines ─────────────────────
+// includeSets: array of { lines: Set, tag: string }
+// A ship is included if its line is in any of the sets.
+// The first matching tag is stored for color-coding.
+function buildOpsData(includeSets) {
   const allDates = {};
   for (const s of SHIPS) {
-    const isIPS = s.status === "contracted" && IPS_LINES.has(s.line);
-    const isSamskip = SAMSKIP_LINES.has(s.line);
-    if (!isIPS && !isSamskip) continue;
+    let tag = null;
+    for (const { lines, tag: t, contractedOnly } of includeSets) {
+      if (lines.has(s.line) && (!contractedOnly || s.status === "contracted")) {
+        tag = t;
+        break;
+      }
+    }
+    if (!tag) continue;
 
     let opsDate;
     if (s.turnaround) {
@@ -271,13 +285,23 @@ function buildSamskipOpsData() {
     }
     if (!opsDate) continue;
     if (!allDates[opsDate]) allDates[opsDate] = [];
-    allDates[opsDate].push({ ship: s.ship, turnaround: s.turnaround, pax: s.pax, line: s.line, isSamskip });
+    allDates[opsDate].push({ ship: s.ship, turnaround: s.turnaround, pax: s.pax, line: s.line, tag });
   }
   return allDates;
 }
 
+// ── Tag color schemes ───────────────────────────────────────────────────────
+const TAG_COLORS = {
+  ips:     { bg: "#FFF7ED", border: "#F59E0B", label: "#D97706", badge: null },
+  samskip: { bg: "#FFF2E8", border: "#F97316", label: "#C2410C", badge: "#F97316" },
+  sdk:     { bg: "#EFF6FF", border: "#3B82F6", label: "#1D4ED8", badge: "#3B82F6" },
+};
+
+// For non-turnaround (GARBAGE) when tag is "ips", use teal
+const IPS_GARBAGE = { bg: "#F0FDFA", border: "#458CA7", label: "#0F766E" };
+
 // ── Canvas-based calendar rendering ─────────────────────────────────────────
-function generateMonthPNG(year, month, opsData) {
+function generateMonthPNG(year, month, opsData, { subtitle, legends }) {
   const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -331,30 +355,26 @@ function generateMonthPNG(year, month, opsData) {
   ctx.fillText(`${monthNames[month]} ${year}`, totalW / 2, 42);
 
   // Subtitle
-  ctx.fillStyle = "#F97316";
+  ctx.fillStyle = "#666";
   ctx.font = "700 14px 'Inter', 'Helvetica Neue', Arial, sans-serif";
-  ctx.fillText("SAMSKIP CALENDAR — IPS Contracted + Samskip Lines", totalW / 2, 64);
+  ctx.fillText(subtitle, totalW / 2, 64);
 
   // Legend
   ctx.textAlign = "left";
   const legendY = 80;
-  const legendX = totalW / 2 - 200;
-  // IPS box
-  ctx.fillStyle = "#FFF7ED";
-  ctx.strokeStyle = "#F59E0B";
-  ctx.lineWidth = 2;
-  roundRect(ctx, legendX, legendY - 10, 12, 12, 3);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = "#888";
-  ctx.font = "600 11px 'Inter', sans-serif";
-  ctx.fillText("IPS Contracted", legendX + 18, legendY);
-  // Samskip box
-  ctx.fillStyle = "#FFF2E8";
-  ctx.strokeStyle = "#F97316";
-  roundRect(ctx, legendX + 130, legendY - 10, 12, 12, 3);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = "#888";
-  ctx.fillText("Samskip Prospect", legendX + 148, legendY);
+  const totalLegendW = legends.reduce((acc, l) => acc + 18 + ctx.measureText(l.label).width + 16, 0);
+  let legendX = totalW / 2 - totalLegendW / 2;
+  for (const leg of legends) {
+    ctx.fillStyle = leg.bg;
+    ctx.strokeStyle = leg.border;
+    ctx.lineWidth = 2;
+    roundRect(ctx, legendX, legendY - 10, 12, 12, 3);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#888";
+    ctx.font = "600 11px 'Inter', sans-serif";
+    ctx.fillText(leg.label, legendX + 18, legendY);
+    legendX += 18 + ctx.measureText(leg.label).width + 16;
+  }
 
   // Day-of-week headers
   const gridX = 10;
@@ -409,14 +429,15 @@ function generateMonthPNG(year, month, opsData) {
         const entryH = shipEntryH - 4;
 
         let bgColor, borderColor, labelColor;
-        if (ship.isSamskip) {
-          bgColor = "#FFF2E8";
-          borderColor = "#F97316";
-          labelColor = "#C2410C";
+        const tc = TAG_COLORS[ship.tag] || TAG_COLORS.ips;
+        if (ship.tag === "ips" && !isTurnaround) {
+          bgColor = IPS_GARBAGE.bg;
+          borderColor = IPS_GARBAGE.border;
+          labelColor = IPS_GARBAGE.label;
         } else {
-          bgColor = isTurnaround ? "#FFF7ED" : "#F0FDFA";
-          borderColor = isTurnaround ? "#F59E0B" : "#458CA7";
-          labelColor = isTurnaround ? "#D97706" : "#0F766E";
+          bgColor = tc.bg;
+          borderColor = tc.border;
+          labelColor = tc.label;
         }
 
         // Entry background
@@ -427,12 +448,12 @@ function generateMonthPNG(year, month, opsData) {
         ctx.fill();
         ctx.stroke();
 
-        // Samskip label (small, top-right)
-        if (ship.isSamskip) {
+        // Tag badge (small, top-right)
+        if (tc.badge) {
           ctx.textAlign = "right";
-          ctx.fillStyle = "#F97316";
+          ctx.fillStyle = tc.badge;
           ctx.font = "700 8px 'Inter', sans-serif";
-          ctx.fillText("SAMSKIP", x + colW - 14, shipY + 12);
+          ctx.fillText(ship.tag.toUpperCase(), x + colW - 14, shipY + 12);
         }
 
         // Ship name
@@ -476,9 +497,52 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// ── Calendar variants ────────────────────────────────────────────────────────
+const VARIANTS = [
+  {
+    prefix: "Samskip",
+    subtitle: "IPS + Samskip",
+    includeSets: [
+      { lines: IPS_LINES, tag: "ips", contractedOnly: true },
+      { lines: SAMSKIP_LINES, tag: "samskip", contractedOnly: false },
+    ],
+    legends: [
+      { label: "IPS", bg: "#FFF7ED", border: "#F59E0B" },
+      { label: "Samskip", bg: "#FFF2E8", border: "#F97316" },
+    ],
+  },
+  {
+    prefix: "Samskip-SDK",
+    subtitle: "IPS + Samskip + SDK",
+    includeSets: [
+      { lines: IPS_LINES, tag: "ips", contractedOnly: true },
+      { lines: SAMSKIP_LINES, tag: "samskip", contractedOnly: false },
+      { lines: SDK_LINES, tag: "sdk", contractedOnly: true },
+    ],
+    legends: [
+      { label: "IPS", bg: "#FFF7ED", border: "#F59E0B" },
+      { label: "Samskip", bg: "#FFF2E8", border: "#F97316" },
+      { label: "SDK", bg: "#EFF6FF", border: "#3B82F6" },
+    ],
+  },
+  {
+    prefix: "Samskip-AidaCosta",
+    subtitle: "IPS + Samskip + Aida + Costa",
+    includeSets: [
+      { lines: IPS_LINES, tag: "ips", contractedOnly: true },
+      { lines: SAMSKIP_LINES, tag: "samskip", contractedOnly: false },
+      { lines: new Set(["Aida", "Costa"]), tag: "sdk", contractedOnly: true },
+    ],
+    legends: [
+      { label: "IPS", bg: "#FFF7ED", border: "#F59E0B" },
+      { label: "Samskip", bg: "#FFF2E8", border: "#F97316" },
+      { label: "Aida/Costa", bg: "#EFF6FF", border: "#3B82F6" },
+    ],
+  },
+];
+
 // ── Main ────────────────────────────────────────────────────────────────────
 mkdirSync("calendars", { recursive: true });
-const opsData = buildSamskipOpsData();
 const months = [
   { num: 5, name: "May" },
   { num: 6, name: "June" },
@@ -487,10 +551,13 @@ const months = [
   { num: 9, name: "September" },
 ];
 
-for (const m of months) {
-  const png = generateMonthPNG(2026, m.num, opsData);
-  const path = `calendars/Samskip-${m.name}-2026.png`;
-  writeFileSync(path, png);
-  console.log(`Generated ${path}`);
+for (const variant of VARIANTS) {
+  const opsData = buildOpsData(variant.includeSets);
+  for (const m of months) {
+    const png = generateMonthPNG(2026, m.num, opsData, { subtitle: variant.subtitle, legends: variant.legends });
+    const path = `calendars/${variant.prefix}-${m.name}-2026.png`;
+    writeFileSync(path, png);
+    console.log(`Generated ${path}`);
+  }
 }
-console.log("Done! Samskip calendar PNGs in ./calendars/");
+console.log("Done! All calendar PNGs in ./calendars/");
