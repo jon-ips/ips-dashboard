@@ -10,6 +10,11 @@ const SAMSKIP_LINES = new Set([
   "Peace Boat", "Princess", "Virgin",
 ]);
 
+// ── IPS lines (former IPS contracted, excludes SDK calls) ───────────────────
+const IPS_LINES = new Set([
+  "Holland America", "Seabourn", "Viking",
+]);
+
 // ── Port calls data (same as main app) ──────────────────────────────────────
 const SHIPS = [
   { date: "2026-05-04", endDate: null, line: "Ponant", ship: "Le Commandant Charcot", turnaround: true, pax: 250, status: "other" },
@@ -254,9 +259,9 @@ function getNonTurnaroundOpsDate(s) {
 function buildSamskipOpsData() {
   const allDates = {};
   for (const s of SHIPS) {
-    const isContracted = s.status === "contracted";
+    const isIPS = s.status === "contracted" && IPS_LINES.has(s.line);
     const isSamskip = SAMSKIP_LINES.has(s.line);
-    if (!isContracted && !isSamskip) continue;
+    if (!isIPS && !isSamskip) continue;
 
     let opsDate;
     if (s.turnaround) {
