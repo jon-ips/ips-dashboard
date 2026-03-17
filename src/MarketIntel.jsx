@@ -421,24 +421,59 @@ export default function MarketIntel({ portCalls, activeView }) {
                   })}
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${[...activePaxBrackets].length}, 1fr)`, gap: 10 }}>
-                {Object.entries(stats.paxBrackets).filter(([key]) => activePaxBrackets.has(key)).map(([key, b]) => {
-                  const share = b.totalTurnarounds > 0 ? ((b.ipsTurnarounds / b.totalTurnarounds) * 100).toFixed(1) : 0;
-                  const bracketColors = { small: "#22C55E", medium: "#57B5C8", large: "#F59E0B", mega: "#EF4444" };
-                  const bc = bracketColors[key];
-                  return (
-                    <div key={key} style={{ background: `${bc}08`, border: `1px solid ${bc}25`, borderRadius: 8, padding: 14, textAlign: "center" }}>
-                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{b.label}</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: bc, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{share}%</div>
-                      <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{b.ipsTurnarounds}/{b.totalTurnarounds} calls</div>
-                      <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                        <div style={{ height: "100%", borderRadius: 2, background: bc, width: `${share}%`, transition: "width 0.4s" }} />
+              {(() => {
+                const bracketColors = { small: "#22C55E", medium: "#57B5C8", large: "#F59E0B", mega: "#EF4444" };
+                const bothLargeMega = activePaxBrackets.has("large") && activePaxBrackets.has("mega");
+                const cards = [];
+                const seen = new Set();
+                Object.entries(stats.paxBrackets).forEach(([key, b]) => {
+                  if (!activePaxBrackets.has(key) || seen.has(key)) return;
+                  if (bothLargeMega && (key === "large" || key === "mega")) {
+                    seen.add("large"); seen.add("mega");
+                    const lg = stats.paxBrackets.large, mg = stats.paxBrackets.mega;
+                    const combined = {
+                      label: "Large + Mega (600+)",
+                      ipsTurnarounds: lg.ipsTurnarounds + mg.ipsTurnarounds,
+                      totalTurnarounds: lg.totalTurnarounds + mg.totalTurnarounds,
+                      ipsPax: lg.ipsPax + mg.ipsPax,
+                      totalPax: lg.totalPax + mg.totalPax,
+                    };
+                    const share = combined.totalTurnarounds > 0 ? ((combined.ipsTurnarounds / combined.totalTurnarounds) * 100).toFixed(1) : 0;
+                    const gc = "url(#largeMegaGrad)";
+                    cards.push(
+                      <div key="large-mega" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.06), rgba(239,68,68,0.06))", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{combined.label}</div>
+                        <div style={{ fontSize: 28, fontWeight: 800, background: "linear-gradient(135deg, #F59E0B, #EF4444)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{share}%</div>
+                        <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{combined.ipsTurnarounds}/{combined.totalTurnarounds} calls</div>
+                        <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                          <div style={{ height: "100%", borderRadius: 2, background: "linear-gradient(90deg, #F59E0B, #EF4444)", width: `${share}%`, transition: "width 0.4s" }} />
+                        </div>
+                        <div style={{ fontSize: 9, color: TEXT_DIM, marginTop: 4 }}>{(combined.ipsPax / 1000).toFixed(1)}K / {(combined.totalPax / 1000).toFixed(1)}K pax</div>
                       </div>
-                      <div style={{ fontSize: 9, color: TEXT_DIM, marginTop: 4 }}>{(b.ipsPax / 1000).toFixed(1)}K / {(b.totalPax / 1000).toFixed(1)}K pax</div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  } else {
+                    seen.add(key);
+                    const share = b.totalTurnarounds > 0 ? ((b.ipsTurnarounds / b.totalTurnarounds) * 100).toFixed(1) : 0;
+                    const bc = bracketColors[key];
+                    cards.push(
+                      <div key={key} style={{ background: `${bc}08`, border: `1px solid ${bc}25`, borderRadius: 8, padding: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>{b.label}</div>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: bc, fontFamily: "JetBrains Mono", lineHeight: 1.1 }}>{share}%</div>
+                        <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 4 }}>{b.ipsTurnarounds}/{b.totalTurnarounds} calls</div>
+                        <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                          <div style={{ height: "100%", borderRadius: 2, background: bc, width: `${share}%`, transition: "width 0.4s" }} />
+                        </div>
+                        <div style={{ fontSize: 9, color: TEXT_DIM, marginTop: 4 }}>{(b.ipsPax / 1000).toFixed(1)}K / {(b.totalPax / 1000).toFixed(1)}K pax</div>
+                      </div>
+                    );
+                  }
+                });
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${cards.length}, 1fr)`, gap: 10 }}>
+                    {cards}
+                  </div>
+                );
+              })()}
             </div>
           </Card>
 
