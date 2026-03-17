@@ -124,9 +124,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <SidebarNav label="Overview" active={activeView === "overview"} onClick={() => setActiveView("overview")} />
             <SidebarNav label="Calendar" active={activeView === "calendar"} onClick={() => setActiveView("calendar")} />
             <SidebarNav label="Crunch Calendar" active={activeView === "crunch"} onClick={() => setActiveView("crunch")} />
-            <SidebarNav label="Simple Calendar" active={activeView === "simple"} onClick={() => setActiveView("simple")} />
-            <SidebarNav label="Samskip Simple Calendar" active={activeView === "samskip-simple"} onClick={() => setActiveView("samskip-simple")} />
-            <SidebarNav label="Port Calendar" active={activeView === "portcal"} onClick={() => setActiveView("portcal")} />
+<SidebarNav label="Port Calendar" active={activeView === "portcal"} onClick={() => setActiveView("portcal")} />
             <SidebarNav label="Equipment" active={activeView === "equipment"} onClick={() => setActiveView("equipment")} />
             <SidebarNav label="Operations" active={activeView === "operations"} onClick={() => setActiveView("operations")} />
             <SidebarNav label="Fleet Intel" active={activeView === "fleet"} onClick={() => setActiveView("fleet")} />
