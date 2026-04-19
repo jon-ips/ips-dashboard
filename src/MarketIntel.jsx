@@ -11,7 +11,32 @@ import {
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
-export default function MarketIntel({ portCalls, activeView }) {
+export default function MarketIntel({ portCalls, activeView, projections = [] }) {
+  // ─── PROJECTION LOOKUP ────────────────────────────────────────────────────
+  // Key: `${scope}|${name}|${callType}|${dayType}` → totalIsk
+  const projectionIndex = useMemo(() => {
+    const idx = new Map();
+    projections.forEach(p => {
+      const name = p.scope === "ship" ? p.ship : p.line;
+      if (!name) return;
+      idx.set(`${p.scope}|${name}|${p.callType}|${p.dayType}`, p.totalIsk);
+    });
+    return idx;
+  }, [projections]);
+
+  // Return projected revenue for a single call, or null if no template exists
+  const getCallRevenue = useCallback((call) => {
+    const d = new Date(call.date + "T12:00:00");
+    const dow = d.getDay();
+    const dayType = (dow === 0 || dow === 6) ? "weekend" : "weekday";
+    const callType = call.turnaround ? "turnaround" : "transit";
+    const shipKey = `ship|${call.ship}|${callType}|${dayType}`;
+    const lineKey = `line|${call.line}|${callType}|${dayType}`;
+    if (projectionIndex.has(shipKey)) return projectionIndex.get(shipKey);
+    if (projectionIndex.has(lineKey)) return projectionIndex.get(lineKey);
+    return null;
+  }, [projectionIndex]);
+
   // ─── MARKET INTEL STATE ───────────────────────────────────────────────────
   const [wonLines, setWonLines] = useState(new Set());
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -139,13 +164,16 @@ export default function MarketIntel({ portCalls, activeView }) {
 
     const lineBreakdown = {};
     portCalls.forEach((s) => {
-      if (!lineBreakdown[s.line]) lineBreakdown[s.line] = { calls: 0, turnarounds: 0, transits: 0, pax: 0, simpleW: 0, tieredW: 0, turnaroundPax: 0, status: (s.status !== "contracted" && wonLines.has(s.line)) ? "contracted" : s.status, baseStatus: s.status, overnights: 0 };
+      if (!lineBreakdown[s.line]) lineBreakdown[s.line] = { calls: 0, turnarounds: 0, transits: 0, pax: 0, simpleW: 0, tieredW: 0, turnaroundPax: 0, status: (s.status !== "contracted" && wonLines.has(s.line)) ? "contracted" : s.status, baseStatus: s.status, overnights: 0, revenue: 0, missingCalls: 0 };
       lineBreakdown[s.line].calls++;
       lineBreakdown[s.line].pax += s.pax;
       lineBreakdown[s.line].simpleW += s.turnaround ? SIMPLE_TURNAROUND_WEIGHT : TRANSIT_WEIGHT;
       lineBreakdown[s.line].tieredW += getTieredWeight(s);
       if (s.turnaround) { lineBreakdown[s.line].turnarounds++; lineBreakdown[s.line].turnaroundPax += s.pax; } else lineBreakdown[s.line].transits++;
       if (isOvernight(s)) lineBreakdown[s.line].overnights++;
+      const rev = getCallRevenue(s);
+      if (rev !== null) lineBreakdown[s.line].revenue += rev;
+      else lineBreakdown[s.line].missingCalls++;
     });
 
     // Transit vs Turnaround market breakdown
@@ -175,7 +203,7 @@ export default function MarketIntel({ portCalls, activeView }) {
     const transitShare = totalTransits > 0 ? ((ipsTransitCount / totalTransits) * 100).toFixed(1) : 0;
 
     return { ipsCalls, otherCalls, totalCalls, callShare, simpleWShare, tieredShare, ipsSimpleW, otherSimpleW, totalSimpleW, ipsTieredW, otherTieredW, totalTieredW, ipsTurnarounds, ipsTransits, ipsTurnaroundPax, monthly, lineBreakdown, totalTurnarounds, totalTransits, ipsTurnaroundCount, ipsTransitCount, turnaroundShare, transitShare, paxBrackets };
-  }, [isIPS, wonLines, portCalls]);
+  }, [isIPS, wonLines, portCalls, getCallRevenue]);
 
   // ─── CRUNCH ─────────────────────────────────────────────────────────────────
   const crunchData = useMemo(() => {
@@ -1038,19 +1066,26 @@ export default function MarketIntel({ portCalls, activeView }) {
         </>)}
 
         {/* ═══ FLEET INTEL ═══ */}
-        {activeView === "fleet" && (
+        {activeView === "fleet" && (() => {
+          const fmtIsk = (n) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : `${Math.round(n)}`;
+          const totalRevenue = Object.values(stats.lineBreakdown).reduce((a, d) => a + d.revenue, 0);
+          const totalMissing = Object.values(stats.lineBreakdown).reduce((a, d) => a + d.missingCalls, 0);
+          const linesWithRevenue = Object.values(stats.lineBreakdown).filter(d => d.revenue > 0).length;
+          const gridCols = "1.3fr 80px 45px 45px 45px 45px 60px 60px 60px 90px 60px";
+          return (
           <Card>
             <SL>Cruise Line Intelligence — Reykjavík 2026 · {portCalls.length} Port Calls</SL>
             <div>
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 90px 55px 55px 55px 55px 70px 70px 70px", gap: 8, padding: "8px 12px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
-                <span>Line</span><span>Status</span><span style={{ textAlign: "right" }}>Calls</span><span style={{ textAlign: "right" }}>(T)</span><span style={{ textAlign: "right" }}>Trn</span><span style={{ textAlign: "right" }}>O/N</span><span style={{ textAlign: "right" }}>Tiered</span><span style={{ textAlign: "right" }}>Call%</span><span style={{ textAlign: "right" }}>Tier%</span>
+              <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "8px 12px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
+                <span>Line</span><span>Status</span><span style={{ textAlign: "right" }}>Calls</span><span style={{ textAlign: "right" }}>(T)</span><span style={{ textAlign: "right" }}>Trn</span><span style={{ textAlign: "right" }}>O/N</span><span style={{ textAlign: "right" }}>Tiered</span><span style={{ textAlign: "right" }}>Call%</span><span style={{ textAlign: "right" }}>Tier%</span><span style={{ textAlign: "right" }}>Rev ISK</span><span style={{ textAlign: "right" }}>Missing</span>
               </div>
               {sortedLines.map(([line, data], i) => {
                 const inGroup = Object.values(PROSPECT_GROUPS).some((g) => g.lines.includes(line));
                 const sc = data.status === "contracted" ? IPS_ACCENT : inGroup ? SAMSKIP_COLOR : OTHER_COLOR;
                 const sl = data.status === "contracted" && data.baseStatus !== "contracted" ? "What-If" : data.status === "contracted" ? "Contract" : inGroup ? "Samskip" : "—";
+                const covered = data.calls - data.missingCalls;
                 return (
-                  <div key={line} style={{ display: "grid", gridTemplateColumns: "1.4fr 90px 55px 55px 55px 55px 70px 70px 70px", gap: 8, padding: "8px 12px", fontSize: 12, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4, borderLeft: `3px solid ${sc}` }}>
+                  <div key={line} style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "8px 12px", fontSize: 12, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4, borderLeft: `3px solid ${sc}` }}>
                     <span style={{ fontWeight: 600, fontSize: 11 }}>{line}</span>
                     <span><span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: `${sc}15`, color: sc, fontFamily: "JetBrains Mono", fontWeight: 600, textTransform: "uppercase" }}>{sl}</span></span>
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{data.calls}</span>
@@ -1060,6 +1095,8 @@ export default function MarketIntel({ portCalls, activeView }) {
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{data.tieredW}</span>
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{((data.calls / stats.totalCalls) * 100).toFixed(1)}%</span>
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{((data.tieredW / stats.totalTieredW) * 100).toFixed(1)}%</span>
+                    <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600, color: data.revenue > 0 ? IPS_SUCCESS : TEXT_DIM }} title={data.revenue > 0 ? `${Math.round(data.revenue).toLocaleString()} ISK (${covered}/${data.calls} calls)` : "No projections yet"}>{data.revenue > 0 ? fmtIsk(data.revenue) : "—"}</span>
+                    <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", color: data.missingCalls > 0 ? IPS_DANGER : IPS_SUCCESS }} title={data.missingCalls > 0 ? `${data.missingCalls} calls have no template` : "All calls covered"}>{data.missingCalls > 0 ? data.missingCalls : "✓"}</span>
                   </div>
                 );
               })}
@@ -1068,10 +1105,14 @@ export default function MarketIntel({ portCalls, activeView }) {
               <div style={{ fontSize: 12, color: TEXT_DIM }}>
                 <strong style={{ color: IPS_ACCENT }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "contracted").length}</strong> contracted · <strong style={{ color: SAMSKIP_COLOR }}>{wonLines.size}</strong> what-if · <strong style={{ color: OTHER_COLOR }}>{Object.values(stats.lineBreakdown).filter(d => d.status === "other").length}</strong> other
               </div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 12 }}>
+                Projected: <strong style={{ color: IPS_SUCCESS }}>{fmtIsk(totalRevenue)} ISK</strong> · <strong style={{ color: TEXT }}>{linesWithRevenue}</strong> lines priced · <strong style={{ color: totalMissing > 0 ? IPS_DANGER : IPS_SUCCESS }}>{totalMissing}</strong> calls missing templates
+              </div>
               <div style={{ fontFamily: "JetBrains Mono", fontSize: 12 }}>IPS: <strong style={{ color: IPS_ACCENT }}>{stats.callShare}%</strong> calls · <strong style={{ color: IPS_WARN }}>{stats.simpleWShare}%</strong> simple · <strong style={{ color: IPS_SUCCESS }}>{stats.tieredShare}%</strong> tiered</div>
             </div>
           </Card>
-        )}
+          );
+        })()}
 
         {/* ═══ PORT CALENDAR ═══ */}
         {activeView === "portcal" && (() => {

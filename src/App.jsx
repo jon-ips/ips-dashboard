@@ -20,6 +20,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   // ─── SUPABASE DATA LOADING ────────────────────────────────────────────────
   const [dbPortCalls, setDbPortCalls] = useState(null); // null = not loaded yet
   const [dbLoading, setDbLoading]     = useState(true);
+  const [projections, setProjections] = useState([]);   // projection templates
 
   // Load port calls from Supabase on mount, fall back to hardcoded SHIPS
   useEffect(() => {
@@ -45,6 +46,36 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
         }
       } catch (e) { console.warn("Failed to load port calls from Supabase:", e); }
       finally { setDbLoading(false); }
+    })();
+  }, []);
+
+  // Load projection templates — resources are joined so totals can be computed client-side
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("projection_templates")
+          .select("id,call_type,day_type,ships(name,cruise_lines(name)),cruise_lines(name),projection_resources(amount,time_units,unit_price_isk)");
+        if (!error && data) {
+          const mapped = data.map(t => {
+            const total = (t.projection_resources || []).reduce(
+              (sum, r) => sum + Number(r.amount) * Number(r.time_units) * Number(r.unit_price_isk),
+              0
+            );
+            return {
+              id: t.id,
+              callType: t.call_type,
+              dayType: t.day_type,
+              ship: t.ships?.name || null,
+              line: t.ships?.cruise_lines?.name || t.cruise_lines?.name || null,
+              scope: t.ships ? "ship" : "line",
+              totalIsk: total,
+            };
+          });
+          setProjections(mapped);
+        }
+      } catch (e) { console.warn("Failed to load projections from Supabase:", e); }
     })();
   }, []);
 
@@ -172,7 +203,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
 
         {/* MODULE RENDERING */}
         {activeModule === "market" && (
-          <MarketIntel portCalls={portCalls} activeView={activeView} />
+          <MarketIntel portCalls={portCalls} activeView={activeView} projections={projections} />
         )}
 
         {activeModule === "workspace" && (

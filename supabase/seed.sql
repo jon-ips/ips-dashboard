@@ -395,4 +395,194 @@ FROM port_call_data pcd
 JOIN cruise_lines cl ON cl.name = pcd.cruise_line_name
 JOIN ships s ON s.name = pcd.ship_name AND s.cruise_line_id = cl.id;
 
+
+-- ============================================================================
+-- 4. PROJECTION TEMPLATES + RESOURCES
+-- ============================================================================
+-- One template per (ship or cruise_line) × call_type × day_type.
+-- Resources are stored as amount × time_units × unit_price_isk so the total
+-- is computed dynamically and updates when any input changes.
+-- ============================================================================
+
+-- ── Celebrity Silhouette — Turnaround — Weekend (4,835,455 kr) ──────────────
+WITH t AS (
+    INSERT INTO projection_templates (ship_id, call_type, day_type)
+    SELECT s.id, 'turnaround', 'weekend'
+    FROM ships s JOIN cruise_lines cl ON cl.id = s.cruise_line_id
+    WHERE s.name = 'Celebrity Silhouette' AND cl.name = 'Celebrity'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('provision_loading',  'Telescopic Forklift',        1, 8,  9944,   1),
+    ('provision_loading',  'Forklift',                   2, 8,  8440,   2),
+    ('provision_loading',  'Forklift Driver (Overtime)', 3, 8,  10850,  3),
+    ('provision_loading',  'Stevedore (Overtime)',       3, 8,  9650,   4),
+    ('provision_loading',  'Pallet Jack',                2, 1,  8000,   5),
+    ('provision_loading',  'Container Ramp',             2, 1,  12500,  6),
+    ('provision_loading',  'Pallet Cage',                2, 1,  14500,  7),
+    ('provision_loading',  'Forklift Transport',         2, 1,  42500,  8),
+    ('luggage_operations', 'Telescopic Forklift',        2, 12, 9944,   1),
+    ('luggage_operations', 'Forklift',                   2, 12, 8440,   2),
+    ('luggage_operations', 'Forklift Driver (Daytime)',  4, 12, 9250,   3),
+    ('luggage_operations', 'Luggage Cage',               2, 1,  36500,  4),
+    ('luggage_operations', 'Porter Service (Overtime)', 30, 10, 8750,   5),
+    ('luggage_operations', 'Forklift Transport',         2, 1,  42500,  6),
+    ('waste_offload',      'Telescopic Forklift',        1, 5,  9944,   1),
+    ('waste_offload',      'Forklift',                   1, 5,  8440,   2),
+    ('waste_offload',      'Forklift Driver (Overtime)', 2, 5,  10850,  3),
+    ('waste_offload',      'Stevedore (Overtime)',       1, 5,  9650,   4),
+    ('waste_offload',      'Pallet Cage',                1, 1,  14500,  5),
+    ('waste_offload',      'Forklift Transport',         1, 1,  42500,  6)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── Norwegian Star — Turnaround — Weekend (5,615,903 kr) ────────────────────
+WITH t AS (
+    INSERT INTO projection_templates (ship_id, call_type, day_type)
+    SELECT s.id, 'turnaround', 'weekend'
+    FROM ships s JOIN cruise_lines cl ON cl.id = s.cruise_line_id
+    WHERE s.name = 'Norwegian Star' AND cl.name = 'Norwegian Cruise Line'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('provision_loading',  'Telescopic Forklift',        2, 9,  9944,   1),
+    ('provision_loading',  'Forklift',                   2, 9,  8440,   2),
+    ('provision_loading',  'Forklift Driver (Daytime)',  4, 9,  9250,   3),
+    ('provision_loading',  'Stevedore (Daytime)',        4, 9,  8150,   4),
+    ('provision_loading',  'Pallet Jack',                2, 1,  8000,   5),
+    ('provision_loading',  'Container Ramp',             2, 1,  12500,  6),
+    ('provision_loading',  'Pallet Cage',                2, 1,  14500,  7),
+    ('provision_loading',  'Forklift Transport',         3, 1,  42500,  8),
+    ('luggage_operations', 'Telescopic Forklift',        2, 12, 9944,   1),
+    ('luggage_operations', 'Forklift',                   2, 12, 8440,   2),
+    ('luggage_operations', 'Forklift Driver (Daytime)',  4, 12, 9250,   3),
+    ('luggage_operations', 'Luggage Cage',               2, 1,  36500,  4),
+    ('luggage_operations', 'Porter Service (Overtime)', 35, 10, 8750,   5),
+    ('luggage_operations', 'Forklift Transport',         2, 1,  42500,  6),
+    ('waste_offload',      'Telescopic Forklift',        1, 6,  9944,   1),
+    ('waste_offload',      'Forklift',                   1, 6,  8440,   2),
+    ('waste_offload',      'Forklift Driver (Overtime)', 2, 6,  10850,  3),
+    ('waste_offload',      'Stevedore (Overtime)',       1, 6,  9650,   4),
+    ('waste_offload',      'Pallet Cage',                1, 1,  14500,  5),
+    ('waste_offload',      'Forklift Transport',         1, 1,  42500,  6)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── Rotterdam — Turnaround — Weekend (3,871,277 kr) ─────────────────────────
+WITH t AS (
+    INSERT INTO projection_templates (ship_id, call_type, day_type)
+    SELECT s.id, 'turnaround', 'weekend'
+    FROM ships s JOIN cruise_lines cl ON cl.id = s.cruise_line_id
+    WHERE s.name = 'Rotterdam' AND cl.name = 'Holland America'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('provision_loading',  'Telescopic Forklift',        1, 4,  9944,   1),
+    ('provision_loading',  'Forklift',                   2, 4,  8440,   2),
+    ('provision_loading',  'Forklift Driver (Daytime)',  3, 4,  9250,   3),
+    ('provision_loading',  'Stevedore (Daytime)',        3, 4,  8150,   4),
+    ('provision_loading',  'Pallet Jack',                2, 1,  8000,   5),
+    ('provision_loading',  'Container Ramp',             2, 1,  12500,  6),
+    ('provision_loading',  'Pallet Cage',                2, 1,  14500,  7),
+    ('provision_loading',  'Forklift Transport',         2, 1,  42500,  8),
+    ('luggage_operations', 'Telescopic Forklift',        2, 11, 9944,   1),
+    ('luggage_operations', 'Forklift',                   2, 11, 8440,   2),
+    ('luggage_operations', 'Forklift Driver (Overtime)', 4, 11, 10850,  3),
+    ('luggage_operations', 'Luggage Cage',               2, 1,  36500,  4),
+    ('luggage_operations', 'Foreman (Overtime)',         1, 11, 10065,  5),
+    ('luggage_operations', 'Porter Service (Overtime)',  7, 8,  8750,   6),
+    ('luggage_operations', 'Porter Service (Overtime)', 12, 9,  8750,   7),
+    ('luggage_operations', 'Porter Service (Overtime)',  6, 11, 8750,   8),
+    ('luggage_operations', 'Forklift Transport',         2, 1,  42500,  9),
+    ('waste_offload',      'Telescopic Forklift',        1, 4,  9944,   1),
+    ('waste_offload',      'Forklift',                   1, 4,  8440,   2),
+    ('waste_offload',      'Forklift Driver (Daytime)',  2, 4,  9250,   3),
+    ('waste_offload',      'Stevedore (Daytime)',        1, 4,  8150,   4),
+    ('waste_offload',      'Pallet Cage',                1, 1,  14500,  5),
+    ('waste_offload',      'Forklift Transport',         1, 1,  42500,  6)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── Viking (fleet-wide) — Turnaround — Weekday (2,692,260 kr) ───────────────
+WITH t AS (
+    INSERT INTO projection_templates (cruise_line_id, call_type, day_type)
+    SELECT id, 'turnaround', 'weekday' FROM cruise_lines WHERE name = 'Viking'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('provision_loading',  'Telescopic Forklift',        1, 8, 9944,    1),
+    ('provision_loading',  'Forklift',                   2, 8, 8440,    2),
+    ('provision_loading',  'Forklift Driver (Overtime)', 3, 8, 10850,   3),
+    ('provision_loading',  'Stevedore (Overtime)',       2, 8, 9650,    4),
+    ('provision_loading',  'Pallet Jack',                2, 1, 8000,    5),
+    ('provision_loading',  'Container Ramp',             2, 1, 12500,   6),
+    ('provision_loading',  'Pallet Cage',                2, 1, 14500,   7),
+    ('provision_loading',  'Forklift Transport',         2, 1, 42500,   8),
+    ('luggage_operations', 'Flat fee',                   1, 1, 1750000, 1),
+    ('waste_offload',      'Telescopic Forklift',        1, 4, 9944,    1),
+    ('waste_offload',      'Forklift Driver (Daytime)',  1, 4, 9250,    2),
+    ('waste_offload',      'Stevedore (Overtime)',       1, 4, 9650,    3),
+    ('waste_offload',      'Forklift Transport',         1, 1, 42500,   4)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── Celebrity Eclipse — Transit — Weekday (1,069,353 kr) ────────────────────
+WITH t AS (
+    INSERT INTO projection_templates (ship_id, call_type, day_type)
+    SELECT s.id, 'transit', 'weekday'
+    FROM ships s JOIN cruise_lines cl ON cl.id = s.cruise_line_id
+    WHERE s.name = 'Celebrity Eclipse' AND cl.name = 'Celebrity'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('provision_loading',  'Telescopic Forklift',       1, 8, 9944,   1),
+    ('provision_loading',  'Forklift',                  2, 8, 8440,   2),
+    ('provision_loading',  'Forklift Driver (Daytime)', 3, 8, 9250,   3),
+    ('provision_loading',  'Stevedore (Daytime)',       3, 8, 8150,   4),
+    ('provision_loading',  'Pallet Jack',               2, 1, 8000,   5),
+    ('provision_loading',  'Container Ramp',            2, 1, 12500,  6),
+    ('provision_loading',  'Pallet Cage',               2, 1, 14500,  7),
+    ('provision_loading',  'Forklift Transport',        2, 1, 42500,  8),
+    ('waste_offload',      'Telescopic Forklift',       1, 5, 9944,   1),
+    ('waste_offload',      'Forklift',                  1, 5, 8440,   2),
+    ('waste_offload',      'Forklift Driver (Daytime)', 2, 5, 9250,   3),
+    ('waste_offload',      'Stevedore (Daytime)',       1, 5, 8150,   4),
+    ('waste_offload',      'Pallet Cage',               1, 1, 14500,  5),
+    ('waste_offload',      'Forklift Transport',        1, 1, 42500,  6)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── TUI / Mein Schiff (fleet-wide) — Transit — Weekend (125,674 kr) ─────────
+WITH t AS (
+    INSERT INTO projection_templates (cruise_line_id, call_type, day_type)
+    SELECT id, 'transit', 'weekend' FROM cruise_lines WHERE name = 'TUI'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('waste_offload', 'Telescopic Forklift',        1, 4, 9944,  1),
+    ('waste_offload', 'Forklift Driver (Overtime)', 1, 4, 10850, 2),
+    ('waste_offload', 'Forklift Transport',         1, 1, 42500, 3)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
+-- ── TUI / Mein Schiff (fleet-wide) — Transit — Weekday (119,274 kr) ─────────
+WITH t AS (
+    INSERT INTO projection_templates (cruise_line_id, call_type, day_type)
+    SELECT id, 'transit', 'weekday' FROM cruise_lines WHERE name = 'TUI'
+    RETURNING id
+)
+INSERT INTO projection_resources (template_id, section, resource_name, amount, time_units, unit_price_isk, sort_order)
+SELECT t.id, v.section, v.resource_name, v.amount, v.time_units, v.unit_price_isk, v.sort_order FROM t, (VALUES
+    ('waste_offload', 'Telescopic Forklift',       1, 4, 9944,  1),
+    ('waste_offload', 'Forklift Driver (Daytime)', 1, 4, 9250,  2),
+    ('waste_offload', 'Forklift Transport',        1, 1, 42500, 3)
+) AS v(section, resource_name, amount, time_units, unit_price_isk, sort_order);
+
+
 COMMIT;
