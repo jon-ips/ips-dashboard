@@ -323,4 +323,40 @@ export const CFO_INV_STATUS = {
   overdue:   { label: "Overdue",   color: "#EF4444" },
   cancelled: { label: "Cancelled", color: "#475569" },
 };
+
+// ─── JOB LIFECYCLE ───────────────────────────────────────────────────────────
+export const JOB_STATUSES = {
+  pending:   { label: "Pending",   color: "#F59E0B" },
+  confirmed: { label: "Confirmed", color: "#57B5C8" },
+  completed: { label: "Completed", color: "#22C55E" },
+  invoiced:  { label: "Invoiced",  color: "#64748B" },
+};
+
+// ─── RESOURCE CATALOG (matches 2026 rate sheets) ─────────────────────────────
+export const RESOURCE_CATEGORIES = {
+  stevedoring: { label: "Stevedoring" },
+  luggage:     { label: "Luggage" },
+};
+
+export const RESOURCE_CATALOG = {
+  // Stevedoring
+  stevedore:            { label: "Stevedore",             category: "stevedoring", default_unit: "per_hour" },
+  foreman:              { label: "Foreman",               category: "stevedoring", default_unit: "per_hour" },
+  forklift_driver:      { label: "Forklift Driver",       category: "stevedoring", default_unit: "per_hour" },
+  forklift:             { label: "Forklift",              category: "stevedoring", default_unit: "per_hour" },
+  telescopic_forklift:  { label: "Telescopic Forklift",   category: "stevedoring", default_unit: "per_hour" },
+  pallet_cage:          { label: "Pallet Cage",           category: "stevedoring", default_unit: "full_day" },
+  manual_pallet_jack:   { label: "Manual Pallet Jack",    category: "stevedoring", default_unit: "full_day" },
+  electric_pallet_jack: { label: "Electric Pallet Jack",  category: "stevedoring", default_unit: "full_day" },
+  container_ramp:       { label: "Container Ramp",        category: "stevedoring", default_unit: "full_day" },
+  crane:                { label: "Crane",                 category: "stevedoring", default_unit: "per_hour" },
+  crane_operator:       { label: "Crane Operator",        category: "stevedoring", default_unit: "per_hour" },
+  forklift_transport:   { label: "Forklift Transport",    category: "stevedoring", default_unit: "full_day" },
+  // Luggage
+  porter:               { label: "Porter",                category: "luggage",     default_unit: "per_hour" },
+  conveyor_belt:        { label: "Conveyor Belt",         category: "luggage",     default_unit: "per_hour" },
+  luggage_cage:         { label: "Luggage Cage",          category: "luggage",     default_unit: "full_day" },
+  conveyor_transport:   { label: "Conveyor Transport",    category: "luggage",     default_unit: "full_day" },
+};
+
 export const fmtISK = (a) => a == null ? "—" : Number(a).toLocaleString("is-IS") + " kr.";

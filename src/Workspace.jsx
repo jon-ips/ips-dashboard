@@ -1,13 +1,48 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
+import { payday } from "./payday.js";
 import {
   IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
+  JOB_STATUSES, CFO_SERVICE_TYPES, fmtISK,
+  RESOURCE_CATALOG, RESOURCE_CATEGORIES,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 
-export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
+// 15-minute time slots for the resource time-picker datalist (00:00 → 23:45).
+const TIME_SLOTS_15 = (() => {
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    for (const m of [0, 15, 30, 45]) {
+      out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+  }
+  return out;
+})();
+
+// Loosely normalize a time string typed by the user. Accepts "9:00", "09:0",
+// "9", "0930"; returns "HH:MM" if parseable, otherwise the original string.
+const normalizeHhmm = (raw) => {
+  if (!raw) return raw;
+  const s = String(raw).trim();
+  let m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (m) {
+    const h = Math.min(23, Number(m[1]));
+    const mm = Math.min(59, Number(m[2]));
+    return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  m = s.match(/^(\d{3,4})$/);
+  if (m) {
+    const padded = m[1].padStart(4, "0");
+    const h = Math.min(23, Number(padded.slice(0, 2)));
+    const mm = Math.min(59, Number(padded.slice(2)));
+    return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  return s;
+};
+
+export default function Workspace({ wsView, activeModule, onDraftCountChange, portCalls = [], jobs = [], setJobs, accessLevel = "team" }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
   const [wsTasks, setWsTasks] = useState([]);
   const [wsLoaded, setWsLoaded] = useState(false);
@@ -24,6 +59,46 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [wsDrafts, setWsDrafts] = useState([]);
   const [wsDraftsLoading, setWsDraftsLoading] = useState(false);
   const [wsDraftsCollapsed, setWsDraftsCollapsed] = useState(false);
+
+  // ─── JOBS STATE ──────────────────────────────────────────────────────────────
+  const emptyJobForm = { port_call_id: null, cruise_line_id: "", ship_name: "", call_date: "", end_date: "", planned_pax: "", turnaround: false, contract_id: "", notes: "", requested_resources: [] };
+  const [jobFilter, setJobFilter] = useState("all");
+  const [jobModal, setJobModal] = useState(null); // null | "new" | <jobId>
+  const [jobForm, setJobForm] = useState(emptyJobForm);
+  const [expandedJobId, setExpandedJobId] = useState(null);
+  const [jobFromSchedule, setJobFromSchedule] = useState(true);
+  const [jobScheduleSearch, setJobScheduleSearch] = useState("");
+  const [jobSaving, setJobSaving] = useState(false);
+  const [jobError, setJobError] = useState(null);
+  const [jobCruiseLines, setJobCruiseLines] = useState([]);
+  const [jobContracts, setJobContracts] = useState([]);
+
+  const [completeJob, setCompleteJob] = useState(null);
+  const [completeHours, setCompleteHours] = useState("");
+  const [completeNotes, setCompleteNotes] = useState("");
+  const [completeSaving, setCompleteSaving] = useState(false);
+
+  const [invoiceJob, setInvoiceJob] = useState(null);
+  const [invoiceLines, setInvoiceLines] = useState([]);
+  const [invoiceContext, setInvoiceContext] = useState(null); // {contract, cruiseLine, rateCards}
+  const [invoiceSending, setInvoiceSending] = useState(false);
+  const [invoiceError, setInvoiceError] = useState(null);
+
+  // Lazy-load cruise_lines and contracts when the user opens the Jobs view
+  useEffect(() => {
+    if (wsView !== "jobs" || !SUPABASE_CONFIGURED) return;
+    if (jobCruiseLines.length && jobContracts.length) return;
+    (async () => {
+      try {
+        const [{ data: cls }, { data: cs }] = await Promise.all([
+          supabase.from("cruise_lines").select("id,name,payday_customer_id").order("name", { ascending: true }),
+          supabase.from("contracts").select("*").order("created_at", { ascending: false }),
+        ]);
+        if (Array.isArray(cls)) setJobCruiseLines(cls);
+        if (Array.isArray(cs)) setJobContracts(cs);
+      } catch (e) { console.warn("Failed to load cruise_lines / contracts:", e); }
+    })();
+  }, [wsView, jobCruiseLines.length, jobContracts.length]);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -206,6 +281,307 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       setWsDrafts(d => d.filter(x => x.id !== draftId));
     } catch (e) { console.warn("Failed to dismiss draft:", e); }
   }, []);
+
+  // ─── JOBS — CRUD AND LIFECYCLE ───────────────────────────────────────────────
+  const openNewJob = useCallback(() => {
+    setJobForm(emptyJobForm);
+    setJobError(null);
+    setJobFromSchedule(true);
+    setJobScheduleSearch("");
+    setJobModal("new");
+  }, []);
+
+  const openEditJob = useCallback((job) => {
+    setJobForm({
+      port_call_id: job.port_call_id || null,
+      cruise_line_id: job.cruise_line_id || "",
+      ship_name: job.ship_name || "",
+      call_date: job.call_date || "",
+      end_date: job.end_date || "",
+      planned_pax: job.planned_pax ?? "",
+      turnaround: !!job.turnaround,
+      contract_id: job.contract_id || "",
+      notes: job.notes || "",
+      requested_resources: Array.isArray(job.requested_resources) ? job.requested_resources : [],
+    });
+    setJobError(null);
+    setJobFromSchedule(false); // editing — show ad-hoc form fields, no schedule picker
+    setJobScheduleSearch("");
+    setJobModal(job.id);
+  }, []);
+
+  const pickPortCall = useCallback((s) => {
+    const cl = jobCruiseLines.find(c => c.name === s.line);
+    setJobForm(f => ({
+      ...f,
+      port_call_id: s.id || null,
+      cruise_line_id: cl?.id || "",
+      ship_name: s.ship,
+      call_date: s.date,
+      end_date: s.endDate || "",
+      planned_pax: s.pax ?? "",
+      turnaround: !!s.turnaround,
+      contract_id: "",
+    }));
+  }, [jobCruiseLines]);
+
+  // ── Resource line items ─────────────────────────────────────────────────────
+  // Sync helper: given a line and the field that was just edited, recompute the
+  // dependent field. start_time + duration_hours → end_time, start_time + end_time → duration_hours.
+  const syncTimeFields = (line, changed) => {
+    const hhmmToMin = (t) => {
+      if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return null;
+      const [h, m] = t.split(":").map(Number);
+      if (h > 23 || m > 59) return null;
+      return h * 60 + m;
+    };
+    const minToHhmm = (mins) => {
+      const m = ((mins % (24 * 60)) + 24 * 60) % (24 * 60);
+      return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    };
+    const start = hhmmToMin(line.start_time);
+    const end = hhmmToMin(line.end_time);
+    const dur = line.duration_hours === "" || line.duration_hours == null ? null : Number(line.duration_hours);
+
+    if (changed === "duration_hours" && start != null && Number.isFinite(dur)) {
+      return { ...line, end_time: minToHhmm(start + dur * 60) };
+    }
+    if (changed === "end_time" && start != null && end != null) {
+      const minutes = end - start;
+      return { ...line, duration_hours: minutes >= 0 ? +(minutes / 60).toFixed(2) : line.duration_hours };
+    }
+    if (changed === "start_time") {
+      if (Number.isFinite(dur) && start != null) {
+        return { ...line, end_time: minToHhmm(start + dur * 60) };
+      }
+      if (start != null && end != null) {
+        const minutes = end - start;
+        return { ...line, duration_hours: minutes >= 0 ? +(minutes / 60).toFixed(2) : line.duration_hours };
+      }
+    }
+    return line;
+  };
+
+  const addResourceLine = useCallback(() => {
+    setJobForm(f => ({
+      ...f,
+      requested_resources: [
+        ...(f.requested_resources || []),
+        { item_code: "", quantity: 1, start_time: "", end_time: "", duration_hours: "", notes: "" },
+      ],
+    }));
+  }, []);
+
+  const updateResourceLine = useCallback((idx, field, value) => {
+    setJobForm(f => {
+      const lines = [...(f.requested_resources || [])];
+      const updated = { ...lines[idx], [field]: value };
+      lines[idx] = (field === "start_time" || field === "end_time" || field === "duration_hours")
+        ? syncTimeFields(updated, field)
+        : updated;
+      return { ...f, requested_resources: lines };
+    });
+  }, []);
+
+  const removeResourceLine = useCallback((idx) => {
+    setJobForm(f => ({
+      ...f,
+      requested_resources: (f.requested_resources || []).filter((_, i) => i !== idx),
+    }));
+  }, []);
+
+  const saveJobForm = useCallback(async () => {
+    if (!jobForm.ship_name?.trim() || !jobForm.call_date) {
+      setJobError("Ship name and date are required.");
+      return;
+    }
+    setJobSaving(true);
+    setJobError(null);
+    // Sanitize line items — drop empty rows, coerce numeric fields
+    const cleanedResources = (jobForm.requested_resources || [])
+      .filter(l => l.item_code)
+      .map(l => ({
+        item_code: l.item_code,
+        quantity: Number(l.quantity) || 1,
+        start_time: l.start_time || null,
+        end_time: l.end_time || null,
+        duration_hours: l.duration_hours === "" || l.duration_hours == null ? null : Number(l.duration_hours),
+        notes: l.notes?.trim() || null,
+      }));
+    const isNew = jobModal === "new";
+    const payload = {
+      port_call_id: jobForm.port_call_id || null,
+      contract_id: jobForm.contract_id || null,
+      cruise_line_id: jobForm.cruise_line_id || null,
+      ship_name: jobForm.ship_name.trim(),
+      call_date: jobForm.call_date,
+      end_date: jobForm.end_date || null,
+      planned_pax: jobForm.planned_pax === "" ? null : Number(jobForm.planned_pax),
+      turnaround: !!jobForm.turnaround,
+      notes: jobForm.notes?.trim() || null,
+      requested_resources: cleanedResources,
+    };
+    if (isNew) payload.status = "pending";
+    try {
+      if (SUPABASE_CONFIGURED) {
+        if (isNew) {
+          const { data, error } = await supabase.from("jobs").insert(payload);
+          if (error) throw new Error(error.message || "Insert failed");
+          const inserted = (Array.isArray(data) && data[0]) || { ...payload, id: generateId(), created_at: new Date().toISOString() };
+          setJobs(prev => [...prev, inserted]);
+        } else {
+          const { error } = await supabase.from("jobs").update(payload).eq("id", jobModal);
+          if (error) throw new Error(error.message || "Update failed");
+          setJobs(prev => prev.map(j => j.id === jobModal ? { ...j, ...payload } : j));
+        }
+      } else {
+        if (isNew) {
+          setJobs(prev => [...prev, { ...payload, id: generateId(), status: "pending", created_at: new Date().toISOString() }]);
+        } else {
+          setJobs(prev => prev.map(j => j.id === jobModal ? { ...j, ...payload } : j));
+        }
+      }
+      setJobModal(null);
+    } catch (e) {
+      setJobError(e.message || "Failed to save job");
+    } finally {
+      setJobSaving(false);
+    }
+  }, [jobForm, jobModal, setJobs]);
+
+  const advanceJobStatus = useCallback(async (jobId, nextStatus, extraFields = {}) => {
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: nextStatus, ...extraFields } : j));
+    if (SUPABASE_CONFIGURED) {
+      try {
+        await supabase.from("jobs").update({ status: nextStatus, ...extraFields }).eq("id", jobId);
+      } catch (e) { console.warn("Failed to update job status:", e); }
+    }
+  }, [setJobs]);
+
+  const openCompleteModal = useCallback((job) => {
+    setCompleteJob(job);
+    setCompleteHours(job.confirmed_hours != null ? String(job.confirmed_hours) : "");
+    setCompleteNotes(job.notes || "");
+  }, []);
+
+  const saveCompleteJob = useCallback(async () => {
+    if (!completeJob) return;
+    const hours = parseFloat(completeHours);
+    if (!Number.isFinite(hours) || hours < 0) return;
+    setCompleteSaving(true);
+    await advanceJobStatus(completeJob.id, "completed", {
+      confirmed_hours: hours,
+      notes: completeNotes?.trim() || null,
+    });
+    setCompleteSaving(false);
+    setCompleteJob(null);
+    setCompleteHours("");
+    setCompleteNotes("");
+  }, [completeJob, completeHours, completeNotes, advanceJobStatus]);
+
+  // Calculates invoice line items for a completed job. Mirrors CFOWorkspace.calculateInvoiceLines,
+  // except per_hour uses the manager-confirmed hours instead of a date-range estimate.
+  const buildInvoiceLines = useCallback((job, rateCards) => {
+    return rateCards.map(rc => {
+      let quantity = 1;
+      let desc = rc.description || CFO_SERVICE_TYPES[rc.service_type]?.label || rc.service_type;
+      switch (rc.unit) {
+        case "per_pax":
+          quantity = job.planned_pax || 0;
+          desc += ` (${quantity} pax)`;
+          break;
+        case "per_hour":
+          quantity = Number(job.confirmed_hours) || 0;
+          desc += ` (${quantity} hrs)`;
+          break;
+        case "per_pallet":
+        case "per_call":
+        case "flat":
+        default:
+          quantity = 1;
+          break;
+      }
+      const lineTotal = Math.max(quantity * parseFloat(rc.rate_isk || 0), parseFloat(rc.min_charge_isk || 0));
+      return {
+        rate_card_id: rc.id,
+        service_type: rc.service_type,
+        description: desc,
+        quantity,
+        unit_price_isk: parseFloat(rc.rate_isk || 0),
+        line_total_isk: lineTotal,
+      };
+    });
+  }, []);
+
+  const calculateDueDate = (dateStr, paymentTerms) => {
+    const d = new Date(dateStr);
+    const match = (paymentTerms || "Net 30").match(/(\d+)/);
+    d.setDate(d.getDate() + (match ? parseInt(match[1]) : 30));
+    return d.toISOString().slice(0, 10);
+  };
+
+  const openInvoiceModal = useCallback(async (job) => {
+    setInvoiceError(null);
+    setInvoiceLines([]);
+    setInvoiceContext(null);
+    setInvoiceJob(job);
+    if (!job.contract_id) {
+      setInvoiceError("This job has no contract attached. Edit the job (or pick a contract) before invoicing.");
+      return;
+    }
+    if (!SUPABASE_CONFIGURED) {
+      setInvoiceError("Supabase is not configured in this environment.");
+      return;
+    }
+    try {
+      const { data: rateCards } = await supabase.from("rate_cards").select("*").eq("contract_id", job.contract_id);
+      if (!rateCards || rateCards.length === 0) {
+        setInvoiceError("No rate cards defined for this contract. Add rate cards in CFO Workspace first.");
+        return;
+      }
+      const contract = jobContracts.find(c => c.id === job.contract_id) || null;
+      const cruiseLine = jobCruiseLines.find(c => c.id === job.cruise_line_id) || null;
+      setInvoiceContext({ contract, cruiseLine, rateCards });
+      setInvoiceLines(buildInvoiceLines(job, rateCards));
+    } catch (e) {
+      setInvoiceError(e.message || "Failed to load rate cards");
+    }
+  }, [jobContracts, jobCruiseLines, buildInvoiceLines]);
+
+  const sendInvoice = useCallback(async () => {
+    if (!invoiceJob || !invoiceContext) return;
+    const { contract, cruiseLine } = invoiceContext;
+    if (!cruiseLine?.payday_customer_id) {
+      setInvoiceError(`"${cruiseLine?.name || "This cruise line"}" is not mapped to a Payday customer. Map it in CFO Workspace → Settings.`);
+      return;
+    }
+    setInvoiceSending(true);
+    setInvoiceError(null);
+    try {
+      const payload = {
+        customerId: cruiseLine.payday_customer_id,
+        invoiceDate: invoiceJob.call_date,
+        dueDate: calculateDueDate(invoiceJob.call_date, contract?.payment_terms),
+        reference: `IPS-${invoiceJob.call_date}-${(cruiseLine.name || "").replace(/\s+/g, "").slice(0, 10)}`,
+        lines: invoiceLines.map(l => ({
+          description: l.description,
+          quantity: l.quantity,
+          unitPrice: l.unit_price_isk,
+          amount: l.line_total_isk,
+        })),
+      };
+      const result = await payday.invoices.create(payload);
+      if (!result.ok) throw new Error(result.error?.message || "Payday rejected the invoice");
+      await advanceJobStatus(invoiceJob.id, "invoiced");
+      setInvoiceJob(null);
+      setInvoiceLines([]);
+      setInvoiceContext(null);
+    } catch (e) {
+      setInvoiceError(e.message || "Failed to send invoice");
+    } finally {
+      setInvoiceSending(false);
+    }
+  }, [invoiceJob, invoiceContext, invoiceLines, advanceJobStatus]);
 
   // ─── COMPUTED ──────────────────────────────────────────────────────────────
   const filteredTasks = useMemo(() => {
@@ -620,6 +996,441 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </>
             );
           })()}
+
+          {/* ═══ JOBS VIEW ═══ */}
+          {wsView === "jobs" && (() => {
+            const filtered = jobs
+              .filter(j => jobFilter === "all" ? true : j.status === jobFilter)
+              .sort((a, b) => (a.call_date || "").localeCompare(b.call_date || ""));
+            const counts = jobs.reduce((acc, j) => { acc[j.status] = (acc[j.status] || 0) + 1; return acc; }, {});
+            return (
+              <>
+                {/* Action bar */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <FilterPill label={`All (${jobs.length})`} active={jobFilter === "all"} onClick={() => setJobFilter("all")} />
+                    {Object.entries(JOB_STATUSES).map(([k, v]) => (
+                      <FilterPill key={k} label={`${v.label} (${counts[k] || 0})`} active={jobFilter === k} onClick={() => setJobFilter(k)} color={v.color} />
+                    ))}
+                  </div>
+                  <button onClick={openNewJob} style={{
+                    padding: "10px 20px", borderRadius: 8, cursor: "pointer",
+                    background: `linear-gradient(135deg, ${IPS_ACCENT}, #458CA7)`,
+                    border: "none", color: "#fff", fontSize: 13, fontWeight: 600,
+                    fontFamily: "'Satoshi', 'Inter', sans-serif",
+                  }}>+ New Job</button>
+                </div>
+
+                {/* Job rows */}
+                {filtered.length === 0 ? (
+                  <Card style={{ textAlign: "center", padding: 40 }}>
+                    <div style={{ fontSize: 14, color: TEXT_DIM }}>
+                      {jobs.length === 0
+                        ? "No jobs yet. Click “+ New Job” to log a request."
+                        : `No ${jobFilter} jobs.`}
+                    </div>
+                  </Card>
+                ) : (
+                  <Card>
+                    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr 70px 90px 110px 180px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
+                      <span>Date</span><span>Ship</span><span>Cruise Line</span><span style={{ textAlign: "right" }}>Pax</span><span style={{ textAlign: "center" }}>Type</span><span style={{ textAlign: "center" }}>Status</span><span style={{ textAlign: "right" }}>Action</span>
+                    </div>
+                    {filtered.map((j, i) => {
+                      const cl = jobCruiseLines.find(c => c.id === j.cruise_line_id);
+                      const status = JOB_STATUSES[j.status] || { label: j.status, color: TEXT_DIM };
+                      const resources = Array.isArray(j.requested_resources) ? j.requested_resources : [];
+                      const isExpanded = expandedJobId === j.id;
+                      const summary = resources.length === 0
+                        ? "—"
+                        : resources.map(r => {
+                            const def = RESOURCE_CATALOG[r.item_code];
+                            const label = def?.label || r.item_code || "?";
+                            const qty = Number(r.quantity) || 1;
+                            return `${qty}× ${label}`;
+                          }).join(", ");
+                      return (
+                        <div key={j.id} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr 70px 90px 110px 180px", gap: 10, padding: "10px 12px", fontSize: 13, alignItems: "center" }}>
+                            <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: TEXT_DIM }}>{j.call_date}</span>
+                            <span style={{ fontWeight: 500 }}>{j.ship_name}</span>
+                            <span style={{ color: TEXT_DIM }}>{cl?.name || "—"}</span>
+                            <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{j.planned_pax?.toLocaleString() || "—"}</span>
+                            <span style={{ textAlign: "center" }}>
+                              {j.turnaround
+                                ? <span style={{ background: "rgba(245,158,11,0.15)", color: IPS_WARN, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: 600 }}>(T)</span>
+                                : <span style={{ color: TEXT_DIM, fontSize: 11 }}>Transit</span>}
+                            </span>
+                            <span style={{ textAlign: "center" }}>
+                              <span style={{ background: `${status.color}22`, color: status.color, padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{status.label}</span>
+                            </span>
+                            <span style={{ display: "flex", justifyContent: "flex-end", gap: 6, alignItems: "center" }}>
+                              {j.status !== "invoiced" && (
+                                <button onClick={() => openEditJob(j)} title="Edit job" style={{ padding: "5px 9px", borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 11, lineHeight: 1, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>✎</button>
+                              )}
+                              {j.status === "pending" && (
+                                <button onClick={() => advanceJobStatus(j.id, "confirmed")} style={{ padding: "5px 12px", borderRadius: 6, cursor: "pointer", background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.3)`, color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Confirm</button>
+                              )}
+                              {j.status === "confirmed" && (
+                                <button onClick={() => openCompleteModal(j)} style={{ padding: "5px 12px", borderRadius: 6, cursor: "pointer", background: "rgba(34,197,94,0.1)", border: `1px solid rgba(34,197,94,0.3)`, color: IPS_SUCCESS, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Mark Done</button>
+                              )}
+                              {j.status === "completed" && accessLevel === "ceo" && (
+                                <button onClick={() => openInvoiceModal(j)} style={{ padding: "5px 12px", borderRadius: 6, cursor: "pointer", background: `linear-gradient(135deg, ${IPS_ACCENT}, #458CA7)`, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Invoice</button>
+                              )}
+                              {j.status === "completed" && accessLevel !== "ceo" && (
+                                <span style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>awaiting CEO</span>
+                              )}
+                              {j.status === "invoiced" && (
+                                <span style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>sent to Payday</span>
+                              )}
+                            </span>
+                          </div>
+                          {/* Resource summary line — clickable to expand */}
+                          <div
+                            onClick={() => resources.length > 0 && setExpandedJobId(prev => prev === j.id ? null : j.id)}
+                            style={{ padding: "0 12px 10px", fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", cursor: resources.length > 0 ? "pointer" : "default", display: "flex", gap: 6, alignItems: "center" }}
+                          >
+                            <span>Resources:</span>
+                            <span style={{ color: resources.length > 0 ? TEXT : TEXT_DIM }}>{summary}</span>
+                            {resources.length > 0 && <span style={{ color: TEXT_DIM, fontSize: 10 }}>{isExpanded ? "▾" : "▸"}</span>}
+                          </div>
+                          {/* Expanded detail table */}
+                          {isExpanded && resources.length > 0 && (
+                            <div style={{ margin: "0 12px 12px", padding: 10, background: "rgba(0,0,0,0.15)", borderRadius: 6, border: `1px solid ${BORDER}` }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 70px 70px 70px 1fr", gap: 8, fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", paddingBottom: 6, borderBottom: `1px solid ${BORDER}` }}>
+                                <span>Resource</span><span style={{ textAlign: "center" }}>Qty</span><span>Start</span><span>End</span><span style={{ textAlign: "right" }}>Hours</span><span>Notes</span>
+                              </div>
+                              {resources.map((r, ri) => {
+                                const def = RESOURCE_CATALOG[r.item_code];
+                                return (
+                                  <div key={ri} style={{ display: "grid", gridTemplateColumns: "1fr 50px 70px 70px 70px 1fr", gap: 8, padding: "6px 0", fontSize: 12 }}>
+                                    <span>{def?.label || r.item_code}</span>
+                                    <span style={{ textAlign: "center", fontFamily: "JetBrains Mono" }}>{r.quantity || 1}</span>
+                                    <span style={{ fontFamily: "JetBrains Mono", color: TEXT_DIM }}>{r.start_time || "—"}</span>
+                                    <span style={{ fontFamily: "JetBrains Mono", color: TEXT_DIM }}>{r.end_time || "—"}</span>
+                                    <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{r.duration_hours != null ? r.duration_hours : "—"}</span>
+                                    <span style={{ color: TEXT_DIM }}>{r.notes || ""}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </Card>
+                )}
+              </>
+            );
+          })()}
+
+          {/* ═══ JOB MODALS ═══ */}
+          {jobModal && (
+            <div onClick={() => setJobModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{jobModal === "new" ? "New Job" : "Edit Job"}</div>
+                  <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+
+                {/* Source toggle */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                  {[{ k: true, l: "From Schedule" }, { k: false, l: "Ad-hoc" }].map(opt => (
+                    <button key={String(opt.k)} onClick={() => setJobFromSchedule(opt.k)} style={{
+                      flex: 1, padding: "8px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
+                      background: jobFromSchedule === opt.k ? `${IPS_ACCENT}18` : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${jobFromSchedule === opt.k ? IPS_ACCENT : BORDER}`,
+                      color: jobFromSchedule === opt.k ? IPS_ACCENT : TEXT_DIM,
+                      fontWeight: 600, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                    }}>{opt.l}</button>
+                  ))}
+                </div>
+
+                {jobFromSchedule ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Pick port call</div>
+                    <input value={jobScheduleSearch} onChange={e => setJobScheduleSearch(e.target.value)} placeholder="Search by ship, line, or date..." style={{ ...inputStyle, marginBottom: 8 }} />
+                    <div style={{ maxHeight: 200, overflowY: "auto", border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+                      {portCalls
+                        .filter(s => {
+                          const q = jobScheduleSearch.trim().toLowerCase();
+                          if (!q) return true;
+                          return (s.ship || "").toLowerCase().includes(q) || (s.line || "").toLowerCase().includes(q) || (s.date || "").includes(q);
+                        })
+                        .slice(0, 100)
+                        .map((s, idx) => {
+                          const selected = jobForm.call_date === s.date && jobForm.ship_name === s.ship;
+                          return (
+                            <button key={idx} onClick={() => pickPortCall(s)} style={{
+                              display: "grid", gridTemplateColumns: "100px 1fr 1fr 60px", gap: 8, padding: "8px 12px", width: "100%",
+                              background: selected ? `${IPS_ACCENT}18` : "transparent",
+                              border: "none", borderBottom: `1px solid ${BORDER}`, color: TEXT,
+                              fontSize: 12, cursor: "pointer", textAlign: "left", fontFamily: "'Satoshi', 'Inter', sans-serif",
+                            }}>
+                              <span style={{ fontFamily: "JetBrains Mono", color: TEXT_DIM }}>{s.date}</span>
+                              <span style={{ fontWeight: 500 }}>{s.ship}</span>
+                              <span style={{ color: TEXT_DIM }}>{s.line}</span>
+                              <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontSize: 11 }}>{s.pax?.toLocaleString()}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div style={{ gridColumn: "1 / 3" }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Cruise Line</div>
+                      <select value={jobForm.cruise_line_id} onChange={e => setJobForm(f => ({ ...f, cruise_line_id: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark" }}>
+                        <option value="">— select —</option>
+                        {jobCruiseLines.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship Name</div>
+                      <input value={jobForm.ship_name} onChange={e => setJobForm(f => ({ ...f, ship_name: e.target.value }))} placeholder="e.g. Norwegian Star" style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Planned Pax</div>
+                      <input type="number" value={jobForm.planned_pax} onChange={e => setJobForm(f => ({ ...f, planned_pax: e.target.value }))} placeholder="0" style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Call Date</div>
+                      <input type="date" value={jobForm.call_date} onChange={e => setJobForm(f => ({ ...f, call_date: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>End Date (optional)</div>
+                      <input type="date" value={jobForm.end_date} onChange={e => setJobForm(f => ({ ...f, end_date: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark" }} />
+                    </div>
+                    <label style={{ gridColumn: "1 / 3", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: TEXT_DIM, cursor: "pointer" }}>
+                      <input type="checkbox" checked={jobForm.turnaround} onChange={e => setJobForm(f => ({ ...f, turnaround: e.target.checked }))} />
+                      Turnaround call
+                    </label>
+                  </div>
+                )}
+
+                {/* Common: cruise line readout (from schedule), contract, notes */}
+                {jobFromSchedule && jobForm.call_date && (
+                  <div style={{ marginBottom: 16, padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 8, border: `1px solid ${BORDER}`, fontSize: 12 }}>
+                    <div style={{ color: TEXT_DIM, fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, fontFamily: "JetBrains Mono", marginBottom: 4 }}>Selected</div>
+                    <div><strong>{jobForm.ship_name}</strong> · {jobForm.call_date}{jobForm.end_date ? ` → ${jobForm.end_date}` : ""} · {jobForm.planned_pax || "?"} pax {jobForm.turnaround ? " · Turnaround" : ""}</div>
+                    {!jobForm.cruise_line_id && (
+                      <div style={{ color: IPS_WARN, fontSize: 11, marginTop: 6 }}>
+                        ⚠ Cruise line could not be auto-matched — pick one below.
+                      </div>
+                    )}
+                  </div>
+                )}
+                {jobFromSchedule && !jobForm.cruise_line_id && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Cruise Line</div>
+                    <select value={jobForm.cruise_line_id} onChange={e => setJobForm(f => ({ ...f, cruise_line_id: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark" }}>
+                      <option value="">— select —</option>
+                      {jobCruiseLines.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                    </select>
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Contract</div>
+                  <select value={jobForm.contract_id} onChange={e => setJobForm(f => ({ ...f, contract_id: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark" }} disabled={!jobForm.cruise_line_id}>
+                    <option value="">{jobForm.cruise_line_id ? "— select contract —" : "— pick a cruise line first —"}</option>
+                    {jobContracts
+                      .filter(c => c.cruise_line_id === jobForm.cruise_line_id)
+                      .map(c => (<option key={c.id} value={c.id}>{c.season} · {c.status} · {c.start_date} → {c.end_date}</option>))}
+                  </select>
+                  {jobForm.cruise_line_id && jobContracts.filter(c => c.cruise_line_id === jobForm.cruise_line_id).length === 0 && (
+                    <div style={{ color: TEXT_DIM, fontSize: 11, marginTop: 6 }}>No contracts for this cruise line — you can save the job without one and attach it before invoicing.</div>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes</div>
+                  <textarea value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Optional context..." style={{ ...inputStyle, resize: "vertical" }} />
+                </div>
+
+                {/* Shared time-slot datalist for all resource time inputs */}
+                <datalist id="hhmm-15min">
+                  {TIME_SLOTS_15.map(t => <option key={t} value={t} />)}
+                </datalist>
+
+                {/* ─── Requested Resources ─────────────────────────────────────── */}
+                <div style={{ marginBottom: 16, padding: 14, background: "rgba(87,181,200,0.04)", borderRadius: 10, border: `1px solid ${BORDER}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: IPS_ACCENT, fontFamily: "JetBrains Mono", fontWeight: 600 }}>Requested Resources</div>
+                      <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>What resources does this job need, and when?</div>
+                    </div>
+                  </div>
+
+                  {(jobForm.requested_resources || []).length === 0 && (
+                    <div style={{ fontSize: 11, color: TEXT_DIM, fontStyle: "italic", padding: "10px 0" }}>No resources yet. Click "+ Add resource" to start.</div>
+                  )}
+
+                  {(jobForm.requested_resources || []).map((line, idx) => {
+                    const def = RESOURCE_CATALOG[line.item_code];
+                    const isFullDay = def?.default_unit === "full_day";
+                    return (
+                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 80px 30px", gap: 6, marginBottom: 8, alignItems: "center" }}>
+                        <select
+                          value={line.item_code}
+                          onChange={e => updateResourceLine(idx, "item_code", e.target.value)}
+                          style={{ ...inputStyle, padding: "8px 10px", colorScheme: "dark" }}
+                        >
+                          <option value="">— pick resource —</option>
+                          {Object.entries(RESOURCE_CATEGORIES).map(([catKey, cat]) => (
+                            <optgroup key={catKey} label={cat.label}>
+                              {Object.entries(RESOURCE_CATALOG)
+                                .filter(([, r]) => r.category === catKey)
+                                .map(([code, r]) => (
+                                  <option key={code} value={code}>{r.label}{r.default_unit === "full_day" ? " (full day)" : ""}</option>
+                                ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <input
+                          type="number" min="1" step="1"
+                          value={line.quantity}
+                          onChange={e => updateResourceLine(idx, "quantity", e.target.value)}
+                          title="Quantity"
+                          style={{ ...inputStyle, padding: "8px 10px", textAlign: "center" }}
+                        />
+                        <input
+                          type="text"
+                          list="hhmm-15min"
+                          value={line.start_time || ""}
+                          onChange={e => updateResourceLine(idx, "start_time", e.target.value)}
+                          onBlur={e => {
+                            const normalized = normalizeHhmm(e.target.value);
+                            if (normalized !== line.start_time) updateResourceLine(idx, "start_time", normalized);
+                          }}
+                          placeholder="HH:MM"
+                          title="Start time — pick from list or type any time"
+                          style={{ ...inputStyle, padding: "8px 10px", opacity: isFullDay ? 0.6 : 1 }}
+                        />
+                        <input
+                          type="text"
+                          list="hhmm-15min"
+                          value={line.end_time || ""}
+                          onChange={e => updateResourceLine(idx, "end_time", e.target.value)}
+                          onBlur={e => {
+                            const normalized = normalizeHhmm(e.target.value);
+                            if (normalized !== line.end_time) updateResourceLine(idx, "end_time", normalized);
+                          }}
+                          placeholder="HH:MM"
+                          title="End time — pick from list or type any time"
+                          style={{ ...inputStyle, padding: "8px 10px", opacity: isFullDay ? 0.6 : 1 }}
+                        />
+                        <input
+                          type="number" min="0" step="0.25"
+                          value={line.duration_hours ?? ""}
+                          onChange={e => updateResourceLine(idx, "duration_hours", e.target.value)}
+                          placeholder="hrs"
+                          title="Duration (hours)"
+                          style={{ ...inputStyle, padding: "8px 10px", textAlign: "right", opacity: isFullDay ? 0.6 : 1 }}
+                        />
+                        <button
+                          onClick={() => removeResourceLine(idx)}
+                          title="Remove"
+                          style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, color: IPS_DANGER, borderRadius: 6, padding: "8px 0", cursor: "pointer", fontSize: 14, lineHeight: 1 }}
+                        >×</button>
+                      </div>
+                    );
+                  })}
+
+                  {/* Tiny header row above lines, only when there are lines */}
+                  {(jobForm.requested_resources || []).length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 80px 30px", gap: 6, marginBottom: 4, fontSize: 9, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", order: -1 }}>
+                      <span>Resource</span><span style={{ textAlign: "center" }}>Qty</span><span>Start</span><span>End</span><span style={{ textAlign: "right" }}>Hours</span><span></span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={addResourceLine}
+                    style={{ marginTop: 8, padding: "7px 14px", borderRadius: 6, cursor: "pointer", background: "rgba(87,181,200,0.1)", border: `1px solid rgba(87,181,200,0.3)`, color: IPS_ACCENT, fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}
+                  >+ Add resource</button>
+                </div>
+
+                {jobError && <div style={{ color: IPS_DANGER, fontSize: 12, marginBottom: 12 }}>{jobError}</div>}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={saveJobForm} disabled={jobSaving} style={{ padding: "10px 24px", borderRadius: 8, cursor: jobSaving ? "wait" : "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: jobSaving ? 0.6 : 1 }}>{jobSaving ? "Saving..." : (jobModal === "new" ? "Create Job" : "Save Changes")}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Mark Done modal */}
+          {completeJob && (
+            <div onClick={() => setCompleteJob(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 420, background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Mark Job Complete</div>
+                  <button onClick={() => setCompleteJob(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ marginBottom: 16, padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 8, border: `1px solid ${BORDER}`, fontSize: 12 }}>
+                  <strong>{completeJob.ship_name}</strong> · {completeJob.call_date} · {completeJob.planned_pax || "?"} pax
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Actual Hours Worked</div>
+                  <input type="number" step="0.25" min="0" value={completeHours} onChange={e => setCompleteHours(e.target.value)} placeholder="e.g. 6.5" autoFocus style={inputStyle} />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes (optional)</div>
+                  <textarea value={completeNotes} onChange={e => setCompleteNotes(e.target.value)} rows={2} placeholder="What happened on the day..." style={{ ...inputStyle, resize: "vertical" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => setCompleteJob(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={saveCompleteJob} disabled={completeSaving || !completeHours} style={{ padding: "10px 24px", borderRadius: 8, cursor: completeSaving ? "wait" : "pointer", background: IPS_SUCCESS, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: (completeSaving || !completeHours) ? 0.6 : 1 }}>{completeSaving ? "Saving..." : "Mark Complete"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Invoice preview modal */}
+          {invoiceJob && (
+            <div onClick={() => { if (!invoiceSending) { setInvoiceJob(null); setInvoiceLines([]); setInvoiceContext(null); } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Generate Invoice</div>
+                  <button onClick={() => { setInvoiceJob(null); setInvoiceLines([]); setInvoiceContext(null); }} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ marginBottom: 14, padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 8, border: `1px solid ${BORDER}`, fontSize: 12 }}>
+                  <strong>{invoiceJob.ship_name}</strong> · {invoiceJob.call_date} · {invoiceJob.planned_pax || "?"} pax · {invoiceJob.confirmed_hours ?? "?"} hrs confirmed
+                  {invoiceContext?.cruiseLine && <div style={{ color: TEXT_DIM, marginTop: 4 }}>Customer: {invoiceContext.cruiseLine.name}{invoiceContext.cruiseLine.payday_customer_id ? "" : " (not yet mapped to Payday)"}</div>}
+                </div>
+
+                {invoiceError && <div style={{ color: IPS_DANGER, fontSize: 12, marginBottom: 12, padding: 10, background: "rgba(239,68,68,0.08)", borderRadius: 6, border: `1px solid rgba(239,68,68,0.3)` }}>{invoiceError}</div>}
+
+                {invoiceLines.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Line Items</div>
+                    <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px 110px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, background: "rgba(255,255,255,0.02)" }}>
+                        <span>Description</span><span style={{ textAlign: "right" }}>Qty</span><span style={{ textAlign: "right" }}>Unit Price</span><span style={{ textAlign: "right" }}>Line Total</span>
+                      </div>
+                      {invoiceLines.map((line, idx) => (
+                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px 110px", gap: 10, padding: "9px 12px", fontSize: 12, borderBottom: idx < invoiceLines.length - 1 ? `1px solid ${BORDER}` : "none" }}>
+                          <span>{line.description}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{line.quantity}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", color: TEXT_DIM }}>{fmtISK(line.unit_price_isk)}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{fmtISK(line.line_total_isk)}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 10, padding: "10px 12px", background: "rgba(87,181,200,0.06)", borderTop: `1px solid ${BORDER}` }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, textAlign: "right" }}>Total</span>
+                        <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_ACCENT, fontSize: 14 }}>{fmtISK(invoiceLines.reduce((s, l) => s + (l.line_total_isk || 0), 0))}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => { setInvoiceJob(null); setInvoiceLines([]); setInvoiceContext(null); }} disabled={invoiceSending} style={{ padding: "10px 20px", borderRadius: 8, cursor: invoiceSending ? "wait" : "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={sendInvoice} disabled={invoiceSending || invoiceLines.length === 0 || !invoiceContext?.cruiseLine?.payday_customer_id} style={{ padding: "10px 24px", borderRadius: 8, cursor: invoiceSending ? "wait" : "pointer", background: `linear-gradient(135deg, ${IPS_ACCENT}, #458CA7)`, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: (invoiceSending || invoiceLines.length === 0 || !invoiceContext?.cruiseLine?.payday_customer_id) ? 0.6 : 1 }}>{invoiceSending ? "Sending..." : "Send to Payday"}</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ═══ WORKSPACE DASHBOARD ═══ */}
           {wsView === "dashboard" && (<>

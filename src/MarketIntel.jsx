@@ -7,11 +7,15 @@ import {
   LUGGAGE_PER_PAX_TURNAROUND, CREW_PER_1000_PAX_TRANSIT, CREW_PER_1000_PAX_TURNAROUND,
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM, OTHER_COLOR,
-  SAMSKIP_COLOR, PROSPECT_GROUPS,
+  SAMSKIP_COLOR, PROSPECT_GROUPS, JOB_STATUSES,
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
-export default function MarketIntel({ portCalls, activeView }) {
+export default function MarketIntel({ portCalls, activeView, jobs = [] }) {
+  const findJob = (s) => jobs.find(j =>
+    (s.id && j.port_call_id === s.id) ||
+    (j.ship_name === s.ship && j.call_date === s.date)
+  );
   // ─── MARKET INTEL STATE ───────────────────────────────────────────────────
   const [wonLines, setWonLines] = useState(new Set());
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -876,18 +880,26 @@ export default function MarketIntel({ portCalls, activeView }) {
                 <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                   <span>Dates</span><span>Line</span><span>Ship</span><span style={{ textAlign: "right" }}>Pax</span><span style={{ textAlign: "center" }}>Type</span><span style={{ textAlign: "center" }}>O/N</span><span style={{ textAlign: "center" }}>Tier</span><span style={{ textAlign: "right" }}>Pallets</span>
                 </div>
-                {portCalls.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date).getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => (
+                {portCalls.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date).getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => {
+                  const job = findJob(s);
+                  return (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "9px 12px", fontSize: 13, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: TEXT_DIM }}>{fmtDateRange(s)}</span>
                     <span style={{ fontWeight: 500 }}>{s.line}</span>
-                    <span style={{ color: TEXT_DIM }}>{s.ship}</span>
+                    <span style={{ color: TEXT_DIM, display: "flex", alignItems: "center", gap: 6 }}>
+                      {s.ship}
+                      {job && JOB_STATUSES[job.status] && (
+                        <span title={`Job: ${JOB_STATUSES[job.status].label}`} style={{ width: 8, height: 8, borderRadius: "50%", background: JOB_STATUSES[job.status].color, flexShrink: 0 }} />
+                      )}
+                    </span>
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{s.pax.toLocaleString()}</span>
                     <span style={{ textAlign: "center" }}>{s.turnaround ? <span style={{ background: "rgba(245,158,11,0.15)", color: IPS_WARN, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: 600 }}>(T)</span> : <span style={{ color: TEXT_DIM, fontSize: 11 }}>Transit</span>}</span>
                     <span style={{ textAlign: "center" }}>{isOvernight(s) ? <span style={{ fontSize: 13 }}>🌙</span> : <span style={{ color: TEXT_DIM }}>—</span>}</span>
                     <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: s.turnaround ? IPS_SUCCESS : TEXT_DIM }}>{s.turnaround ? getTierLabel(s.pax) : "1×"}</span>
                     <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontSize: 12 }}>{Math.round(s.pax * (s.turnaround ? PALLETS_PER_PAX_TURNAROUND : PALLETS_PER_PAX_TRANSIT))}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </Card>
           )}
