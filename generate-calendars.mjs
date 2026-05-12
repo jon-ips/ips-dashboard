@@ -243,12 +243,21 @@ function getNonTurnaroundOpsDate(s) {
   return s.date;
 }
 
-// ── Build ops-day data (include ALL ships, turnaround + transit) ────────────
+// ── Line groups ─────────────────────────────────────────────────────────────
+const IPS_LINES = new Set(["Holland America", "Seabourn", "Viking"]);
+const SDK_LINES = new Set(["Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"]);
+const PRINCESS_LINES = new Set(["Princess"]);
+
+// ── Build ops-day data (IPS contracted + SDK contracted + all Princess) ────
 function buildOpsData() {
   const allDates = {};
   for (const s of SHIPS) {
-    // IPS = contracted status
-    if (s.status !== "contracted") continue;
+    let tag = null;
+    if (IPS_LINES.has(s.line) && s.status === "contracted") tag = "ips";
+    else if (SDK_LINES.has(s.line) && s.status === "contracted") tag = "sdk";
+    else if (PRINCESS_LINES.has(s.line)) tag = "princess";
+    if (!tag) continue;
+
     let opsDate;
     if (s.turnaround) {
       opsDate = getTurnaroundOpsDate(s);
@@ -257,7 +266,7 @@ function buildOpsData() {
     }
     if (!opsDate) continue;
     if (!allDates[opsDate]) allDates[opsDate] = [];
-    allDates[opsDate].push({ ship: s.ship, turnaround: s.turnaround, pax: s.pax, line: s.line });
+    allDates[opsDate].push({ ship: s.ship, turnaround: s.turnaround, pax: s.pax, line: s.line, tag });
   }
   return allDates;
 }
@@ -320,7 +329,21 @@ function generateMonthSVG(year, month, opsData) {
 `;
 
   // Month title
-  svg += `  <text x="${totalW / 2}" y="52" text-anchor="middle" font-size="38" font-weight="900" fill="#1a1a1a">${monthNames[month]} ${year}</text>\n`;
+  svg += `  <text x="${totalW / 2}" y="42" text-anchor="middle" font-size="38" font-weight="900" fill="#1a1a1a">${monthNames[month]} ${year}</text>\n`;
+
+  // Subtitle + Legend
+  svg += `  <text x="${totalW / 2}" y="62" text-anchor="middle" font-size="13" font-weight="700" fill="#666">IPS + SDK + Princess</text>\n`;
+  const legends = [
+    { label: "IPS", bg: "#FFF7ED", border: "#F59E0B" },
+    { label: "SDK", bg: "#EFF6FF", border: "#3B82F6" },
+    { label: "Princess", bg: "#FDF2F8", border: "#EC4899" },
+  ];
+  let legendX = totalW / 2 - 150;
+  for (const leg of legends) {
+    svg += `  <rect x="${legendX}" y="${64}" width="12" height="12" rx="3" fill="${leg.bg}" stroke="${leg.border}" stroke-width="2"/>\n`;
+    svg += `  <text x="${legendX + 17}" y="${74}" font-size="11" font-weight="600" fill="#888">${leg.label}</text>\n`;
+    legendX += 100;
+  }
 
   // Day-of-week headers
   const gridX = 10;
@@ -358,9 +381,15 @@ function generateMonthSVG(year, month, opsData) {
       for (const ship of ships) {
         const isTurnaround = ship.turnaround;
         const label = isTurnaround ? "TURNAROUND" : "GARBAGE";
-        const bgColor = isTurnaround ? "#FFF7ED" : "#F0FDFA";
-        const borderColor = isTurnaround ? "#F59E0B" : "#458CA7";
-        const labelColor = isTurnaround ? "#D97706" : "#0F766E";
+        const TAG_STYLES = {
+          ips:      { turnaround: { bg: "#FFF7ED", border: "#F59E0B", label: "#D97706" }, garbage: { bg: "#F0FDFA", border: "#458CA7", label: "#0F766E" } },
+          sdk:      { turnaround: { bg: "#EFF6FF", border: "#3B82F6", label: "#1D4ED8" }, garbage: { bg: "#EFF6FF", border: "#3B82F6", label: "#1D4ED8" } },
+          princess: { turnaround: { bg: "#FDF2F8", border: "#EC4899", label: "#BE185D" }, garbage: { bg: "#FDF2F8", border: "#EC4899", label: "#BE185D" } },
+        };
+        const style = TAG_STYLES[ship.tag]?.[isTurnaround ? "turnaround" : "garbage"] || TAG_STYLES.ips.turnaround;
+        const bgColor = style.bg;
+        const borderColor = style.border;
+        const labelColor = style.label;
         const entryH = shipEntryH - 4;
 
         // Entry background
