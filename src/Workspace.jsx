@@ -102,12 +102,6 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   }, []);
 
   // ─── JOBS STORAGE (Supabase with localStorage fallback) ──────────────────
-  const jobToRow = (j) => ({
-    id: j.id, type: j.type, date: j.date, ship: j.ship || null, notes: j.notes || null,
-    shifts: JSON.stringify(j.shifts || []), completed: j.completed || false,
-    hours_worked: j.hoursWorked ? JSON.stringify(j.hoursWorked) : null,
-  });
-
   const rowToJob = (r) => ({
     id: r.id, type: r.type || "provisions", date: r.date, ship: r.ship || "",
     notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
@@ -177,16 +171,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       .filter(s => Object.keys(s.equipment).length > 0);
     if (cleanShifts.length === 0) return;
     if (jobModal === "new") {
-      const newJob = { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() };
-      saveJobs([...jobs, newJob]);
       if (SUPABASE_CONFIGURED) {
-        const { data } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: JSON.stringify(cleanShifts) });
-        if (data && data[0]) setJobs(prev => prev.map(j => j.id === newJob.id ? { ...j, id: data[0].id } : j));
+        const { data, error } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts });
+        if (error) { console.error("Failed to create job:", error); }
+        if (data && data[0]) {
+          const newJob = rowToJob(data[0]);
+          saveJobs([...jobs, newJob]);
+        } else {
+          // Fallback: save locally with temp id
+          saveJobs([...jobs, { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+        }
+      } else {
+        saveJobs([...jobs, { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
       }
     } else {
       saveJobs(jobs.map(j => j.id === jobModal ? { ...j, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts } : j));
       if (SUPABASE_CONFIGURED) {
-        supabase.from("jobs").update({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: JSON.stringify(cleanShifts) }).eq("id", jobModal).then(() => {});
+        supabase.from("jobs").update({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
       }
     }
     setJobModal(null);
@@ -253,7 +254,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || 4 }))])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: true, hours_worked: JSON.stringify(hoursWorked) }).eq("id", completeModal.id).then(() => {});
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", completeModal.id).then(() => {});
     setCompleteModal(null);
   }, [completeModal, completeHours, jobs, saveJobs]);
 
