@@ -305,11 +305,15 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     cage:       { label: "Cage" },
   },
   turnaround: {
-    forklift:    { label: "Forklift" },
-    telescopic:  { label: "Telescopic" },
-    luggage_van: { label: "Luggage Van" },
-    cage:        { label: "Cage" },
-    porter:      { label: "Porter" },
+    forklift:          { label: "Forklift", autoOperator: "forklift_op" },
+    forklift_op:       { label: "Forklift Operator", auto: true },
+    telescopic:        { label: "Telescopic", autoOperator: "telescopic_op" },
+    telescopic_op:     { label: "Telescopic Operator", auto: true },
+    conveyor_belt:     { label: "Conveyor Belt", autoOperator: "conveyor_op" },
+    conveyor_op:       { label: "Conveyor Belt Operator", auto: true },
+    luggage_van:       { label: "Luggage Van" },
+    cage:              { label: "Cage" },
+    porter:            { label: "Porter" },
   },
 };
 

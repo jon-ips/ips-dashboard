@@ -450,14 +450,29 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Equipment *</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                      {Object.entries(equipList).map(([k, v]) => (
-                        <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: (jobForm.equipment[k] || 0) > 0 ? `${jt.color}12` : "rgba(255,255,255,0.03)", border: `1px solid ${(jobForm.equipment[k] || 0) > 0 ? jt.color : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
-                          <span style={{ fontSize: 12, flex: 1, color: (jobForm.equipment[k] || 0) > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
-                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: Math.max(0, (f.equipment[k] || 0) - 1) } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
-                          <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: (jobForm.equipment[k] || 0) > 0 ? jt.color : TEXT_DIM }}>{jobForm.equipment[k] || 0}</span>
-                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: (f.equipment[k] || 0) + 1 } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
+                      {Object.entries(equipList).filter(([, v]) => !v.auto).map(([k, v]) => {
+                        const qty = jobForm.equipment[k] || 0;
+                        const opKey = v.autoOperator;
+                        const opQty = opKey ? (jobForm.equipment[opKey] || 0) : null;
+                        const setEquip = (newQty) => {
+                          const upd = { [k]: newQty };
+                          if (opKey) upd[opKey] = newQty;
+                          setJobForm(f => ({ ...f, equipment: { ...f.equipment, ...upd } }));
+                        };
+                        return (
+                        <div key={k}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, background: qty > 0 ? `${jt.color}12` : "rgba(255,255,255,0.03)", border: `1px solid ${qty > 0 ? jt.color : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
+                            <span style={{ fontSize: 12, flex: 1, color: qty > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
+                            <button onClick={() => setEquip(Math.max(0, qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
+                            <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: qty > 0 ? jt.color : TEXT_DIM }}>{qty}</span>
+                            <button onClick={() => setEquip(qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
+                          </div>
+                          {opKey && qty > 0 && (
+                            <div style={{ fontSize: 10, color: jt.color, fontFamily: "JetBrains Mono", marginTop: 3, paddingLeft: 10, opacity: 0.8 }}>+ {opQty}× {equipList[opKey]?.label || "Operator"}</div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                   <div>
