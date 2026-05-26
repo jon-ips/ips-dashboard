@@ -101,25 +101,56 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     catch (e) { console.warn("Failed to save workspace tasks:", e); }
   }, []);
 
-  // ─── JOBS STORAGE (localStorage) ──────────────────────────────────────────
-  useEffect(() => {
+  // ─── JOBS STORAGE (Supabase with localStorage fallback) ──────────────────
+  const jobToRow = (j) => ({
+    id: j.id, type: j.type, date: j.date, ship: j.ship || null, notes: j.notes || null,
+    shifts: JSON.stringify(j.shifts || []), completed: j.completed || false,
+    hours_worked: j.hoursWorked ? JSON.stringify(j.hoursWorked) : null,
+  });
+
+  const rowToJob = (r) => ({
+    id: r.id, type: r.type || "provisions", date: r.date, ship: r.ship || "",
+    notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
+    completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
+    createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
+  });
+
+  const loadJobsFromDb = useCallback(async () => {
+    if (!SUPABASE_CONFIGURED) return null;
     try {
-      const raw = localStorage.getItem("ws:jobs");
-      if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
-      const delRaw = localStorage.getItem("ws:jobs:deleted");
-      if (delRaw) { const p = JSON.parse(delRaw); if (Array.isArray(p)) setDeletedJobs(p); }
-    } catch (e) { console.warn("Failed to load jobs:", e); }
-    finally { setJobsLoaded(true); }
+      const { data, error } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+      if (error) { console.warn("Supabase jobs error:", error); return null; }
+      return (data || []).map(rowToJob);
+    } catch (e) { console.warn("Failed to load jobs from Supabase:", e); return null; }
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const dbJobs = await loadJobsFromDb();
+        if (dbJobs !== null) {
+          setJobs(dbJobs.filter(j => !j.deletedAt));
+          setDeletedJobs(dbJobs.filter(j => j.deletedAt));
+        } else {
+          // Fallback to localStorage
+          const raw = localStorage.getItem("ws:jobs");
+          if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
+          const delRaw = localStorage.getItem("ws:jobs:deleted");
+          if (delRaw) { const p = JSON.parse(delRaw); if (Array.isArray(p)) setDeletedJobs(p); }
+        }
+      } catch (e) { console.warn("Failed to load jobs:", e); }
+      finally { setJobsLoaded(true); }
+    })();
+  }, [loadJobsFromDb]);
 
   const saveJobs = useCallback((j) => {
     setJobs(j);
-    try { localStorage.setItem("ws:jobs", JSON.stringify(j)); } catch (e) { console.warn("Failed to save jobs:", e); }
+    try { localStorage.setItem("ws:jobs", JSON.stringify(j)); } catch (e) {}
   }, []);
 
   const saveDeletedJobs = useCallback((d) => {
     setDeletedJobs(d);
-    try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(d)); } catch (e) { console.warn("Failed to save deleted jobs:", e); }
+    try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(d)); } catch (e) {}
   }, []);
 
   const openNewJob = useCallback(() => {
@@ -139,9 +170,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobModal(job.id);
   }, []);
 
-  const saveJobForm = useCallback(() => {
+  const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;
-    // Clean shifts: only keep shifts that have at least one equipment > 0
     const cleanShifts = jobForm.shifts
       .map(s => ({ startTime: s.startTime, equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0)) }))
       .filter(s => Object.keys(s.equipment).length > 0);
@@ -149,8 +179,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (jobModal === "new") {
       const newJob = { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() };
       saveJobs([...jobs, newJob]);
+      if (SUPABASE_CONFIGURED) {
+        const { data } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: JSON.stringify(cleanShifts) });
+        if (data && data[0]) setJobs(prev => prev.map(j => j.id === newJob.id ? { ...j, id: data[0].id } : j));
+      }
     } else {
       saveJobs(jobs.map(j => j.id === jobModal ? { ...j, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts } : j));
+      if (SUPABASE_CONFIGURED) {
+        supabase.from("jobs").update({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: JSON.stringify(cleanShifts) }).eq("id", jobModal).then(() => {});
+      }
     }
     setJobModal(null);
   }, [jobForm, jobModal, jobs, saveJobs]);
@@ -174,6 +211,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (!job) return;
     if (job.completed) {
       saveJobs(jobs.map(j => j.id === id ? { ...j, completed: false, hoursWorked: undefined } : j));
+      if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: false, hours_worked: null }).eq("id", id).then(() => {});
     } else {
       const shifts = job.shifts || [{ startTime: job.startTime || "", equipment: job.equipment || {} }];
       const hrs = shifts.map(s => ({
@@ -215,14 +253,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || 4 }))])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: true, hours_worked: JSON.stringify(hoursWorked) }).eq("id", completeModal.id).then(() => {});
     setCompleteModal(null);
   }, [completeModal, completeHours, jobs, saveJobs]);
 
   const deleteJob = useCallback((id) => {
     const job = jobs.find(j => j.id === id);
     if (!job) return;
+    const now = new Date().toISOString();
     saveJobs(jobs.filter(j => j.id !== id));
-    saveDeletedJobs([{ ...job, deletedAt: new Date().toISOString() }, ...deletedJobs]);
+    saveDeletedJobs([{ ...job, deletedAt: now }, ...deletedJobs]);
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ deleted_at: now }).eq("id", id).then(() => {});
   }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
 
   const restoreJob = useCallback((id) => {
@@ -231,10 +272,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const { deletedAt, ...restored } = job;
     saveJobs([...jobs, restored]);
     saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ deleted_at: null }).eq("id", id).then(() => {});
   }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
 
   const permanentDeleteJob = useCallback((id) => {
     saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").delete().eq("id", id).then(() => {});
   }, [deletedJobs, saveDeletedJobs]);
 
   const shipsOnDate = useMemo(() => {
