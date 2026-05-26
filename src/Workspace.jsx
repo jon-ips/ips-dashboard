@@ -424,19 +424,19 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Date *</div>
-                      <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%" }} />
+                      <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value, ship: "" }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
-                      <input type="time" value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%" }} />
+                      <input type="time" value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
                     </div>
                   </div>
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship {shipsOnDate.length > 0 ? `(${shipsOnDate.length} in port)` : "(optional)"}</div>
                     {shipsOnDate.length > 0 ? (
-                      <select value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }}>
-                        <option value="">— Select ship —</option>
-                        {shipsOnDate.map(s => <option key={s} value={s}>{s}</option>)}
+                      <select value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45" }}>
+                        <option value="" style={{ background: "#112F45", color: TEXT }}>— Select ship —</option>
+                        {shipsOnDate.map(s => <option key={s} value={s} style={{ background: "#112F45", color: TEXT }}>{s}</option>)}
                       </select>
                     ) : (
                       <input value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} placeholder={jobForm.date ? "No ships in port this day" : "Pick a date first..."} style={inputStyle} />
