@@ -281,6 +281,18 @@ export const PROSPECT_GROUPS = {
   },
 };
 
+// ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
+export const JOB_EQUIPMENT = {
+  forklift:    { label: "Forklift",    icon: "🏗" },
+  telescopic:  { label: "Telescopic",  icon: "🔭" },
+  crane:       { label: "Crane",       icon: "🏗" },
+  stevedore:   { label: "Stevedore",   icon: "👷" },
+  truck:       { label: "Truck",       icon: "🚛" },
+  van:         { label: "Van",         icon: "🚐" },
+  reach_stacker: { label: "Reach Stacker", icon: "📦" },
+};
+export const JOB_COLOR = "#A78BFA";
+
 // ─── WORKSPACE CONFIG ────────────────────────────────────────────────────────
 export const WS_TEAM = {
   jon:     { name: "Jón", initials: "JH", color: "#57B5C8" },

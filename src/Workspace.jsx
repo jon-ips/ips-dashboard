@@ -4,6 +4,7 @@ import {
   IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
+  JOB_EQUIPMENT, JOB_COLOR,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 
@@ -24,6 +25,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [wsDrafts, setWsDrafts] = useState([]);
   const [wsDraftsLoading, setWsDraftsLoading] = useState(false);
   const [wsDraftsCollapsed, setWsDraftsCollapsed] = useState(false);
+
+  // ─── JOBS STATE ─────────────────────────────────────────────────────────────
+  const [jobs, setJobs] = useState([]);
+  const [jobsLoaded, setJobsLoaded] = useState(false);
+  const [jobModal, setJobModal] = useState(null); // null | "new" | jobId
+  const defaultJobForm = { date: "", startTime: "", ship: "", notes: "", equipment: Object.fromEntries(Object.keys(JOB_EQUIPMENT).map(k => [k, 0])) };
+  const [jobForm, setJobForm] = useState(defaultJobForm);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -83,6 +91,59 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     try { if (window.storage) await window.storage.setItem("ws:tasks", JSON.stringify(tasks), { shared: true }); }
     catch (e) { console.warn("Failed to save workspace tasks:", e); }
   }, []);
+
+  // ─── JOBS STORAGE (localStorage) ──────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        if (window.storage) {
+          const raw = await window.storage.getItem("ws:jobs");
+          if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
+        }
+      } catch (e) { console.warn("Failed to load jobs:", e); }
+      finally { setJobsLoaded(true); }
+    })();
+  }, []);
+
+  const saveJobs = useCallback(async (j) => {
+    setJobs(j);
+    try { if (window.storage) await window.storage.setItem("ws:jobs", JSON.stringify(j), { shared: true }); }
+    catch (e) { console.warn("Failed to save jobs:", e); }
+  }, []);
+
+  const openNewJob = useCallback(() => {
+    setJobForm(defaultJobForm);
+    setJobModal("new");
+  }, []);
+
+  const openEditJob = useCallback((job) => {
+    setJobForm({ date: job.date, startTime: job.startTime, ship: job.ship || "", notes: job.notes || "", equipment: { ...defaultJobForm.equipment, ...job.equipment } });
+    setJobModal(job.id);
+  }, []);
+
+  const saveJobForm = useCallback(() => {
+    if (!jobForm.date) return;
+    const equipEntries = Object.entries(jobForm.equipment).filter(([, qty]) => qty > 0);
+    if (equipEntries.length === 0) return;
+    const equipObj = Object.fromEntries(equipEntries);
+    if (jobModal === "new") {
+      const newJob = { id: generateId(), date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj, completed: false, createdAt: new Date().toISOString() };
+      saveJobs([...jobs, newJob]);
+    } else {
+      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj } : j));
+    }
+    setJobModal(null);
+  }, [jobForm, jobModal, jobs, saveJobs]);
+
+  const toggleJobComplete = useCallback((id) => {
+    saveJobs(jobs.map(j => j.id === id ? { ...j, completed: !j.completed } : j));
+  }, [jobs, saveJobs]);
+
+  const deleteJob = useCallback((id) => {
+    saveJobs(jobs.filter(j => j.id !== id));
+  }, [jobs, saveJobs]);
+
+  const fmtEquipment = (eq) => Object.entries(eq).map(([k, qty]) => `${qty}× ${JOB_EQUIPMENT[k]?.label || k}`).join(", ");
 
   const openNewTask = useCallback(() => {
     setWsTaskForm({ title: "", description: "", assignee: "jon", project: "operations", priority: "medium", dueDate: "" });
@@ -322,6 +383,101 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             </div>
           )}
 
+          {/* JOB FORM MODAL */}
+          {jobModal !== null && (
+            <div onClick={() => setJobModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{jobModal === "new" ? "New Job Order" : "Edit Job Order"}</div>
+                  <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Date *</div>
+                      <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%" }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
+                      <input type="time" value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%" }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship (optional)</div>
+                    <input value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} placeholder="e.g. Viking Mars" style={inputStyle} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Equipment *</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                      {Object.entries(JOB_EQUIPMENT).map(([k, v]) => (
+                        <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: jobForm.equipment[k] > 0 ? `${JOB_COLOR}12` : "rgba(255,255,255,0.03)", border: `1px solid ${jobForm.equipment[k] > 0 ? JOB_COLOR : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
+                          <span style={{ fontSize: 12, flex: 1, color: jobForm.equipment[k] > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
+                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: Math.max(0, f.equipment[k] - 1) } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
+                          <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: jobForm.equipment[k] > 0 ? JOB_COLOR : TEXT_DIM }}>{jobForm.equipment[k]}</span>
+                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: f.equipment[k] + 1 } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes</div>
+                    <textarea value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional details..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
+                  <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: JOB_COLOR, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ JOBS VIEW ═══ */}
+          {wsView === "jobs" && (<>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed).length} active job{jobs.filter(j => !j.completed).length !== 1 ? "s" : ""}</div>
+              <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: JOB_COLOR, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
+            </div>
+
+            {jobs.length === 0 ? (
+              <Card style={{ textAlign: "center", padding: 40 }}>
+                <div style={{ fontSize: 14, color: TEXT_DIM, marginBottom: 12 }}>No job orders yet.</div>
+                <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: JOB_COLOR, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Log your first job</button>
+              </Card>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[...jobs].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.startTime || "").localeCompare(b.startTime || "")).map(job => (
+                  <Card key={job.id} style={{ padding: "12px 16px", opacity: job.completed ? 0.5 : 1, borderLeft: `4px solid ${JOB_COLOR}` }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                      <button onClick={() => toggleJobComplete(job.id)} style={{
+                        width: 22, height: 22, borderRadius: 6, cursor: "pointer", flexShrink: 0, marginTop: 2,
+                        background: job.completed ? IPS_SUCCESS : "transparent",
+                        border: `2px solid ${job.completed ? IPS_SUCCESS : BORDER}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        color: "#fff", fontSize: 12, fontWeight: 700,
+                      }}>{job.completed ? "✓" : ""}</button>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: JOB_COLOR }}>{fmtDate(job.date)}</span>
+                          {job.startTime && <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{job.startTime}</span>}
+                          {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtEquipment(job.equipment)}</div>
+                        {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
+                        <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </>)}
+
           {/* ═══ TASKS VIEW ═══ */}
           {wsView === "tasks" && (<>
             {/* Telegram Drafts Inbox */}
@@ -543,6 +699,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               }
             });
 
+            // Build jobs map by date
+            const jobsByDate = {};
+            jobs.forEach(j => {
+              if (j.date) {
+                if (!jobsByDate[j.date]) jobsByDate[j.date] = [];
+                jobsByDate[j.date].push(j);
+              }
+            });
+
             const prevMonth = () => {
               if (wsCalMonth === 0) { setWsCalMonth(11); setWsCalYear(y => y - 1); }
               else setWsCalMonth(m => m - 1);
@@ -573,28 +738,41 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         if (day === null) return <div key={di} style={{ minHeight: 90 }} />;
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                         const dayTasks = tasksByDate[dateStr] || [];
+                        const dayJobs = jobsByDate[dateStr] || [];
+                        const totalItems = dayTasks.length + dayJobs.length;
                         const today = new Date().toISOString().split("T")[0];
                         const isToday = dateStr === today;
                         const isWeekend = di >= 5;
                         return (
                           <div key={di} style={{
                             minHeight: 90, borderRadius: 8, padding: 6, position: "relative",
-                            background: isToday ? "rgba(87,181,200,0.06)" : dayTasks.length >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
+                            background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                             border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                               <span style={{
                                 fontFamily: "JetBrains Mono", fontSize: 12, fontWeight: 700,
-                                color: isToday ? IPS_ACCENT : dayTasks.length > 0 ? TEXT : TEXT_DIM,
+                                color: isToday ? IPS_ACCENT : totalItems > 0 ? TEXT : TEXT_DIM,
                                 width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
                                 borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
                               }}>{day}</span>
-                              {dayTasks.length > 0 && (
-                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 9, fontWeight: 600, color: dayTasks.length >= 3 ? IPS_WARN : TEXT_DIM, background: dayTasks.length >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{dayTasks.length}</span>
+                              {totalItems > 0 && (
+                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 9, fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              {dayTasks.slice(0, 4).map(t => {
+                              {dayJobs.slice(0, 2).map(j => (
+                                <div key={j.id} onClick={() => openEditJob(j)} style={{
+                                  display: "flex", alignItems: "center", gap: 3, cursor: "pointer",
+                                  background: j.completed ? "rgba(255,255,255,0.02)" : `${JOB_COLOR}0D`,
+                                  border: `1px solid ${JOB_COLOR}25`, borderRadius: 4, padding: "2px 5px",
+                                  borderLeft: `3px solid ${JOB_COLOR}`, opacity: j.completed ? 0.5 : 1,
+                                }}>
+                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: JOB_COLOR, flexShrink: 0 }}>JOB</span>
+                                  <span style={{ fontSize: 9, color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{j.startTime ? j.startTime + " " : ""}{j.ship || fmtEquipment(j.equipment)}</span>
+                                </div>
+                              ))}
+                              {dayTasks.slice(0, Math.max(1, 4 - dayJobs.length)).map(t => {
                                 const p = WS_PROJECTS[t.project] || WS_PROJECTS.general;
                                 const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
                                 return (
@@ -609,7 +787,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   </div>
                                 );
                               })}
-                              {dayTasks.length > 4 && <div style={{ fontSize: 9, color: TEXT_DIM, textAlign: "center" }}>+{dayTasks.length - 4} more</div>}
+                              {totalItems > 4 && <div style={{ fontSize: 9, color: TEXT_DIM, textAlign: "center" }}>+{totalItems - 4} more</div>}
                             </div>
                           </div>
                         );
