@@ -282,16 +282,36 @@ export const PROSPECT_GROUPS = {
 };
 
 // ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
-export const JOB_EQUIPMENT = {
-  forklift:    { label: "Forklift",    icon: "🏗" },
-  telescopic:  { label: "Telescopic",  icon: "🔭" },
-  crane:       { label: "Crane",       icon: "🏗" },
-  stevedore:   { label: "Stevedore",   icon: "👷" },
-  truck:       { label: "Truck",       icon: "🚛" },
-  van:         { label: "Van",         icon: "🚐" },
-  reach_stacker: { label: "Reach Stacker", icon: "📦" },
+export const JOB_TYPES = {
+  provisions: { label: "Provisions", color: "#22C55E" },
+  waste:      { label: "Waste Offload", color: "#F59E0B" },
+  turnaround: { label: "Turnaround Ops", color: "#A78BFA" },
 };
-export const JOB_COLOR = "#A78BFA";
+export const JOB_EQUIPMENT_BY_TYPE = {
+  provisions: {
+    forklift:   { label: "Forklift" },
+    telescopic: { label: "Telescopic" },
+    stevedore:  { label: "Stevedore" },
+    ramp:       { label: "Ramp" },
+    crane:      { label: "Crane" },
+    cage:       { label: "Cage" },
+  },
+  waste: {
+    forklift:   { label: "Forklift" },
+    telescopic: { label: "Telescopic" },
+    stevedore:  { label: "Stevedore" },
+    ramp:       { label: "Ramp" },
+    crane:      { label: "Crane" },
+    cage:       { label: "Cage" },
+  },
+  turnaround: {
+    forklift:    { label: "Forklift" },
+    telescopic:  { label: "Telescopic" },
+    luggage_van: { label: "Luggage Van" },
+    cage:        { label: "Cage" },
+    porter:      { label: "Porter" },
+  },
+};
 
 // ─── WORKSPACE CONFIG ────────────────────────────────────────────────────────
 export const WS_TEAM = {

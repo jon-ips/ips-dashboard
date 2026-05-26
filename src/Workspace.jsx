@@ -4,7 +4,7 @@ import {
   IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
-  JOB_EQUIPMENT, JOB_COLOR,
+  JOB_TYPES, JOB_EQUIPMENT_BY_TYPE,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 
@@ -30,7 +30,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobs, setJobs] = useState([]);
   const [jobsLoaded, setJobsLoaded] = useState(false);
   const [jobModal, setJobModal] = useState(null); // null | "new" | jobId
-  const defaultJobForm = { date: "", startTime: "", ship: "", notes: "", equipment: Object.fromEntries(Object.keys(JOB_EQUIPMENT).map(k => [k, 0])) };
+  const emptyEquip = (type) => Object.fromEntries(Object.keys(JOB_EQUIPMENT_BY_TYPE[type] || {}).map(k => [k, 0]));
+  const defaultJobForm = { type: "provisions", date: "", startTime: "", ship: "", notes: "", equipment: emptyEquip("provisions") };
   const [jobForm, setJobForm] = useState(defaultJobForm);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
@@ -117,7 +118,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   }, []);
 
   const openEditJob = useCallback((job) => {
-    setJobForm({ date: job.date, startTime: job.startTime, ship: job.ship || "", notes: job.notes || "", equipment: { ...defaultJobForm.equipment, ...job.equipment } });
+    const type = job.type || "provisions";
+    setJobForm({ type, date: job.date, startTime: job.startTime, ship: job.ship || "", notes: job.notes || "", equipment: { ...emptyEquip(type), ...job.equipment } });
     setJobModal(job.id);
   }, []);
 
@@ -127,10 +129,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (equipEntries.length === 0) return;
     const equipObj = Object.fromEntries(equipEntries);
     if (jobModal === "new") {
-      const newJob = { id: generateId(), date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj, completed: false, createdAt: new Date().toISOString() };
+      const newJob = { id: generateId(), type: jobForm.type, date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj, completed: false, createdAt: new Date().toISOString() };
       saveJobs([...jobs, newJob]);
     } else {
-      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj } : j));
+      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, type: jobForm.type, date: jobForm.date, startTime: jobForm.startTime, ship: jobForm.ship, notes: jobForm.notes, equipment: equipObj } : j));
     }
     setJobModal(null);
   }, [jobForm, jobModal, jobs, saveJobs]);
@@ -143,7 +145,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     saveJobs(jobs.filter(j => j.id !== id));
   }, [jobs, saveJobs]);
 
-  const fmtEquipment = (eq) => Object.entries(eq).map(([k, qty]) => `${qty}× ${JOB_EQUIPMENT[k]?.label || k}`).join(", ");
+  const fmtEquipment = (eq, type) => {
+    const typeEquip = JOB_EQUIPMENT_BY_TYPE[type] || JOB_EQUIPMENT_BY_TYPE.provisions;
+    return Object.entries(eq).filter(([, qty]) => qty > 0).map(([k, qty]) => `${qty}× ${typeEquip[k]?.label || k}`).join(", ");
+  };
 
   const openNewTask = useCallback(() => {
     setWsTaskForm({ title: "", description: "", assignee: "jon", project: "operations", priority: "medium", dueDate: "" });
@@ -392,7 +397,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
                 </div>
 
+                {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Job Type *</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {Object.entries(JOB_TYPES).map(([k, v]) => (
+                        <button key={k} onClick={() => setJobForm(f => ({ ...f, type: k, equipment: emptyEquip(k) }))} style={{
+                          flex: 1, padding: "8px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
+                          background: jobForm.type === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${jobForm.type === k ? v.color : BORDER}`,
+                          color: jobForm.type === k ? v.color : TEXT_DIM, fontWeight: 600, fontSize: 12,
+                          fontFamily: "'Satoshi', 'Inter', sans-serif",
+                        }}>{v.label}</button>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Date *</div>
@@ -410,12 +430,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Equipment *</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                      {Object.entries(JOB_EQUIPMENT).map(([k, v]) => (
-                        <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: jobForm.equipment[k] > 0 ? `${JOB_COLOR}12` : "rgba(255,255,255,0.03)", border: `1px solid ${jobForm.equipment[k] > 0 ? JOB_COLOR : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
-                          <span style={{ fontSize: 12, flex: 1, color: jobForm.equipment[k] > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
-                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: Math.max(0, f.equipment[k] - 1) } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
-                          <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: jobForm.equipment[k] > 0 ? JOB_COLOR : TEXT_DIM }}>{jobForm.equipment[k]}</span>
-                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: f.equipment[k] + 1 } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
+                      {Object.entries(equipList).map(([k, v]) => (
+                        <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: (jobForm.equipment[k] || 0) > 0 ? `${jt.color}12` : "rgba(255,255,255,0.03)", border: `1px solid ${(jobForm.equipment[k] || 0) > 0 ? jt.color : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
+                          <span style={{ fontSize: 12, flex: 1, color: (jobForm.equipment[k] || 0) > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
+                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: Math.max(0, (f.equipment[k] || 0) - 1) } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
+                          <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: (jobForm.equipment[k] || 0) > 0 ? jt.color : TEXT_DIM }}>{jobForm.equipment[k] || 0}</span>
+                          <button onClick={() => setJobForm(f => ({ ...f, equipment: { ...f.equipment, [k]: (f.equipment[k] || 0) + 1 } }))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
                         </div>
                       ))}
                     </div>
@@ -424,11 +444,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes</div>
                     <textarea value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional details..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
                   </div>
-                </div>
+                </div>); })()}
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
                   <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
-                  <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: JOB_COLOR, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
+                  <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: (JOB_TYPES[jobForm.type] || JOB_TYPES.provisions).color, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
                 </div>
               </div>
             </div>
@@ -448,8 +468,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </Card>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[...jobs].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.startTime || "").localeCompare(b.startTime || "")).map(job => (
-                  <Card key={job.id} style={{ padding: "12px 16px", opacity: job.completed ? 0.5 : 1, borderLeft: `4px solid ${JOB_COLOR}` }}>
+                {[...jobs].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.startTime || "").localeCompare(b.startTime || "")).map(job => {
+                  const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
+                  return (
+                  <Card key={job.id} style={{ padding: "12px 16px", opacity: job.completed ? 0.5 : 1, borderLeft: `4px solid ${jt.color}` }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                       <button onClick={() => toggleJobComplete(job.id)} style={{
                         width: 22, height: 22, borderRadius: 6, cursor: "pointer", flexShrink: 0, marginTop: 2,
@@ -459,12 +481,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         color: "#fff", fontSize: 12, fontWeight: 700,
                       }}>{job.completed ? "✓" : ""}</button>
                       <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: JOB_COLOR }}>{fmtDate(job.date)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: jt.color, background: `${jt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono", letterSpacing: 0.5 }}>{jt.label}</span>
+                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
                           {job.startTime && <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{job.startTime}</span>}
                           {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
                         </div>
-                        <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtEquipment(job.equipment)}</div>
+                        <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtEquipment(job.equipment, job.type)}</div>
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
                       </div>
                       <div style={{ display: "flex", gap: 4 }}>
@@ -473,7 +496,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                     </div>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>)}
@@ -761,17 +785,20 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               )}
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              {dayJobs.slice(0, 2).map(j => (
+                              {dayJobs.slice(0, 2).map(j => {
+                                const jc = (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
+                                return (
                                 <div key={j.id} onClick={() => openEditJob(j)} style={{
                                   display: "flex", alignItems: "center", gap: 3, cursor: "pointer",
-                                  background: j.completed ? "rgba(255,255,255,0.02)" : `${JOB_COLOR}0D`,
-                                  border: `1px solid ${JOB_COLOR}25`, borderRadius: 4, padding: "2px 5px",
-                                  borderLeft: `3px solid ${JOB_COLOR}`, opacity: j.completed ? 0.5 : 1,
+                                  background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
+                                  border: `1px solid ${jc}25`, borderRadius: 4, padding: "2px 5px",
+                                  borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
                                 }}>
-                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: JOB_COLOR, flexShrink: 0 }}>JOB</span>
-                                  <span style={{ fontSize: 9, color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{j.startTime ? j.startTime + " " : ""}{j.ship || fmtEquipment(j.equipment)}</span>
+                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{(JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase()}</span>
+                                  <span style={{ fontSize: 9, color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{j.startTime ? j.startTime + " " : ""}{j.ship || ""}</span>
                                 </div>
-                              ))}
+                                );
+                              })}
                               {dayTasks.slice(0, Math.max(1, 4 - dayJobs.length)).map(t => {
                                 const p = WS_PROJECTS[t.project] || WS_PROJECTS.general;
                                 const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
