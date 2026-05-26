@@ -168,8 +168,8 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
             <SidebarNav label="Settings" active={cfoView === "payday"} onClick={() => setCfoView("payday")} badge={cfoStats.paydayConnected === true ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_SUCCESS, display: "inline-block" }} />) : cfoStats.paydayConnected === false ? (<span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_DANGER, display: "inline-block" }} />) : null} />
           </>) : (<>
             <SidebarNav label="Jobs" active={wsView === "jobs"} onClick={() => setWsView("jobs")} />
-            <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={draftCount > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{draftCount}</span>) : null} />
             <SidebarNav label="Calendar" active={wsView === "calendar"} onClick={() => setWsView("calendar")} />
+            <SidebarNav label="Tasks" active={wsView === "tasks"} onClick={() => setWsView("tasks")} badge={draftCount > 0 ? (<span style={{ background: "#F59E0B", color: "#000", fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center", lineHeight: "14px", fontFamily: "JetBrains Mono" }}>{draftCount}</span>) : null} />
             <SidebarNav label="Dashboard" active={wsView === "dashboard"} onClick={() => setWsView("dashboard")} />
           </>)}
         </div>
