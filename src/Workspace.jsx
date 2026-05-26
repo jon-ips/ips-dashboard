@@ -428,12 +428,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
-                      <select value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45" }}>
-                        <option value="" style={{ background: "#112F45", color: TEXT }}>— Select time —</option>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3 }}>
                         {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
-                          <option key={t} value={t} style={{ background: "#112F45", color: TEXT }}>{t}</option>
+                          <button key={t} onClick={() => setJobForm(f => ({ ...f, startTime: t }))} style={{
+                            padding: "4px 0", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: jobForm.startTime === t ? 700 : 400,
+                            background: jobForm.startTime === t ? `${jt.color}25` : "rgba(255,255,255,0.03)",
+                            border: `1px solid ${jobForm.startTime === t ? jt.color : BORDER}`,
+                            color: jobForm.startTime === t ? jt.color : TEXT_DIM,
+                          }}>{t}</button>
                         ))}
-                      </select>
+                      </div>
                     </div>
                   </div>
                   <div>
