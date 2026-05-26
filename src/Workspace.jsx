@@ -34,6 +34,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const defaultJobForm = { type: "provisions", date: "", startTime: "", ship: "", notes: "", equipment: emptyEquip("provisions") };
   const [jobForm, setJobForm] = useState(defaultJobForm);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [completeModal, setCompleteModal] = useState(null); // null or job object
+  const [completeHours, setCompleteHours] = useState({}); // { equipKey: hours }
+  const [completeAllHours, setCompleteAllHours] = useState("");
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -139,8 +142,37 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   }, [jobForm, jobModal, jobs, saveJobs]);
 
   const toggleJobComplete = useCallback((id) => {
-    saveJobs(jobs.map(j => j.id === id ? { ...j, completed: !j.completed } : j));
+    const job = jobs.find(j => j.id === id);
+    if (!job) return;
+    if (job.completed) {
+      // Uncomplete directly
+      saveJobs(jobs.map(j => j.id === id ? { ...j, completed: false, hoursWorked: undefined } : j));
+    } else {
+      // Open completion modal
+      const hrs = {};
+      Object.entries(job.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = ""; });
+      setCompleteHours(hrs);
+      setCompleteAllHours("");
+      setCompleteModal(job);
+    }
   }, [jobs, saveJobs]);
+
+  const applyAllHours = useCallback((val) => {
+    setCompleteAllHours(val);
+    if (completeModal) {
+      const hrs = {};
+      Object.entries(completeModal.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = val; });
+      setCompleteHours(hrs);
+    }
+  }, [completeModal]);
+
+  const confirmComplete = useCallback(() => {
+    if (!completeModal) return;
+    const hoursWorked = {};
+    Object.entries(completeHours).forEach(([k, v]) => { hoursWorked[k] = parseFloat(v) || 0; });
+    saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
+    setCompleteModal(null);
+  }, [completeModal, completeHours, jobs, saveJobs]);
 
   const deleteJob = useCallback((id) => {
     saveJobs(jobs.filter(j => j.id !== id));
@@ -503,6 +535,53 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             </div>
           )}
 
+          {/* JOB COMPLETION MODAL */}
+          {completeModal !== null && (() => {
+            const cjt = JOB_TYPES[completeModal.type] || JOB_TYPES.provisions;
+            const cEquipList = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+            return (
+            <div onClick={() => setCompleteModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 440, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Complete Job</div>
+                  <button onClick={() => setCompleteModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+
+                <div style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: cjt.color, background: `${cjt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono" }}>{cjt.label}</span>
+                  {" "}{fmtDate(completeModal.date)}{completeModal.startTime ? ` at ${completeModal.startTime}` : ""}{completeModal.ship ? ` · ${completeModal.ship}` : ""}
+                </div>
+
+                <div style={{ margin: "16px 0 12px" }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Hours worked</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 12px", background: `${cjt.color}08`, border: `1px solid ${cjt.color}30`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, color: TEXT, fontWeight: 500, whiteSpace: "nowrap" }}>Set all to:</span>
+                    <input type="number" min="0" step="0.5" value={completeAllHours} onChange={e => applyAllHours(e.target.value)} placeholder="hrs" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                    <span style={{ fontSize: 11, color: TEXT_DIM }}>hours</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {Object.entries(completeHours).map(([k, hrs]) => {
+                      const eq = cEquipList[k];
+                      const qty = completeModal.equipment[k];
+                      return (
+                        <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 12, color: TEXT, flex: 1 }}>{qty}× {eq?.label || k}</span>
+                          <input type="number" min="0" step="0.5" value={hrs} onChange={e => { setCompleteHours(h => ({ ...h, [k]: e.target.value })); setCompleteAllHours(""); }} placeholder="hrs" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+                  <button onClick={() => setCompleteModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={confirmComplete} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: IPS_SUCCESS, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Complete Job</button>
+                </div>
+              </div>
+            </div>
+            );
+          })()}
+
           {/* ═══ JOBS VIEW ═══ */}
           {wsView === "jobs" && (<>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -537,6 +616,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
                         </div>
                         <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtEquipment(job.equipment, job.type)}</div>
+                        {job.completed && job.hoursWorked && (
+                          <div style={{ fontSize: 11, color: IPS_SUCCESS, marginTop: 4, fontFamily: "JetBrains Mono" }}>
+                            {Object.entries(job.hoursWorked).filter(([, h]) => h > 0).map(([k, h]) => `${(JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k)}: ${h}h`).join(" · ")}
+                          </div>
+                        )}
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
                       </div>
                       <div style={{ display: "flex", gap: 4 }}>
