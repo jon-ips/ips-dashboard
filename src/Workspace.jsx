@@ -141,6 +141,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobModal(null);
   }, [jobForm, jobModal, jobs, saveJobs]);
 
+  // completeHours: { forklift: [{ qty: 2, hours: "4" }], ... }
+  // after split:   { forklift: [{ qty: 1, hours: "4" }, { qty: 1, hours: "4" }] }
   const toggleJobComplete = useCallback((id) => {
     const job = jobs.find(j => j.id === id);
     if (!job) return;
@@ -148,7 +150,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       saveJobs(jobs.map(j => j.id === id ? { ...j, completed: false, hoursWorked: undefined } : j));
     } else {
       const hrs = {};
-      Object.entries(job.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = Array(qty).fill("4"); });
+      Object.entries(job.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = [{ qty, hours: "4" }]; });
       setCompleteHours(hrs);
       setCompleteAllHours("");
       setCompleteModal(job);
@@ -158,17 +160,31 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const applyAllHours = useCallback((val) => {
     setCompleteAllHours(val);
     if (completeModal) {
-      const clamped = Math.max(4, parseInt(val) || 4);
+      const clamped = String(Math.max(4, parseInt(val) || 4));
       const hrs = {};
-      Object.entries(completeModal.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = Array(qty).fill(String(clamped)); });
+      Object.entries(completeHours).forEach(([k, groups]) => {
+        hrs[k] = groups.map(g => ({ ...g, hours: clamped }));
+      });
       setCompleteHours(hrs);
     }
-  }, [completeModal]);
+  }, [completeModal, completeHours]);
+
+  const splitGroup = useCallback((key, groupIdx, splitQty) => {
+    setCompleteHours(h => {
+      const groups = [...h[key]];
+      const g = groups[groupIdx];
+      if (splitQty >= g.qty) return h;
+      groups.splice(groupIdx, 1, { qty: g.qty - splitQty, hours: g.hours }, { qty: splitQty, hours: g.hours });
+      return { ...h, [key]: groups };
+    });
+  }, []);
 
   const confirmComplete = useCallback(() => {
     if (!completeModal) return;
     const hoursWorked = {};
-    Object.entries(completeHours).forEach(([k, arr]) => { hoursWorked[k] = arr.map(v => parseInt(v) || 4); });
+    Object.entries(completeHours).forEach(([k, groups]) => {
+      hoursWorked[k] = groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || 4 }));
+    });
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
     setCompleteModal(null);
   }, [completeModal, completeHours, jobs, saveJobs]);
@@ -559,13 +575,24 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     <span style={{ fontSize: 11, color: TEXT_DIM }}>hours</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {Object.entries(completeHours).map(([k, hrsArr]) => {
+                    {Object.entries(completeHours).map(([k, groups]) => {
                       const eq = cEquipList[k];
                       const label = eq?.label || k;
-                      return hrsArr.map((hrs, idx) => (
-                        <div key={`${k}-${idx}`} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontSize: 12, color: TEXT, flex: 1 }}>{label}{hrsArr.length > 1 ? ` #${idx + 1}` : ""}</span>
-                          <input type="number" min="4" step="1" value={hrs} onChange={e => { const v = Math.max(4, parseInt(e.target.value) || 4); setCompleteHours(h => ({ ...h, [k]: h[k].map((x, i) => i === idx ? String(v) : x) })); setCompleteAllHours(""); }} placeholder="4" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                      return groups.map((g, gi) => (
+                        <div key={`${k}-${gi}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: TEXT, flex: 1, fontWeight: 500 }}>{g.qty}× {label}</span>
+                          <input type="number" min="4" step="1" value={g.hours} onChange={e => { const v = Math.max(4, parseInt(e.target.value) || 4); setCompleteHours(h => ({ ...h, [k]: h[k].map((x, i) => i === gi ? { ...x, hours: String(v) } : x) })); setCompleteAllHours(""); }} style={{ ...inputStyle, width: 70, padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                          <span style={{ fontSize: 11, color: TEXT_DIM }}>h</span>
+                          {g.qty > 1 && (
+                            <div style={{ position: "relative" }}>
+                              <select onChange={e => { const v = parseInt(e.target.value); if (v > 0) splitGroup(k, gi, v); e.target.value = ""; }} defaultValue="" style={{ padding: "4px 6px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "JetBrains Mono", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: IPS_ACCENT, appearance: "auto", colorScheme: "dark" }}>
+                                <option value="" disabled>Split</option>
+                                {Array.from({ length: g.qty - 1 }, (_, i) => i + 1).map(n => (
+                                  <option key={n} value={n} style={{ background: "#112F45", color: TEXT }}>Split {n} off</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
                       ));
                     })}
@@ -617,10 +644,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtEquipment(job.equipment, job.type)}</div>
                         {job.completed && job.hoursWorked && (
                           <div style={{ fontSize: 11, color: IPS_SUCCESS, marginTop: 4, fontFamily: "JetBrains Mono" }}>
-                            {Object.entries(job.hoursWorked).filter(([, h]) => Array.isArray(h) ? h.some(x => x > 0) : h > 0).map(([k, h]) => {
+                            {Object.entries(job.hoursWorked).map(([k, v]) => {
                               const label = JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k;
-                              if (Array.isArray(h)) return h.map((v, i) => `${label}${h.length > 1 ? ` #${i+1}` : ""}: ${v}h`).join(" · ");
-                              return `${label}: ${h}h`;
+                              if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
+                                return v.map(g => `${g.qty}× ${label}: ${g.hours}h`).join(" · ");
+                              }
+                              if (Array.isArray(v)) return v.map((h, i) => `${label}${v.length > 1 ? ` #${i+1}` : ""}: ${h}h`).join(" · ");
+                              return `${label}: ${v}h`;
                             }).join(" · ")}
                           </div>
                         )}
