@@ -428,7 +428,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
-                      <input type="time" value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
+                      <select value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45" }}>
+                        <option value="" style={{ background: "#112F45", color: TEXT }}>— Select time —</option>
+                        {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
+                          <option key={t} value={t} style={{ background: "#112F45", color: TEXT }}>{t}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div>
