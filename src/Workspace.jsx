@@ -428,16 +428,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3 }}>
-                        {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
-                          <button key={t} onClick={() => setJobForm(f => ({ ...f, startTime: t }))} style={{
-                            padding: "4px 0", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: jobForm.startTime === t ? 700 : 400,
-                            background: jobForm.startTime === t ? `${jt.color}25` : "rgba(255,255,255,0.03)",
-                            border: `1px solid ${jobForm.startTime === t ? jt.color : BORDER}`,
-                            color: jobForm.startTime === t ? jt.color : TEXT_DIM,
-                          }}>{t}</button>
-                        ))}
-                      </div>
+                      <select value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} size={24} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45", columnCount: 2, padding: 0, overflow: "hidden" }}>
+                        {(() => { const times = Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }); return times.map(t => (
+                          <option key={t} value={t} style={{ background: jobForm.startTime === t ? "#1A4A60" : "#112F45", color: jobForm.startTime === t ? "#57B5C8" : "#F6F7F7", padding: "4px 10px", fontFamily: "JetBrains Mono", fontSize: 13 }}>{t}</option>
+                        )); })()}
+                      </select>
                     </div>
                   </div>
                   <div>
