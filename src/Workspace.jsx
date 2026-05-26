@@ -693,16 +693,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 {[...jobs].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
                   const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
                   return (
-                  <Card key={job.id} style={{ padding: "12px 16px", opacity: job.completed ? 0.5 : 1, borderLeft: `4px solid ${jt.color}` }}>
+                  <Card key={job.id} style={{ padding: "12px 16px", borderLeft: `4px solid ${jt.color}` }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                       <button onClick={() => toggleJobComplete(job.id)} style={{
                         width: 22, height: 22, borderRadius: 6, cursor: "pointer", flexShrink: 0, marginTop: 2,
                         background: job.completed ? IPS_SUCCESS : "transparent",
                         border: `2px solid ${job.completed ? IPS_SUCCESS : BORDER}`,
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        color: "#fff", fontSize: 12, fontWeight: 700,
+                        color: "#fff", fontSize: 12, fontWeight: 700, opacity: job.completed ? 0.5 : 1,
                       }}>{job.completed ? "✓" : ""}</button>
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, opacity: job.completed ? 0.5 : 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: jt.color, background: `${jt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono", letterSpacing: 0.5 }}>{jt.label}</span>
                           <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
@@ -737,9 +737,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         )}
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
                       </div>
-                      <div style={{ display: "flex", gap: 4 }}>
+                      <div style={{ display: "flex", gap: 4, position: "relative", zIndex: 2 }}>
                         {job.completed && job.hoursWorked && (
-                          <button onClick={() => generateInvoice(job)} style={{ background: "rgba(87,181,200,0.08)", border: `1px solid rgba(87,181,200,0.25)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Invoice</button>
+                          <button onClick={(e) => { e.stopPropagation(); generateInvoice(job); }} style={{ background: "rgba(87,181,200,0.12)", border: `1px solid rgba(87,181,200,0.35)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: 1 }}>Invoice</button>
                         )}
                         <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
                         <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
