@@ -38,6 +38,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
   const [completeAllHours, setCompleteAllHours] = useState("");
+  const [deletedJobs, setDeletedJobs] = useState([]);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -100,21 +102,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   // ─── JOBS STORAGE (localStorage) ──────────────────────────────────────────
   useEffect(() => {
-    (async () => {
-      try {
-        if (window.storage) {
-          const raw = await window.storage.getItem("ws:jobs");
-          if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
-        }
-      } catch (e) { console.warn("Failed to load jobs:", e); }
-      finally { setJobsLoaded(true); }
-    })();
+    try {
+      const raw = localStorage.getItem("ws:jobs");
+      if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
+      const delRaw = localStorage.getItem("ws:jobs:deleted");
+      if (delRaw) { const p = JSON.parse(delRaw); if (Array.isArray(p)) setDeletedJobs(p); }
+    } catch (e) { console.warn("Failed to load jobs:", e); }
+    finally { setJobsLoaded(true); }
   }, []);
 
-  const saveJobs = useCallback(async (j) => {
+  const saveJobs = useCallback((j) => {
     setJobs(j);
-    try { if (window.storage) await window.storage.setItem("ws:jobs", JSON.stringify(j), { shared: true }); }
-    catch (e) { console.warn("Failed to save jobs:", e); }
+    try { localStorage.setItem("ws:jobs", JSON.stringify(j)); } catch (e) { console.warn("Failed to save jobs:", e); }
+  }, []);
+
+  const saveDeletedJobs = useCallback((d) => {
+    setDeletedJobs(d);
+    try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(d)); } catch (e) { console.warn("Failed to save deleted jobs:", e); }
   }, []);
 
   const openNewJob = useCallback(() => {
@@ -214,8 +218,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   }, [completeModal, completeHours, jobs, saveJobs]);
 
   const deleteJob = useCallback((id) => {
+    const job = jobs.find(j => j.id === id);
+    if (!job) return;
     saveJobs(jobs.filter(j => j.id !== id));
-  }, [jobs, saveJobs]);
+    saveDeletedJobs([{ ...job, deletedAt: new Date().toISOString() }, ...deletedJobs]);
+  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
+
+  const restoreJob = useCallback((id) => {
+    const job = deletedJobs.find(j => j.id === id);
+    if (!job) return;
+    const { deletedAt, ...restored } = job;
+    saveJobs([...jobs, restored]);
+    saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
+  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
+
+  const permanentDeleteJob = useCallback((id) => {
+    saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
+  }, [deletedJobs, saveDeletedJobs]);
 
   const shipsOnDate = useMemo(() => {
     if (!jobForm.date) return [];
@@ -725,6 +744,42 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   </Card>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Recently Deleted */}
+            {deletedJobs.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <button onClick={() => setShowDeleted(d => !d)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: "6px 0", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>
+                  <span style={{ fontSize: 10 }}>{showDeleted ? "▾" : "▸"}</span>
+                  Recently Deleted ({deletedJobs.length})
+                </button>
+                {showDeleted && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                    {deletedJobs.map(job => {
+                      const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
+                      return (
+                        <Card key={job.id} style={{ padding: "10px 14px", opacity: 0.6, borderLeft: `4px solid ${BORDER}` }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: jt.color, background: `${jt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono" }}>{jt.label}</span>
+                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{fmtDate(job.date)}</span>
+                                {job.ship && <span style={{ fontSize: 11, color: TEXT_DIM }}>{job.ship}</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>{fmtJobEquipment(job)}</div>
+                              <div style={{ fontSize: 10, color: TEXT_DIM, marginTop: 2, fontFamily: "JetBrains Mono", opacity: 0.6 }}>Deleted {new Date(job.deletedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                              <button onClick={() => restoreJob(job.id)} style={{ background: "rgba(34,197,94,0.08)", border: `1px solid rgba(34,197,94,0.2)`, borderRadius: 6, padding: "4px 12px", cursor: "pointer", color: IPS_SUCCESS, fontSize: 11, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Restore</button>
+                              <button onClick={() => permanentDeleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Permanent</button>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </>)}
