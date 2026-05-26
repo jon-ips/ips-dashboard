@@ -33,6 +33,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const emptyEquip = (type) => Object.fromEntries(Object.keys(JOB_EQUIPMENT_BY_TYPE[type] || {}).map(k => [k, 0]));
   const defaultJobForm = { type: "provisions", date: "", startTime: "", ship: "", notes: "", equipment: emptyEquip("provisions") };
   const [jobForm, setJobForm] = useState(defaultJobForm);
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -428,11 +429,25 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start Time</div>
-                      <select value={jobForm.startTime} onChange={e => setJobForm(f => ({ ...f, startTime: e.target.value }))} size={24} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45", columnCount: 2, padding: 0, overflow: "hidden" }}>
-                        {(() => { const times = Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }); return times.map(t => (
-                          <option key={t} value={t} style={{ background: jobForm.startTime === t ? "#1A4A60" : "#112F45", color: jobForm.startTime === t ? "#57B5C8" : "#F6F7F7", padding: "4px 10px", fontFamily: "JetBrains Mono", fontSize: 13 }}>{t}</option>
-                        )); })()}
-                      </select>
+                      <div style={{ position: "relative" }}>
+                        <button onClick={() => setTimePickerOpen(!timePickerOpen)} style={{ ...inputStyle, width: "100%", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ color: jobForm.startTime ? TEXT : TEXT_DIM }}>{jobForm.startTime || "— Select time —"}</span>
+                          <span style={{ color: TEXT_DIM, fontSize: 10 }}>▼</span>
+                        </button>
+                        {timePickerOpen && (<>
+                          <div onClick={() => setTimePickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+                          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 300, background: "#112F45", border: `1px solid ${BORDER}`, borderRadius: 8, marginTop: 4, padding: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, maxHeight: 280, overflowY: "auto" }}>
+                            {Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
+                              <button key={t} onClick={() => { setJobForm(f => ({ ...f, startTime: t })); setTimePickerOpen(false); }} style={{
+                                padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: jobForm.startTime === t ? 700 : 400, textAlign: "center",
+                                background: jobForm.startTime === t ? `${jt.color}25` : "transparent",
+                                border: jobForm.startTime === t ? `1px solid ${jt.color}` : "1px solid transparent",
+                                color: jobForm.startTime === t ? jt.color : TEXT,
+                              }}>{t}</button>
+                            ))}
+                          </div>
+                        </>)}
+                      </div>
                     </div>
                   </div>
                   <div>
