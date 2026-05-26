@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { JOB_TYPES, JOB_EQUIPMENT_BY_TYPE } from "./constants.js";
 import ipsLogoColor from "./assets/ips-logo-color.png";
 
@@ -86,9 +86,10 @@ function loadImage(src) {
 }
 
 export default async function generateInvoice(job) {
+  try {
   const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
   const rows = buildRows(job);
-  if (rows.length === 0) return;
+  if (rows.length === 0) { alert("No hours data found for this job."); return; }
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
@@ -96,7 +97,6 @@ export default async function generateInvoice(job) {
   // ── Logo header ──
   const logoData = await loadImage(ipsLogoColor);
   if (logoData) {
-    // Original aspect ratio ~3:1 roughly
     const logoW = 60;
     const logoH = 24;
     doc.addImage(logoData, "PNG", 14, 10, logoW, logoH);
@@ -133,14 +133,14 @@ export default async function generateInvoice(job) {
     r.total,
   ]);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: 52,
     head: [["Resource", "Amount", "Start Time", "End Time", "Time Unit", "Unit Price", "Total"]],
     body: tableBody,
     margin: { left: 14, right: 14 },
     theme: "grid",
     headStyles: {
-      fillColor: [12, 44, 64], // IPS_BLUE
+      fillColor: [12, 44, 64],
       textColor: [255, 255, 255],
       fontStyle: "bold",
       fontSize: 9,
@@ -165,7 +165,7 @@ export default async function generateInvoice(job) {
     },
   });
 
-  const finalY = doc.lastAutoTable.finalY || 100;
+  const finalY = doc.lastAutoTable?.finalY || 100;
 
   // ── Total row placeholder ──
   doc.setFontSize(10);
@@ -198,4 +198,9 @@ export default async function generateInvoice(job) {
   const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
   const dateSlug = job.date || "undated";
   doc.save(`IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`);
+
+  } catch (err) {
+    console.error("Invoice generation failed:", err);
+    alert("Failed to generate invoice: " + err.message);
+  }
 }
