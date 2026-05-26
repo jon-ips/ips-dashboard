@@ -7,6 +7,7 @@ import {
   JOB_TYPES, JOB_EQUIPMENT_BY_TYPE,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
+import generateInvoice from "./generateInvoice.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
@@ -737,6 +738,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
                       </div>
                       <div style={{ display: "flex", gap: 4 }}>
+                        {job.completed && job.hoursWorked && (
+                          <button onClick={() => generateInvoice(job)} style={{ background: "rgba(87,181,200,0.08)", border: `1px solid rgba(87,181,200,0.25)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Invoice</button>
+                        )}
                         <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
                         <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
                       </div>
