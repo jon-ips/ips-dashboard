@@ -291,8 +291,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
   provisions: {
     forklift:       { label: "Forklift", autoOperator: "forklift_op" },
     forklift_op:    { label: "Forklift Operator", auto: true },
-    telescopic:     { label: "Telescopic", autoOperator: "telescopic_op" },
-    telescopic_op:  { label: "Telescopic Operator", auto: true },
+    telescopic:     { label: "Telescopic Forklift", autoOperator: "telescopic_op" },
+    telescopic_op:  { label: "Telescopic Forklift Operator", auto: true },
     stevedore:      { label: "Stevedore" },
     ramp:           { label: "Ramp" },
     crane:          { label: "Crane" },
@@ -301,8 +301,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
   waste: {
     forklift:       { label: "Forklift", autoOperator: "forklift_op" },
     forklift_op:    { label: "Forklift Operator", auto: true },
-    telescopic:     { label: "Telescopic", autoOperator: "telescopic_op" },
-    telescopic_op:  { label: "Telescopic Operator", auto: true },
+    telescopic:     { label: "Telescopic Forklift", autoOperator: "telescopic_op" },
+    telescopic_op:  { label: "Telescopic Forklift Operator", auto: true },
     stevedore:      { label: "Stevedore" },
     ramp:           { label: "Ramp" },
     crane:          { label: "Crane" },
@@ -311,8 +311,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
   turnaround: {
     forklift:          { label: "Forklift", autoOperator: "forklift_op" },
     forklift_op:       { label: "Forklift Operator", auto: true },
-    telescopic:        { label: "Telescopic", autoOperator: "telescopic_op" },
-    telescopic_op:     { label: "Telescopic Operator", auto: true },
+    telescopic:        { label: "Telescopic Forklift", autoOperator: "telescopic_op" },
+    telescopic_op:     { label: "Telescopic Forklift Operator", auto: true },
     conveyor_belt:     { label: "Conveyor Belt", autoOperator: "conveyor_op" },
     conveyor_op:       { label: "Conveyor Belt Operator", auto: true },
     luggage_van:       { label: "Luggage Van" },

@@ -187,7 +187,7 @@ export default async function generateInvoice(job) {
   if (job.ship) {
     doc.text(`Ship: ${job.ship}`, 14, footerY + 2);
   }
-  doc.text("Berth: _______________", 14, footerY + 9);
+  doc.text("Reykjavik, Iceland", 14, footerY + 9);
 
   // ── IPS footer ──
   doc.setFontSize(8);
