@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
 import {
-  IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
+  SHIPS, IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
   JOB_TYPES, JOB_EQUIPMENT_BY_TYPE,
@@ -144,6 +144,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const deleteJob = useCallback((id) => {
     saveJobs(jobs.filter(j => j.id !== id));
   }, [jobs, saveJobs]);
+
+  const shipsOnDate = useMemo(() => {
+    if (!jobForm.date) return [];
+    const d = jobForm.date;
+    return SHIPS.filter(s => d >= s.date && d <= (s.endDate || s.date))
+      .map(s => `${s.ship} (${s.line})`)
+      .filter((v, i, a) => a.indexOf(v) === i);
+  }, [jobForm.date]);
 
   const fmtEquipment = (eq, type) => {
     const typeEquip = JOB_EQUIPMENT_BY_TYPE[type] || JOB_EQUIPMENT_BY_TYPE.provisions;
@@ -424,8 +432,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship (optional)</div>
-                    <input value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} placeholder="e.g. Viking Mars" style={inputStyle} />
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship {shipsOnDate.length > 0 ? `(${shipsOnDate.length} in port)` : "(optional)"}</div>
+                    {shipsOnDate.length > 0 ? (
+                      <select value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }}>
+                        <option value="">— Select ship —</option>
+                        {shipsOnDate.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <input value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} placeholder={jobForm.date ? "No ships in port this day" : "Pick a date first..."} style={inputStyle} />
+                    )}
                   </div>
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 10 }}>Equipment *</div>
