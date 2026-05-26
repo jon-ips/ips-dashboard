@@ -150,7 +150,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     } else {
       // Open completion modal
       const hrs = {};
-      Object.entries(job.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = ""; });
+      Object.entries(job.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = "4"; });
       setCompleteHours(hrs);
       setCompleteAllHours("");
       setCompleteModal(job);
@@ -160,8 +160,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const applyAllHours = useCallback((val) => {
     setCompleteAllHours(val);
     if (completeModal) {
+      const clamped = Math.max(4, parseInt(val) || 4);
       const hrs = {};
-      Object.entries(completeModal.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = val; });
+      Object.entries(completeModal.equipment).forEach(([k, qty]) => { if (qty > 0) hrs[k] = String(clamped); });
       setCompleteHours(hrs);
     }
   }, [completeModal]);
@@ -556,7 +557,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Hours worked</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 12px", background: `${cjt.color}08`, border: `1px solid ${cjt.color}30`, borderRadius: 8 }}>
                     <span style={{ fontSize: 12, color: TEXT, fontWeight: 500, whiteSpace: "nowrap" }}>Set all to:</span>
-                    <input type="number" min="0" step="0.5" value={completeAllHours} onChange={e => applyAllHours(e.target.value)} placeholder="hrs" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                    <input type="number" min="4" step="1" value={completeAllHours} onChange={e => applyAllHours(e.target.value)} placeholder="4" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
                     <span style={{ fontSize: 11, color: TEXT_DIM }}>hours</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -566,7 +567,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       return (
                         <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontSize: 12, color: TEXT, flex: 1 }}>{qty}× {eq?.label || k}</span>
-                          <input type="number" min="0" step="0.5" value={hrs} onChange={e => { setCompleteHours(h => ({ ...h, [k]: e.target.value })); setCompleteAllHours(""); }} placeholder="hrs" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                          <input type="number" min="4" step="1" value={hrs} onChange={e => { const v = Math.max(4, parseInt(e.target.value) || 4); setCompleteHours(h => ({ ...h, [k]: String(v) })); setCompleteAllHours(""); }} placeholder="4" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
                         </div>
                       );
                     })}
