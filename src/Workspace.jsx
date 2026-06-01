@@ -8,6 +8,7 @@ import {
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
+import { RATE_SHEETS, resolveRateSheet, extractCruiseLine } from "./rates.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
@@ -42,6 +43,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [deletedJobs, setDeletedJobs] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
   const [jobSyncError, setJobSyncError] = useState(null);
+  const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
+
+  const startInvoice = useCallback((job) => {
+    const cl = extractCruiseLine(job.ship);
+    const key = resolveRateSheet(cl);
+    if (key) generateInvoice(job, key);
+    else setRateSheetPicker(job);
+  }, []);
 
   const recordSyncError = useCallback((context, err) => {
     let detail = "";
@@ -788,6 +797,30 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             );
           })()}
 
+          {/* RATE SHEET PICKER MODAL */}
+          {rateSheetPicker && (
+            <div onClick={() => setRateSheetPicker(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 420, background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Choose rate sheet</div>
+                  <button onClick={() => setRateSheetPicker(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 16, lineHeight: 1.5 }}>
+                  Couldn't determine a rate sheet automatically{rateSheetPicker.ship ? ` for ${rateSheetPicker.ship}` : ""}. Pick one to use for this invoice:
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {Object.entries(RATE_SHEETS).map(([key, sheet]) => (
+                    <button key={key} onClick={() => { const j = rateSheetPicker; setRateSheetPicker(null); generateInvoice(j, key); }} style={{
+                      padding: "12px 16px", borderRadius: 8, cursor: "pointer", textAlign: "left",
+                      background: "rgba(87,181,200,0.08)", border: `1px solid rgba(87,181,200,0.3)`,
+                      color: TEXT, fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                    }}>{sheet.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ═══ JOBS VIEW ═══ */}
           {wsView === "jobs" && (<>
             {jobSyncError && (
@@ -863,7 +896,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                       <div style={{ display: "flex", gap: 4, position: "relative", zIndex: 2 }}>
                         {job.completed && job.hoursWorked && (
-                          <button onClick={(e) => { e.stopPropagation(); generateInvoice(job); }} style={{ background: "rgba(87,181,200,0.12)", border: `1px solid rgba(87,181,200,0.35)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: 1 }}>Invoice</button>
+                          <button onClick={(e) => { e.stopPropagation(); startInvoice(job); }} style={{ background: "rgba(87,181,200,0.12)", border: `1px solid rgba(87,181,200,0.35)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: 1 }}>Invoice</button>
                         )}
                         <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
                         <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
