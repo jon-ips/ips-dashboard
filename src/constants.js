@@ -295,7 +295,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     telescopic_op:  { label: "Forklift Operator", auto: true },
     stevedore:      { label: "Stevedore" },
     ramp:           { label: "Ramp" },
-    crane:          { label: "Crane" },
+    crane:          { label: "Crane", autoOperator: "crane_op" },
+    crane_op:       { label: "Crane Operator", auto: true },
     cage:           { label: "Cage" },
   },
   waste: {
@@ -305,7 +306,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     telescopic_op:  { label: "Forklift Operator", auto: true },
     stevedore:      { label: "Stevedore" },
     ramp:           { label: "Ramp" },
-    crane:          { label: "Crane" },
+    crane:          { label: "Crane", autoOperator: "crane_op" },
+    crane_op:       { label: "Crane Operator", auto: true },
     cage:           { label: "Cage" },
   },
   turnaround: {
