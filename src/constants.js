@@ -284,9 +284,9 @@ export const PROSPECT_GROUPS = {
 // ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
 export const JOB_TYPES = {
   provisions: { label: "Provisions", color: "#22C55E" },
-  waste:      { label: "Waste Offload", color: "#F59E0B" },
-  turnaround: { label: "Turnaround Ops", color: "#A78BFA" },
-  special:    { label: "Special operation", color: "#06B6D4" },
+  waste:      { label: "Waste", color: "#F59E0B" },
+  turnaround: { label: "Turnaround", color: "#A78BFA" },
+  special:    { label: "Special", color: "#06B6D4" },
 };
 export const JOB_EQUIPMENT_BY_TYPE = {
   provisions: {
