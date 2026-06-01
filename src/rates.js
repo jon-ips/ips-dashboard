@@ -152,13 +152,6 @@ export function resolveRateSheet(cruiseLine) {
   return CRUISE_LINE_TO_SHEET[cruiseLine.toLowerCase()] || null;
 }
 
-// Extract "Cruise Line" from a "Ship Name (Cruise Line)" string.
-export function extractCruiseLine(shipStr) {
-  if (!shipStr) return "";
-  const m = shipStr.match(/\(([^)]+)\)\s*$/);
-  return m ? m[1].trim() : "";
-}
-
 // Format ISK with Icelandic thousands separator: 12480 → "12.480 ISK"
 export function fmtISK(n) {
   if (n == null || isNaN(n)) return "";

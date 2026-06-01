@@ -8,7 +8,8 @@ import {
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
-import { RATE_SHEETS, resolveRateSheet, extractCruiseLine } from "./rates.js";
+import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
+import { extractShipName, getCruiseLineForShip } from "./constants.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
 
   const startInvoice = useCallback((job) => {
-    const cl = extractCruiseLine(job.ship);
+    const cl = getCruiseLineForShip(job.ship, job.date);
     const key = resolveRateSheet(cl);
     if (key) generateInvoice(job, key);
     else setRateSheetPicker(job);
@@ -223,7 +224,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const shifts = job.shifts
       ? job.shifts.map(s => ({ startTime: s.startTime || "", nextDay: !!s.nextDay, equipment: { ...emptyEquip(type), ...s.equipment } }))
       : [{ startTime: job.startTime || "", nextDay: false, equipment: { ...emptyEquip(type), ...job.equipment } }];
-    setJobForm({ type, date: job.date, ship: job.ship || "", notes: job.notes || "", shifts });
+    setJobForm({ type, date: job.date, ship: extractShipName(job.ship) || "", notes: job.notes || "", shifts });
     setTimePickerOpen(-1);
     setJobModal(job.id);
   }, []);
@@ -354,7 +355,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (!jobForm.date) return [];
     const d = jobForm.date;
     return SHIPS.filter(s => d >= s.date && d <= (s.endDate || s.date))
-      .map(s => `${s.ship} (${s.line})`)
+      .map(s => s.ship)
       .filter((v, i, a) => a.indexOf(v) === i);
   }, [jobForm.date]);
 

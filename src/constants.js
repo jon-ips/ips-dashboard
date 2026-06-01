@@ -293,6 +293,21 @@ export function getBerthForShip(shipStr, dateIso) {
   );
   return entry?.berth || null;
 }
+
+// Find the cruise line for a given ship + date. Falls back to parsing a
+// trailing "(Cruise Line)" if present (legacy job data stored ship as
+// "Ship Name (Cruise Line)").
+export function getCruiseLineForShip(shipStr, dateIso) {
+  if (!shipStr) return "";
+  const m = shipStr.match(/\(([^)]+)\)\s*$/);
+  if (m) return m[1].trim();
+  if (!dateIso) return "";
+  const name = extractShipName(shipStr);
+  const entry = SHIPS.find(
+    (s) => s.ship === name && dateIso >= s.date && dateIso <= (s.endDate || s.date),
+  );
+  return entry?.line || "";
+}
 export const SDK_LINES = ["Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
