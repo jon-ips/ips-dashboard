@@ -16,11 +16,74 @@ function addHours(startTime, hours) {
   return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
 }
 
+// Extract the cruise line from a "Ship Name (Cruise Line)" string
+function extractCruiseLine(shipStr) {
+  if (!shipStr) return "";
+  const m = shipStr.match(/\(([^)]+)\)\s*$/);
+  return m ? m[1].trim() : "";
+}
+
+// Evening overtime threshold (hour, 24h clock). Morning threshold is always 08:00.
+// Viking and the HAL/Seabourn/Princess group push the evening boundary to 18:00.
+function getOvertimeThreshold(cruiseLine) {
+  const cl = (cruiseLine || "").toLowerCase();
+  if (cl === "viking") return 18;
+  if (cl === "holland america") return 18;
+  if (cl === "seabourn") return 18;
+  if (cl === "princess cruises") return 18;
+  return 16;
+}
+
+function formatClock(totalSec) {
+  const minOfDay = Math.floor(totalSec / 60) % (24 * 60);
+  const h = Math.floor(minOfDay / 60);
+  const m = minOfDay % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Split a [startTime, +hours] interval into Regular / Overtime segments based
+// on otAfter (evening boundary in hours). Morning OT is anything before 08:00.
+// Handles shifts that cross midnight by treating time as a continuous timeline.
+function splitShiftIntoSegments(startTime, hours, otAfter) {
+  if (!startTime || !hours) return [];
+  const [sh, sm] = startTime.split(":").map(Number);
+  const startSec = sh * 3600 + sm * 60;
+  const endSec = startSec + hours * 3600;
+
+  const segments = [];
+  let cursor = startSec;
+  while (cursor < endSec) {
+    const dayBase = Math.floor(cursor / 86400) * 86400;
+    const tod = cursor - dayBase;
+    let nextBoundary;
+    let currentType;
+    if (tod < 8 * 3600) {
+      currentType = "Overtime";
+      nextBoundary = dayBase + 8 * 3600;
+    } else if (tod < otAfter * 3600) {
+      currentType = "Regular";
+      nextBoundary = dayBase + otAfter * 3600;
+    } else {
+      currentType = "Overtime";
+      nextBoundary = dayBase + 86400 + 8 * 3600;
+    }
+    const segEnd = Math.min(nextBoundary, endSec);
+    segments.push({
+      type: currentType,
+      startTime: formatClock(cursor),
+      endTime: formatClock(segEnd),
+      hours: (segEnd - cursor) / 3600,
+    });
+    cursor = segEnd;
+  }
+  return segments;
+}
+
 /**
  * Build table rows from a completed job's hoursWorked data.
  * Returns [{ resource, amount, startTime, endTime, timeUnit, unitPrice, total }]
  */
-function buildRows(job) {
+function buildRows(job, otAfter) {
   const typeEquip = JOB_EQUIPMENT_BY_TYPE[job.type] || JOB_EQUIPMENT_BY_TYPE.provisions;
   const rows = [];
 
@@ -29,17 +92,34 @@ function buildRows(job) {
     job.hoursWorked.forEach((sh) => {
       Object.entries(sh.equipment || {}).forEach(([k, groups]) => {
         const label = typeEquip[k]?.label || k;
+        const isHuman = !!typeEquip[k]?.human;
         groups.forEach((g) => {
-          rows.push({
-            resource: label,
-            amount: g.qty,
-            startTime: sh.startTime || "",
-            endTime: addHours(sh.startTime, g.hours),
-            timeUnit: g.hours,
-            nextDay: !!sh.nextDay,
-            unitPrice: "",
-            total: "",
-          });
+          if (isHuman && sh.startTime && g.hours) {
+            const segments = splitShiftIntoSegments(sh.startTime, g.hours, otAfter);
+            segments.forEach((seg) => {
+              rows.push({
+                resource: seg.type === "Overtime" ? `${label} (OT)` : label,
+                amount: g.qty,
+                startTime: seg.startTime,
+                endTime: seg.endTime,
+                timeUnit: seg.hours,
+                nextDay: !!sh.nextDay,
+                unitPrice: "",
+                total: "",
+              });
+            });
+          } else {
+            rows.push({
+              resource: label,
+              amount: g.qty,
+              startTime: sh.startTime || "",
+              endTime: addHours(sh.startTime, g.hours),
+              timeUnit: g.hours,
+              nextDay: !!sh.nextDay,
+              unitPrice: "",
+              total: "",
+            });
+          }
         });
       });
     });
@@ -89,7 +169,9 @@ function loadImage(src) {
 export default async function generateInvoice(job) {
   try {
   const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
-  const rows = buildRows(job);
+  const cruiseLine = extractCruiseLine(job.ship);
+  const otAfter = getOvertimeThreshold(cruiseLine);
+  const rows = buildRows(job, otAfter);
   if (rows.length === 0) { alert("No hours data found for this job."); return; }
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
