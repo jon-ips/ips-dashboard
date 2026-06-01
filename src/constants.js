@@ -286,6 +286,7 @@ export const JOB_TYPES = {
   provisions: { label: "Provisions", color: "#22C55E" },
   waste:      { label: "Waste Offload", color: "#F59E0B" },
   turnaround: { label: "Turnaround Ops", color: "#A78BFA" },
+  special:    { label: "Special operation", color: "#06B6D4" },
 };
 export const JOB_EQUIPMENT_BY_TYPE = {
   provisions: {
@@ -319,6 +320,21 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     conveyor_op:       { label: "Conveyor Belt Operator", auto: true },
     luggage_van:       { label: "Luggage Van" },
     cage:              { label: "Cage" },
+    porter:            { label: "Porter" },
+  },
+  special: {
+    forklift:          { label: "Forklift", autoOperator: "forklift_op" },
+    forklift_op:       { label: "Forklift Operator", auto: true },
+    telescopic:        { label: "Telescopic Forklift", autoOperator: "telescopic_op" },
+    telescopic_op:     { label: "Forklift Operator", auto: true },
+    crane:             { label: "Crane", autoOperator: "crane_op" },
+    crane_op:          { label: "Crane Operator", auto: true },
+    conveyor_belt:     { label: "Conveyor Belt", autoOperator: "conveyor_op" },
+    conveyor_op:       { label: "Conveyor Belt Operator", auto: true },
+    luggage_van:       { label: "Luggage Van" },
+    ramp:              { label: "Ramp" },
+    cage:              { label: "Cage" },
+    stevedore:         { label: "Stevedore" },
     porter:            { label: "Porter" },
   },
 };
