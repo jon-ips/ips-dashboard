@@ -178,7 +178,7 @@ export default async function generateInvoice(job) {
   let cursorY = 52;
   groups.forEach((g, gi) => {
     if (showSubheadings) {
-      if (gi > 0) cursorY += 4;
+      if (gi > 0) cursorY += 12;
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(12, 44, 64);
