@@ -36,6 +36,7 @@ function buildRows(job) {
             startTime: sh.startTime || "",
             endTime: addHours(sh.startTime, g.hours),
             timeUnit: g.hours,
+            nextDay: !!sh.nextDay,
             unitPrice: "",
             total: "",
           });
@@ -110,9 +111,19 @@ export default async function generateInvoice(job) {
   // ── Job info line ──
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  const dateStr = job.date
-    ? new Date(job.date + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
-    : "";
+  const hasNextDay = rows.some((r) => r.nextDay);
+  const fmtDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  let dateStr = "";
+  if (job.date) {
+    if (hasNextDay) {
+      const next = new Date(job.date + "T12:00:00");
+      next.setDate(next.getDate() + 1);
+      const nextIso = next.toISOString().slice(0, 10);
+      dateStr = `${fmtDate(job.date)} – ${fmtDate(nextIso)}`;
+    } else {
+      dateStr = fmtDate(job.date);
+    }
+  }
   doc.setTextColor(100);
   doc.text(`${jt.label}  |  ${dateStr}`, 14, 44);
   doc.text(`Date: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`, pageW - 14, 44, { align: "right" });
@@ -126,8 +137,8 @@ export default async function generateInvoice(job) {
   const tableBody = rows.map((r) => [
     r.resource,
     r.amount,
-    r.startTime,
-    r.endTime,
+    r.nextDay ? `${r.startTime} (+1d)` : r.startTime,
+    r.nextDay ? `${r.endTime} (+1d)` : r.endTime,
     `${r.timeUnit}h`,
     r.unitPrice,
     r.total,

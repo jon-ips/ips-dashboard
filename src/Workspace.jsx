@@ -275,6 +275,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       const shifts = job.shifts || [{ startTime: job.startTime || "", equipment: job.equipment || {} }];
       const hrs = shifts.map(s => ({
         startTime: s.startTime || "",
+        nextDay: !!s.nextDay,
         equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: "4" }]])),
       }));
       setCompleteHours(hrs);
@@ -309,6 +310,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (!completeModal) return;
     const hoursWorked = completeHours.map(sh => ({
       startTime: sh.startTime,
+      nextDay: !!sh.nextDay,
       equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || 4 }))])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
@@ -746,7 +748,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       <div key={si} style={{ border: completeHours.length > 1 ? `1px solid ${cjt.color}30` : "none", borderRadius: 8, padding: completeHours.length > 1 ? 10 : 0, background: completeHours.length > 1 ? `${cjt.color}06` : "transparent" }}>
                         {completeHours.length > 1 && (
                           <div style={{ fontSize: 10, fontWeight: 700, color: cjt.color, fontFamily: "JetBrains Mono", marginBottom: 8 }}>
-                            {sh.startTime ? `START ${sh.startTime}` : `SHIFT ${si + 1}`}
+                            {sh.startTime ? `START ${sh.startTime}${sh.nextDay ? " (+1d)" : ""}` : `SHIFT ${si + 1}`}
                           </div>
                         )}
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
