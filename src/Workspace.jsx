@@ -41,6 +41,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [completeAllHours, setCompleteAllHours] = useState("");
   const [deletedJobs, setDeletedJobs] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [jobSyncError, setJobSyncError] = useState(null);
+
+  const recordSyncError = useCallback((context, err) => {
+    let detail = "";
+    if (err) {
+      if (typeof err === "string") detail = err;
+      else if (err.message) detail = err.message;
+      else if (err.code || err.details || err.hint) detail = [err.code, err.message, err.details, err.hint].filter(Boolean).join(" — ");
+      else { try { detail = JSON.stringify(err); } catch { detail = String(err); } }
+    }
+    setJobSyncError({ context, detail: detail || "Unknown error", at: new Date().toISOString() });
+  }, []);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -151,7 +163,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       for (const j of unsynced) {
         if (!j.date) continue;
         try {
-          const { data } = await supabase.from("jobs").insert({
+          const { data, error } = await supabase.from("jobs").insert({
             type: j.type || "provisions",
             date: j.date,
             ship: j.ship || null,
@@ -161,6 +173,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             hours_worked: j.hoursWorked || null,
             deleted_at: j.deletedAt || null,
           });
+          if (error) { recordSyncError("background-sync", error); continue; }
           if (data && data[0]) {
             const synced = rowToJob(data[0]);
             setJobs(prev => {
@@ -177,7 +190,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         } catch (e) { console.warn("Failed to sync local job:", e); }
       }
     })();
-  }, [loadJobsFromDb]);
+  }, [loadJobsFromDb, recordSyncError]);
 
   const saveJobs = useCallback((j) => {
     setJobs(j);
@@ -214,13 +227,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (cleanShifts.length === 0) return;
     if (jobModal === "new") {
       if (SUPABASE_CONFIGURED) {
-        const { data, error } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts });
-        if (error) { console.error("Failed to create job:", error); }
+        let data = null, error = null;
+        try { ({ data, error } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
+        catch (e) { error = e; }
+        if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
         if (data && data[0]) {
           const newJob = rowToJob(data[0]);
           saveJobs([...jobs, newJob]);
         } else {
-          // Fallback: save locally with temp id
+          // Fallback: save locally with temp id (will retry sync on next load)
+          if (!error) recordSyncError("create", "Supabase returned no row");
           saveJobs([...jobs, { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
         }
       } else {
@@ -233,7 +249,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       }
     }
     setJobModal(null);
-  }, [jobForm, jobModal, jobs, saveJobs]);
+  }, [jobForm, jobModal, jobs, saveJobs, recordSyncError]);
 
   // Get all equipment merged across shifts (for completion + display)
   const getJobEquipment = (job) => {
@@ -764,6 +780,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
           {/* ═══ JOBS VIEW ═══ */}
           {wsView === "jobs" && (<>
+            {jobSyncError && (
+              <div style={{ marginBottom: 12, padding: "10px 14px", background: `${IPS_DANGER}15`, border: `1px solid ${IPS_DANGER}`, borderRadius: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={{ color: IPS_DANGER, fontSize: 16, lineHeight: 1, marginTop: 1 }}>⚠</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: IPS_DANGER, fontFamily: "JetBrains Mono", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
+                    Sync failed ({jobSyncError.context}) — Jon may not see this job
+                  </div>
+                  <div style={{ fontSize: 12, color: TEXT, fontFamily: "JetBrains Mono", wordBreak: "break-word" }}>{jobSyncError.detail}</div>
+                </div>
+                <button onClick={() => setJobSyncError(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed).length} active job{jobs.filter(j => !j.completed).length !== 1 ? "s" : ""}</div>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
