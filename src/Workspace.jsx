@@ -120,20 +120,62 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   useEffect(() => {
     (async () => {
-      try {
-        const dbJobs = await loadJobsFromDb();
-        if (dbJobs !== null) {
-          setJobs(dbJobs.filter(j => !j.deletedAt));
-          setDeletedJobs(dbJobs.filter(j => j.deletedAt));
-        } else {
-          // Fallback to localStorage
-          const raw = localStorage.getItem("ws:jobs");
-          if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setJobs(p); }
-          const delRaw = localStorage.getItem("ws:jobs:deleted");
-          if (delRaw) { const p = JSON.parse(delRaw); if (Array.isArray(p)) setDeletedJobs(p); }
-        }
-      } catch (e) { console.warn("Failed to load jobs:", e); }
-      finally { setJobsLoaded(true); }
+      const readLocal = (key) => {
+        try { const raw = localStorage.getItem(key); if (!raw) return []; const p = JSON.parse(raw); return Array.isArray(p) ? p : []; }
+        catch { return []; }
+      };
+      const localJobs = readLocal("ws:jobs");
+      const localDeleted = readLocal("ws:jobs:deleted");
+
+      let dbJobs = null;
+      try { dbJobs = await loadJobsFromDb(); }
+      catch (e) { console.warn("Failed to load jobs:", e); }
+
+      if (dbJobs === null) {
+        setJobs(localJobs);
+        setDeletedJobs(localDeleted);
+        setJobsLoaded(true);
+        return;
+      }
+
+      // Merge DB rows with any local rows that never reached Supabase, so a
+      // silently-failed write isn't shadowed by an empty/partial DB response.
+      const dbIds = new Set(dbJobs.map(j => j.id));
+      const unsynced = [...localJobs, ...localDeleted].filter(j => j && j.id && !dbIds.has(j.id));
+      setJobs([...dbJobs.filter(j => !j.deletedAt), ...unsynced.filter(j => !j.deletedAt)]);
+      setDeletedJobs([...dbJobs.filter(j => j.deletedAt), ...unsynced.filter(j => j.deletedAt)]);
+      setJobsLoaded(true);
+
+      // Background: push unsynced rows up so coworkers see them too.
+      if (!SUPABASE_CONFIGURED) return;
+      for (const j of unsynced) {
+        if (!j.date) continue;
+        try {
+          const { data } = await supabase.from("jobs").insert({
+            type: j.type || "provisions",
+            date: j.date,
+            ship: j.ship || null,
+            notes: j.notes || null,
+            shifts: j.shifts || [],
+            completed: !!j.completed,
+            hours_worked: j.hoursWorked || null,
+            deleted_at: j.deletedAt || null,
+          });
+          if (data && data[0]) {
+            const synced = rowToJob(data[0]);
+            setJobs(prev => {
+              const next = prev.map(x => x.id === j.id ? synced : x);
+              try { localStorage.setItem("ws:jobs", JSON.stringify(next)); } catch {}
+              return next;
+            });
+            setDeletedJobs(prev => {
+              const next = prev.map(x => x.id === j.id ? synced : x);
+              try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(next)); } catch {}
+              return next;
+            });
+          }
+        } catch (e) { console.warn("Failed to sync local job:", e); }
+      }
     })();
   }, [loadJobsFromDb]);
 
