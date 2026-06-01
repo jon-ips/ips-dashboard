@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { JOB_TYPES, JOB_EQUIPMENT_BY_TYPE } from "./constants.js";
+import { JOB_TYPES, JOB_EQUIPMENT_BY_TYPE, getBerthForShip } from "./constants.js";
 import { RATE_SHEETS, fmtISK, isWeekend } from "./rates.js";
 import ipsLogoColor from "./assets/ips-logo-color.png";
 
@@ -365,7 +365,8 @@ export default async function generateInvoice(job, rateSheetKey) {
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80);
     if (job.ship) doc.text(`Ship: ${job.ship}`, 14, footerY + 2);
-    doc.text("Reykjavik, Iceland", 14, footerY + 9);
+    const berth = getBerthForShip(job.ship, job.date);
+    doc.text(berth ? `${berth}, Reykjavik, Iceland` : "Reykjavik, Iceland", 14, footerY + 9);
 
     doc.setFontSize(8);
     doc.setTextColor(150);

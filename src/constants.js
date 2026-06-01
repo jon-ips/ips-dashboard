@@ -265,6 +265,29 @@ export const OTHER_COLOR = "#475569";
 export const SAMSKIP_COLOR = "#F97316";
 
 export const SDK_COLOR = "#8B5CF6";
+
+// ─── BERTHS ──────────────────────────────────────────────────────────────────
+// Canonical berth names at Reykjavík. Used on invoices and (eventually) to
+// validate / tag SHIPS entries with where each call docked.
+export const BERTHS = ["VÖR", "Skarfabakki", "Korngarðar", "Miðbakki", "Faxagarður"];
+
+// Strip the trailing " (Cruise Line)" from a job's ship field.
+export function extractShipName(shipStr) {
+  if (!shipStr) return "";
+  return shipStr.replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
+// Find the berth for a given ship + date by matching against SHIPS entries.
+// Returns the berth string or null if unknown.
+export function getBerthForShip(shipStr, dateIso) {
+  if (!shipStr || !dateIso) return null;
+  const name = extractShipName(shipStr);
+  if (!name) return null;
+  const entry = SHIPS.find(
+    (s) => s.ship === name && dateIso >= s.date && dateIso <= (s.endDate || s.date),
+  );
+  return entry?.berth || null;
+}
 export const SDK_LINES = ["Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
