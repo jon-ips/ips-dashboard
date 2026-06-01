@@ -293,7 +293,7 @@ export default async function generateInvoice(job, rateSheetKey) {
       : (day1DateStr || day2DateStr || "");
 
     doc.setTextColor(100);
-    doc.text(`${jt.label}  |  ${dateStr}  |  ${sheet.label} rate sheet`, 14, 44);
+    doc.text(`${jt.label}  |  ${dateStr}`, 14, 44);
     doc.text(`Date: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`, pageW - 14, 44, { align: "right" });
 
     // Separator
