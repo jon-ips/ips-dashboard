@@ -133,21 +133,22 @@ export default async function generateInvoice(job) {
   doc.setLineWidth(0.5);
   doc.line(14, 48, pageW - 14, 48);
 
-  // ── Table ──
-  const tableBody = rows.map((r) => [
-    r.resource,
-    r.amount,
-    r.nextDay ? `${r.startTime} (+1d)` : r.startTime,
-    r.nextDay ? `${r.endTime} (+1d)` : r.endTime,
-    `${r.timeUnit}h`,
-    r.unitPrice,
-    r.total,
-  ]);
+  // ── Tables (split by day when there are next-day shifts) ──
+  const day1Rows = rows.filter((r) => !r.nextDay);
+  const day2Rows = rows.filter((r) => r.nextDay);
+  const day1DateStr = job.date ? fmtDate(job.date) : "";
+  let day2DateStr = "";
+  if (day2Rows.length > 0 && job.date) {
+    const next = new Date(job.date + "T12:00:00");
+    next.setDate(next.getDate() + 1);
+    day2DateStr = fmtDate(next.toISOString().slice(0, 10));
+  }
+  const groups = [];
+  if (day1Rows.length > 0) groups.push({ date: day1DateStr, rows: day1Rows });
+  if (day2Rows.length > 0) groups.push({ date: day2DateStr, rows: day2Rows });
+  const showSubheadings = groups.length > 1;
 
-  autoTable(doc, {
-    startY: 52,
-    head: [["Resource", "Amount", "Start Time", "End Time", "Time Unit", "Unit Price", "Total"]],
-    body: tableBody,
+  const tableOptions = {
     margin: { left: 14, right: 14 },
     theme: "grid",
     headStyles: {
@@ -171,12 +172,29 @@ export default async function generateInvoice(job) {
       5: { cellWidth: 25 },
       6: { cellWidth: 25 },
     },
-    alternateRowStyles: {
-      fillColor: [240, 247, 250],
-    },
+    alternateRowStyles: { fillColor: [240, 247, 250] },
+  };
+
+  let cursorY = 52;
+  groups.forEach((g, gi) => {
+    if (showSubheadings) {
+      if (gi > 0) cursorY += 4;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(12, 44, 64);
+      doc.text(g.date, 14, cursorY);
+      cursorY += 3;
+    }
+    autoTable(doc, {
+      ...tableOptions,
+      startY: cursorY,
+      head: [["Resource", "Amount", "Start Time", "End Time", "Time Unit", "Unit Price", "Total"]],
+      body: g.rows.map((r) => [r.resource, r.amount, r.startTime, r.endTime, `${r.timeUnit}h`, r.unitPrice, r.total]),
+    });
+    cursorY = doc.lastAutoTable?.finalY || cursorY + 20;
   });
 
-  const finalY = doc.lastAutoTable?.finalY || 100;
+  const finalY = cursorY;
 
   // ── Total row placeholder ──
   doc.setFontSize(10);
