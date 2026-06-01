@@ -32,7 +32,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsLoaded, setJobsLoaded] = useState(false);
   const [jobModal, setJobModal] = useState(null); // null | "new" | jobId
   const emptyEquip = (type) => Object.fromEntries(Object.keys(JOB_EQUIPMENT_BY_TYPE[type] || {}).map(k => [k, 0]));
-  const emptyShift = (type) => ({ startTime: "", equipment: emptyEquip(type) });
+  const emptyShift = (type) => ({ startTime: "", nextDay: false, equipment: emptyEquip(type) });
   const defaultJobForm = { type: "provisions", date: "", ship: "", notes: "", shifts: [emptyShift("provisions")] };
   const [jobForm, setJobForm] = useState(defaultJobForm);
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
@@ -212,8 +212,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const type = job.type || "provisions";
     // Backward compat: old jobs have startTime/equipment at top level
     const shifts = job.shifts
-      ? job.shifts.map(s => ({ startTime: s.startTime || "", equipment: { ...emptyEquip(type), ...s.equipment } }))
-      : [{ startTime: job.startTime || "", equipment: { ...emptyEquip(type), ...job.equipment } }];
+      ? job.shifts.map(s => ({ startTime: s.startTime || "", nextDay: !!s.nextDay, equipment: { ...emptyEquip(type), ...s.equipment } }))
+      : [{ startTime: job.startTime || "", nextDay: false, equipment: { ...emptyEquip(type), ...job.equipment } }];
     setJobForm({ type, date: job.date, ship: job.ship || "", notes: job.notes || "", shifts });
     setTimePickerOpen(-1);
     setJobModal(job.id);
@@ -222,7 +222,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;
     const cleanShifts = jobForm.shifts
-      .map(s => ({ startTime: s.startTime, equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0)) }))
+      .map(s => ({ startTime: s.startTime, nextDay: !!s.nextDay, equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0)) }))
       .filter(s => Object.keys(s.equipment).length > 0);
     if (cleanShifts.length === 0) return;
     if (jobModal === "new") {
@@ -261,7 +261,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     return job.equipment || {};
   };
   const getJobStartTime = (job) => {
-    if (job.shifts && job.shifts.length > 0) return job.shifts.map(s => s.startTime).filter(Boolean).join(", ");
+    if (job.shifts && job.shifts.length > 0) return job.shifts.map(s => s.startTime ? (s.nextDay ? `${s.startTime} (+1d)` : s.startTime) : "").filter(Boolean).join(", ");
     return job.startTime || "";
   };
 
@@ -657,6 +657,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               </div>
                             </>)}
                           </div>
+                          {si > 0 && (
+                            <button onClick={() => setJobForm(f => ({ ...f, shifts: f.shifts.map((s, i) => i === si ? { ...s, nextDay: !s.nextDay } : s) }))} title={shift.nextDay ? "Click to put this shift on the job date" : "Click to put this shift on the day after the job date"} style={{
+                              padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "JetBrains Mono",
+                              background: shift.nextDay ? `${jt.color}25` : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${shift.nextDay ? jt.color : BORDER}`,
+                              color: shift.nextDay ? jt.color : TEXT_DIM,
+                            }}>{shift.nextDay ? "Next day ✓" : "+1 day"}</button>
+                          )}
                         </div>
                         {jobForm.shifts.length > 1 && (
                           <button onClick={() => setJobForm(f => ({ ...f, shifts: f.shifts.filter((_, i) => i !== si) }))} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 10, fontFamily: "JetBrains Mono" }}>Remove</button>
