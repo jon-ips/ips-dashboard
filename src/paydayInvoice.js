@@ -97,7 +97,12 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   }));
 
   return {
-    customerId:  cruiseLine?.payday_customer_id,
+    // Field-name notes (learned from Payday error responses):
+    //   - "Customer is required" → Payday wants the field named exactly
+    //     `customer`. The previous `customerId` was silently dropped.
+    //     Currently passing the raw ID string; if Payday objects to that
+    //     (expects an object), switch to `{ id: cruiseLine.payday_customer_id }`.
+    customer:    cruiseLine?.payday_customer_id,
     invoiceDate: job.date,
     dueDate:     dueDate,
     finalDate:   dueDate, // Eindagi — same as Gjalddagi for our use case
