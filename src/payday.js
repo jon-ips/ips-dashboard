@@ -1,8 +1,24 @@
-// ─── Payday.is API client (via Vite dev proxy) ──────────────────────────────
+// ─── Payday.is API client ───────────────────────────────────────────────────
 //
-// All requests go through /payday-api/* which Vite proxies to api.payday.is.
-// OAuth token is obtained via POST /auth/token with clientId + clientSecret.
+// Two auth modes, picked automatically at build time:
+//
+//   DEV (vite dev server)
+//     - Reads VITE_PAYDAY_CLIENT_ID / VITE_PAYDAY_CLIENT_SECRET from .env
+//     - Exchanges them for a bearer token client-side
+//     - Sends Authorization: Bearer <token> on each request
+//     - Requests still go to /payday-api/* (vite.config.js proxies to
+//       https://api.payday.is/* so CORS is satisfied)
+//
+//   PROD (built bundle behind Netlify)
+//     - Client makes plain requests to /payday-api/* with no Authorization
+//       header and no VITE_ credentials in the bundle
+//     - netlify.toml redirects /payday-api/* to a Netlify Function
+//       (netlify/functions/payday.js) that holds the credentials in its
+//       server-side env (PAYDAY_CLIENT_ID / PAYDAY_CLIENT_SECRET, no
+//       VITE_ prefix), exchanges them for a token, and proxies the call.
+//     - This keeps the OAuth secret off the public JS bundle.
 
+const IS_DEV = !!import.meta.env.DEV;
 const PAYDAY_CLIENT_ID = import.meta.env.VITE_PAYDAY_CLIENT_ID || "";
 const PAYDAY_CLIENT_SECRET = import.meta.env.VITE_PAYDAY_CLIENT_SECRET || "";
 const BASE = "/payday-api";
@@ -51,9 +67,14 @@ async function getAccessToken() {
 // ─── Core request function ───────────────────────────────────────────────────
 
 async function paydayRequest(endpoint, { method = "GET", params = {}, body = null } = {}) {
-  const token = await getAccessToken();
-  if (!token) {
-    return { ok: false, data: null, page: null, error: { message: "Auth failed — no token" } };
+  // In dev the client handles auth; in prod the Netlify Function handles it.
+  // See header comment for the full architecture.
+  let token = null;
+  if (IS_DEV) {
+    token = await getAccessToken();
+    if (!token) {
+      return { ok: false, data: null, page: null, error: { message: "Auth failed — no token" } };
+    }
   }
 
   // Build query string from params
@@ -65,10 +86,10 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
   const url = `${BASE}${endpoint}${qs ? "?" + qs : ""}`;
 
   const headers = {
-    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     "Api-Version": API_VERSION,
   };
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const options = { method, headers };
   if (body) options.body = JSON.stringify(body);
@@ -76,8 +97,9 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
   try {
     let res = await fetch(url, options);
 
-    // Auto-retry once on 401 (token may have expired)
-    if (res.status === 401) {
+    // Auto-retry once on 401 — only meaningful in dev where we hold the
+    // token; in prod the function refreshes its own cache transparently.
+    if (res.status === 401 && IS_DEV) {
       cachedToken = null;
       tokenExpiresAt = 0;
       const freshToken = await getAccessToken();
@@ -133,8 +155,11 @@ async function fetchAllPages(endpoint, params = {}) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export const payday = {
-  // Connection test
-  connected: () => !!PAYDAY_CLIENT_ID && !!PAYDAY_CLIENT_SECRET,
+  // Connection test. In dev we can introspect the local VITE_ vars; in
+  // prod the credentials live server-side on the Netlify Function, so the
+  // best the browser can do is "probably configured" — actual failures
+  // surface via a clear 500 from the function if it's missing creds.
+  connected: () => IS_DEV ? (!!PAYDAY_CLIENT_ID && !!PAYDAY_CLIENT_SECRET) : true,
 
   company: {
     get: () => paydayRequest("/company"),

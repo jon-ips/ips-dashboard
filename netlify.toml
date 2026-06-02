@@ -2,12 +2,18 @@
   command = "npm run build"
   publish = "dist"
 
+# Payday API calls are routed through a Netlify Function so the OAuth
+# credentials stay server-side (never inlined into the client bundle).
+# The function lives at netlify/functions/payday.js and reads
+# PAYDAY_CLIENT_ID / PAYDAY_CLIENT_SECRET (no VITE_ prefix) from the
+# function's environment.
 [[redirects]]
   from = "/payday-api/*"
-  to = "https://api.payday.is/:splat"
+  to = "/.netlify/functions/payday/:splat"
   status = 200
   force = true
 
+# SPA fallback — all unmatched paths serve the React app's index.html.
 [[redirects]]
   from = "/*"
   to = "/index.html"
