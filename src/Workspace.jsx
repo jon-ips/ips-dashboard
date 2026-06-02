@@ -47,8 +47,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
 
   const startInvoice = useCallback((job) => {
-    // Akureyri work is SDK-billed regardless of cruise line.
-    if (job.port === "AK") { generateInvoice(job, "sdk"); return; }
+    // Akureyri has its own rate sheet, regardless of cruise line.
+    if (job.port === "AK") { generateInvoice(job, "akureyri"); return; }
     const cl = getCruiseLineForShip(job.ship, job.date);
     const key = resolveRateSheet(cl);
     if (key) generateInvoice(job, key);

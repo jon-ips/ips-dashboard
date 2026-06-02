@@ -111,6 +111,29 @@ export const RATE_SHEETS = {
     ],
   },
 
+  akureyri: {
+    label: "Akureyri",
+    overtimeAfter: 16,
+    resources: {
+      stevedore:            { day: 10885, ot: 13062 },
+      forklift_op:          { day: 16060, ot: 19272 },
+      telescopic_op:        { day: 16060, ot: 19272 },
+      conveyor_op:          { day: 16060, ot: 19272 },
+      crane_op:             { day: 16060, ot: 19272 },
+      forklift:             { hourly: 14560 },
+      telescopic:           { hourly: 19790 },
+      crane:                { hourly: 49820 },
+      pallet_jack_manual:   { flat: 8500 },
+      pallet_jack_electric: { flat: 11500 },
+      ramp:                 { flat: 12500 },
+      // Sheet has no Foreman, Porter, Conveyor Belt, Pallet/Luggage Cage —
+      // those line items will render unpriced if selected on an AK job.
+    },
+    transports: [
+      { label: "Forklift Transport", rate: 45850, triggeredBy: ["forklift", "telescopic"] },
+    ],
+  },
+
   hal: {
     label: "HAL/Seabourn",
     overtimeAfter: 18,
