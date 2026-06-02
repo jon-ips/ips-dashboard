@@ -137,8 +137,18 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
   const payload = buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDate);
   const res = await payday.invoices.create(payload);
   if (!res.ok) {
-    const msg = res.error?.message || res.error?.error || JSON.stringify(res.error || {});
-    return { ok: false, error: `Payday rejected the invoice: ${msg}` };
+    const e = res.error || {};
+    // Build a human-readable message that always includes the HTTP status
+    // when we have one — bare error bodies were getting reported as "{}"
+    // which told the user nothing. Full diagnostic is also logged to the
+    // browser console (see payday.js).
+    const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
+    const msgBit = e.message || (typeof e === "string" ? e : JSON.stringify(e));
+    const combined = [statusBit, msgBit].filter(Boolean).join(" — ");
+    return {
+      ok: false,
+      error: `Payday rejected the invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
+    };
   }
   return { ok: true, data: res.data };
 }

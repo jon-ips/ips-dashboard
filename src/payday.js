@@ -110,8 +110,28 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
     }
 
     if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      return { ok: false, data: null, page: null, error: errBody };
+      // Capture as much as Payday gives us. Some 4xx responses come back
+      // with an empty body, in which case the HTTP status itself is the
+      // diagnostic. Read the body as text first so we can fall back to a
+      // string when JSON parsing fails (e.g. HTML error pages).
+      const rawBody = await res.text().catch(() => "");
+      let parsed = null;
+      try { parsed = rawBody ? JSON.parse(rawBody) : null; } catch { /* not JSON */ }
+      const error = {
+        status: res.status,
+        statusText: res.statusText,
+        url,
+        method,
+        // Surface a useful message even when the body is empty.
+        message: parsed?.message
+              || parsed?.error
+              || parsed?.title
+              || (rawBody ? rawBody.slice(0, 500) : `HTTP ${res.status} ${res.statusText}`),
+        body: parsed ?? rawBody,
+      };
+      // Log the full diagnostic to the console so the developer can copy it.
+      console.error("Payday API error:", error);
+      return { ok: false, data: null, page: null, error };
     }
 
     if (res.status === 204) {
