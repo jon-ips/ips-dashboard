@@ -141,17 +141,21 @@ function buildRows(job, sheet) {
               });
             });
           } else if (isFlatDay && rate && rate.flat != null) {
+            // Cherry Picker rentals bill per-day with a user-entered day count;
+            // other flat-day items keep the legacy single-day formula.
+            const perDay = job.type === "cherry_picker";
+            const days = perDay ? Math.max(1, parseInt(g.hours) || 1) : 1;
             rows.push({
               resource: label,
               amount: g.qty,
               startTime: "",
               endTime: "",
-              timeUnit: "1 day",
+              timeUnit: perDay ? `${days} day${days !== 1 ? "s" : ""}` : "1 day",
               nextDay: !!sh.nextDay,
               unitPrice: fmtISK(rate.flat),
               unitPriceIsk: rate.flat,
-              total: fmtISK(g.qty * rate.flat),
-              _totalNum: g.qty * rate.flat,
+              total: fmtISK(g.qty * days * rate.flat),
+              _totalNum: g.qty * days * rate.flat,
             });
           } else if (rate && rate.flat != null && g.hours) {
             // HAL special case: Conveyor Belt billed as a flat day rate even though

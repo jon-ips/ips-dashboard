@@ -349,10 +349,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: false, hours_worked: null }).eq("id", id).then(() => {});
     } else {
       const shifts = job.shifts || [{ startTime: job.startTime || "", equipment: job.equipment || {} }];
+      const cpEquip = JOB_EQUIPMENT_BY_TYPE[job.type] || {};
+      const isDaysKey = (k) => job.type === "cherry_picker" && !!cpEquip[k]?.flatDay;
       const hrs = shifts.map(s => ({
         startTime: s.startTime || "",
         nextDay: !!s.nextDay,
-        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: "4" }]])),
+        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: isDaysKey(k) ? "1" : "4" }]])),
       }));
       setCompleteHours(hrs);
       setCompleteAllHours("");
@@ -364,9 +366,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setCompleteAllHours(val);
     if (completeModal) {
       const clamped = String(Math.max(4, parseInt(val) || 4));
+      const cpEquip = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+      const isDaysKey = (k) => completeModal.type === "cherry_picker" && !!cpEquip[k]?.flatDay;
       setCompleteHours(prev => prev.map(sh => ({
         ...sh,
-        equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ ...g, hours: clamped }))])),
+        equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => (
+          isDaysKey(k) ? [k, groups] : [k, groups.map(g => ({ ...g, hours: clamped }))]
+        ))),
       })));
     }
   }, [completeModal]);
@@ -384,10 +390,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   const confirmComplete = useCallback(() => {
     if (!completeModal) return;
+    const cpEquip = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+    const isDaysKey = (k) => completeModal.type === "cherry_picker" && !!cpEquip[k]?.flatDay;
     const hoursWorked = completeHours.map(sh => ({
       startTime: sh.startTime,
       nextDay: !!sh.nextDay,
-      equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || 4 }))])),
+      equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || (isDaysKey(k) ? 1 : 4) }))])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
     if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", completeModal.id).then(() => {});
@@ -855,11 +863,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           {Object.entries(sh.equipment).map(([k, groups]) => {
                             const eq = cEquipList[k];
                             const label = eq?.label || k;
+                            const isDays = completeModal.type === "cherry_picker" && !!eq?.flatDay;
+                            const minVal = isDays ? 1 : 4;
                             return groups.map((g, gi) => (
                               <div key={`${k}-${gi}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <span style={{ fontSize: 12, color: TEXT, flex: 1, fontWeight: 500 }}>{g.qty}× {label}</span>
-                                <input type="number" min="4" step="1" value={g.hours} onChange={e => { const v = Math.max(4, parseInt(e.target.value) || 4); setCompleteHours(prev => prev.map((s, i) => i !== si ? s : { ...s, equipment: { ...s.equipment, [k]: s.equipment[k].map((x, j) => j === gi ? { ...x, hours: String(v) } : x) } })); setCompleteAllHours(""); }} style={{ ...inputStyle, width: 70, padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
-                                <span style={{ fontSize: 11, color: TEXT_DIM }}>h</span>
+                                <input type="number" min={minVal} step="1" value={g.hours} onChange={e => { const v = Math.max(minVal, parseInt(e.target.value) || minVal); setCompleteHours(prev => prev.map((s, i) => i !== si ? s : { ...s, equipment: { ...s.equipment, [k]: s.equipment[k].map((x, j) => j === gi ? { ...x, hours: String(v) } : x) } })); setCompleteAllHours(""); }} style={{ ...inputStyle, width: 70, padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
+                                <span style={{ fontSize: 11, color: TEXT_DIM }}>{isDays ? "d" : "h"}</span>
                                 {g.qty > 1 && (
                                   <div style={{ position: "relative" }}>
                                     <select onChange={e => { const v = parseInt(e.target.value); if (v > 0) splitGroup(si, k, gi, v); e.target.value = ""; }} defaultValue="" style={{ padding: "4px 6px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "JetBrains Mono", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: IPS_ACCENT, appearance: "auto", colorScheme: "dark" }}>
