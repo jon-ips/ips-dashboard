@@ -357,10 +357,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const shipsOnDate = useMemo(() => {
     if (!jobForm.date) return [];
     const d = jobForm.date;
-    return SHIPS.filter(s => d >= s.date && d <= (s.endDate || s.date))
+    const formPort = jobForm.port || "REY";
+    return SHIPS.filter(s => (s.port || "REY") === formPort && d >= s.date && d <= (s.endDate || s.date))
       .map(s => s.ship)
       .filter((v, i, a) => a.indexOf(v) === i);
-  }, [jobForm.date]);
+  }, [jobForm.date, jobForm.port]);
 
   const fmtEquipment = (eq, type) => {
     const typeEquip = JOB_EQUIPMENT_BY_TYPE[type] || JOB_EQUIPMENT_BY_TYPE.provisions;
@@ -621,7 +622,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Port *</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       {Object.entries(PORTS).map(([k, v]) => (
-                        <button key={k} onClick={() => setJobForm(f => ({ ...f, port: k }))} title={v.longLabel} style={{
+                        <button key={k} onClick={() => setJobForm(f => ({ ...f, port: k, ship: "" }))} title={v.longLabel} style={{
                           flex: 1, padding: "6px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
                           background: jobForm.port === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
                           border: `1px solid ${jobForm.port === k ? v.color : BORDER}`,
