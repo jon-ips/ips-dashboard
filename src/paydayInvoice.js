@@ -109,6 +109,9 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     // field after the Icelandic concept; "Final due date is required"
     // was the next 400 after we fixed the customer shape.
     finalDueDate: dueDate,
+    // "Currency code is required" was the next 400. IPS bills exclusively
+    // in ISK; hardcoded until we have a reason to vary it.
+    currencyCode: "ISK",
     reference,
     comment,
     lines,
