@@ -79,13 +79,21 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // and `_totalNum` (numeric line total). We mirror those into the Payday
   // shape; unpriced lines come through as 0/0 — Payday accepts the draft
   // and the user types in the missing rate in the UI when reviewing.
+  //
+  // Field-name notes (learned from Payday error responses):
+  //   - Unit price must be sent as `unitPriceExcludingVat`. The plain
+  //     `unitPrice` field is silently dropped, then Payday 400s with
+  //     "unit price excluding VAT or unit price including VAT must be
+  //     specified".
+  //   - Our rate sheets are all stored ex-VAT (VAT is added on top per
+  //     line via `vatRate`), so unitPriceIsk maps directly to
+  //     unitPriceExcludingVat with no conversion.
   const lines = rows.map(r => ({
-    description: r.resource,
-    quantity:    Number(r.amount) || 0,
-    unitPrice:   Number(r.unitPriceIsk) || 0,
-    amount:      Number(r._totalNum) || 0,
+    description:           r.resource,
+    quantity:              Number(r.amount) || 0,
+    unitPriceExcludingVat: Number(r.unitPriceIsk) || 0,
     // per-line VAT — uses cruise line + ship + call date + last-Mars-call lookup
-    vatRate:     vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
+    vatRate:               vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
   }));
 
   return {
