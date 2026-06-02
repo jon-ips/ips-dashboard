@@ -115,15 +115,18 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     reference,
     comment,
     lines,
-    // Draft-mode iteration log:
-    //   status: "draft"  → silently ignored, finalized
-    //   status: "Draft"  → silently ignored, finalized
-    //   isDraft: true    → trying this next
-    // If isDraft also fails, the Payday public API may not support
-    // creating drafts at all (their own UI uses separate /create +
-    // /update + /createInvoiceLine endpoints, not POST /invoices).
-    // In that case we accept "finalized but unsent" as our workflow.
-    isDraft:      true,
+    // No draft flag.
+    //
+    // Payday's "Drög" (Draft) tab is a UI affordance for work-in-progress
+    // that hasn't reached the server yet — it's NOT an API state. Any
+    // invoice POSTed through /invoices is created on the server in a
+    // ready-to-send state but is NOT auto-sent to the customer. The user
+    // reviews it in Payday and clicks the green "Send invoice" button to
+    // dispatch (or doesn't, if they want to cancel / edit further).
+    //
+    // We tried status: "draft" / status: "Draft" / isDraft: true on
+    // earlier iterations — all silently ignored, all created normal
+    // unsent invoices. The unsent state IS the draft workflow.
   };
 }
 
