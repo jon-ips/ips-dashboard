@@ -61,9 +61,11 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   const termsDays = Number.isFinite(cruiseLine?.payment_terms_days) ? cruiseLine.payment_terms_days : 30;
   const dueDate = addDays(job.date, termsDays);
 
-  // Reference: "{PO} {ServiceCode}". PO is required upstream; we still trim
-  // to defend against accidental whitespace.
-  const reference = [po, code].filter(Boolean).join(" ");
+  // Reference: "{PO} {ServiceCode}" plus a trailing " AKU" for Akureyri jobs.
+  // PO is required upstream; we still trim to defend against accidental
+  // whitespace.
+  const akuSuffix = job?.port === "AK" ? "AKU" : "";
+  const reference = [po, code, akuSuffix].filter(Boolean).join(" ");
 
   // Comment block (Athugasemdir): three blocks separated by blank lines.
   //   <ship> - <berth>

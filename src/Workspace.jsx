@@ -10,6 +10,7 @@ import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
+import { computeAutoPONumber } from "./sdkCallNumbers.js";
 import { createDraftInvoice } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
@@ -47,6 +48,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [showDeleted, setShowDeleted] = useState(false);
   const [jobSyncError, setJobSyncError] = useState(null);
   const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
+  // PO auto-fill: enabled by default for new jobs, disabled once the user
+  // edits the field (or for edits, where we never overwrite). Re-enables if
+  // the user clears the field, so they can fall back to the computed value.
+  const [poAutoFilled, setPoAutoFilled] = useState(true);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
   // until DB load completes; the Payday submitter surfaces a clear error
@@ -282,6 +287,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobForm({ ...defaultJobForm, shifts: [emptyShift("provisions")] });
     setTimePickerOpen(-1);
     setJobModal("new");
+    setPoAutoFilled(true);
   }, []);
 
   const openEditJob = useCallback((job) => {
@@ -293,7 +299,19 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobForm({ port: job.port || "REY", type, date: job.date, ship: extractShipName(job.ship) || "", po_number: job.po_number || "", notes: job.notes || "", shifts });
     setTimePickerOpen(-1);
     setJobModal(job.id);
+    setPoAutoFilled(false);
   }, []);
+
+  // Auto-fill PO Number from the SDK call-number sheet (or DD.MM fallback) when
+  // ship/date/port change on a new job. Stops once the user types a value;
+  // re-enables if they clear the field.
+  useEffect(() => {
+    if (jobModal !== "new" || !poAutoFilled) return;
+    const auto = computeAutoPONumber({ ship: jobForm.ship, date: jobForm.date, port: jobForm.port });
+    if (auto && auto !== jobForm.po_number) {
+      setJobForm(f => ({ ...f, po_number: auto }));
+    }
+  }, [jobForm.ship, jobForm.date, jobForm.port, jobModal, poAutoFilled, jobForm.po_number]);
 
   const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;
@@ -810,7 +828,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                     <input
                       value={jobForm.po_number}
-                      onChange={e => setJobForm(f => ({ ...f, po_number: e.target.value }))}
+                      onChange={e => { const v = e.target.value; setPoAutoFilled(v === ""); setJobForm(f => ({ ...f, po_number: v })); }}
                       placeholder="e.g. 85231"
                       style={{ ...inputStyle, marginBottom: 16 }}
                     />
