@@ -115,13 +115,15 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     reference,
     comment,
     lines,
-    // Payday silently ignored `status: "draft"` (lowercase) and finalized
-    // the invoice. Capitalized "Draft" matches their UI label ("Drög" →
-    // "Draft") and is likely what their schema accepts. If this still
-    // finalizes, the field name is probably different (e.g. `state`,
-    // `isDraft: true`) — see the iteration history in git for what we've
-    // tried.
-    status:       "Draft",
+    // Draft-mode iteration log:
+    //   status: "draft"  → silently ignored, finalized
+    //   status: "Draft"  → silently ignored, finalized
+    //   isDraft: true    → trying this next
+    // If isDraft also fails, the Payday public API may not support
+    // creating drafts at all (their own UI uses separate /create +
+    // /update + /createInvoiceLine endpoints, not POST /invoices).
+    // In that case we accept "finalized but unsent" as our workflow.
+    isDraft:      true,
   };
 }
 
