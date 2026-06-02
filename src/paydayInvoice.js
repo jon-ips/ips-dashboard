@@ -98,11 +98,11 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
 
   return {
     // Field-name notes (learned from Payday error responses):
-    //   - "Customer is required" → Payday wants the field named exactly
-    //     `customer`. The previous `customerId` was silently dropped.
-    //     Currently passing the raw ID string; if Payday objects to that
-    //     (expects an object), switch to `{ id: cruiseLine.payday_customer_id }`.
-    customer:    cruiseLine?.payday_customer_id,
+    //   - "Customer is required" → field name is `customer` (not `customerId`).
+    //   - Passing a raw UUID string triggered "Invalid JSON data" — Payday
+    //     wants the relation as a nested object with an `id`. Same pattern
+    //     likely applies to any other entity references we add later.
+    customer:    { id: cruiseLine?.payday_customer_id },
     invoiceDate: job.date,
     dueDate:     dueDate,
     finalDate:   dueDate, // Eindagi — same as Gjalddagi for our use case
