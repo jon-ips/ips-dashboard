@@ -107,12 +107,25 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
  */
 export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate) {
   // ── Preflight ───────────────────────────────────────────────────────────
+  // Cruise line is resolved upstream from job.ship + job.date (no
+  // cruise_line_id stored on the job). Report a missing lookup distinctly
+  // from a missing Payday mapping so the user knows where to fix it.
+  if (!cruiseLine) {
+    return {
+      ok: false,
+      error: `Cannot create invoice — couldn't identify a cruise line for ship "${job?.ship || "—"}" on ${job?.date || "?"}. Check that the ship is in the schedule.`,
+    };
+  }
+  if (!cruiseLine.payday_customer_id) {
+    return {
+      ok: false,
+      error: `${cruiseLine.name} has no Payday customer mapping. Set it in CFO Workspace → Settings (CEO access required).`,
+    };
+  }
+
   const missing = [];
-  if (!job?.cruise_line_id)  missing.push("cruise line / customer");
-  if (!cruiseLine)           missing.push("cruise line record (not found)");
-  if (!cruiseLine?.payday_customer_id) missing.push("Payday customer mapping for this cruise line");
-  if (!job?.po_number)       missing.push("PO number");
-  if (!job?.date)            missing.push("job date");
+  if (!job?.po_number)            missing.push("PO number");
+  if (!job?.date)                 missing.push("job date");
   if (!rows || rows.length === 0) missing.push("invoice line items (no hours recorded?)");
   if (missing.length) {
     return { ok: false, error: `Cannot create invoice — missing: ${missing.join(", ")}.` };
