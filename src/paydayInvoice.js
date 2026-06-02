@@ -102,14 +102,17 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     //   - Passing a raw UUID string triggered "Invalid JSON data" — Payday
     //     wants the relation as a nested object with an `id`. Same pattern
     //     likely applies to any other entity references we add later.
-    customer:    { id: cruiseLine?.payday_customer_id },
-    invoiceDate: job.date,
-    dueDate:     dueDate,
-    finalDate:   dueDate, // Eindagi — same as Gjalddagi for our use case
+    customer:     { id: cruiseLine?.payday_customer_id },
+    invoiceDate:  job.date,
+    dueDate:      dueDate,
+    // Gjalddagi = dueDate, Eindagi = finalDueDate. Payday named this
+    // field after the Icelandic concept; "Final due date is required"
+    // was the next 400 after we fixed the customer shape.
+    finalDueDate: dueDate,
     reference,
     comment,
     lines,
-    status:      "draft",
+    status:       "draft",
   };
 }
 
