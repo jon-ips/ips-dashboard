@@ -115,7 +115,13 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     reference,
     comment,
     lines,
-    status:       "draft",
+    // Payday silently ignored `status: "draft"` (lowercase) and finalized
+    // the invoice. Capitalized "Draft" matches their UI label ("Drög" →
+    // "Draft") and is likely what their schema accepts. If this still
+    // finalizes, the field name is probably different (e.g. `state`,
+    // `isDraft: true`) — see the iteration history in git for what we've
+    // tried.
+    status:       "Draft",
   };
 }
 
