@@ -1248,7 +1248,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                               {dayJobs.slice(0, 2).map(j => {
-                                const jc = (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
+                                const isAK = j.port === "AK";
+                                const jc = isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
+                                const badge = isAK ? "AK" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
                                 return (
                                 <div key={j.id} onClick={() => openEditJob(j)} style={{
                                   display: "flex", alignItems: "center", gap: 3, cursor: "pointer",
@@ -1256,7 +1258,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   border: `1px solid ${jc}25`, borderRadius: 4, padding: "2px 5px",
                                   borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
                                 }}>
-                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{(JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase()}</span>
+                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
                                   <span style={{ fontSize: 9, color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}</span>
                                 </div>
                                 );
