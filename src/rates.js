@@ -24,6 +24,11 @@
 //
 // Transports are auto-appended to the invoice when triggering equipment
 // is present in the job (one line per transport key, regardless of qty).
+//
+// Cherry Picker rentals are SDK-only. Four sizes (22m / 25m / 40m / 60m),
+// each a flat per-day rate that already includes transfer, fuel, and other
+// rental overheads. Same prices in Reykjavík and Akureyri — rates appear on
+// both the `sdk` and `akureyri` sheets below.
 // ===========================================================================
 
 import { SDK_LINES, PROSPECT_GROUPS } from "./constants.js";
@@ -49,6 +54,11 @@ export const RATE_SHEETS = {
       ramp:                 { flat: 12500 },
       pallet_jack_manual:   { flat: 8500 },
       pallet_jack_electric: { flat: 11500 },
+      // Cherry Picker rentals (SDK only). Flat day rate, all-inclusive.
+      cherry_picker_22m:    { flat: 133789 },
+      cherry_picker_25m:    { flat: 139146 },
+      cherry_picker_40m:    { flat: 169760 },
+      cherry_picker_60m:    { flat: 208720 },
     },
     transports: [
       { label: "Forklift Transport", rate: 45850, triggeredBy: ["forklift", "telescopic"] },
@@ -126,6 +136,11 @@ export const RATE_SHEETS = {
       pallet_jack_manual:   { flat: 8500 },
       pallet_jack_electric: { flat: 11500 },
       ramp:                 { flat: 12500 },
+      // Cherry Picker rentals — same prices in Akureyri and Reykjavík.
+      cherry_picker_22m:    { flat: 133789 },
+      cherry_picker_25m:    { flat: 139146 },
+      cherry_picker_40m:    { flat: 169760 },
+      cherry_picker_60m:    { flat: 208720 },
       // Sheet has no Foreman, Porter, Conveyor Belt, Pallet/Luggage Cage —
       // those line items will render unpriced if selected on an AK job.
     },

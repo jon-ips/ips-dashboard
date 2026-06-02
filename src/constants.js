@@ -482,10 +482,33 @@ export const PROSPECT_GROUPS = {
 
 // ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
 export const JOB_TYPES = {
-  provisions: { label: "Provisions", color: "#22C55E" },
-  waste:      { label: "Waste", color: "#F59E0B" },
-  turnaround: { label: "Turnaround", color: "#A78BFA" },
-  special:    { label: "Special", color: "#06B6D4" },
+  provisions:     { label: "Provisions",     color: "#22C55E" },
+  waste:          { label: "Waste",          color: "#F59E0B" },
+  turnaround:     { label: "Turnaround",     color: "#A78BFA" },
+  cherry_picker:  { label: "Cherry Picker",  color: "#3B82F6" },
+  special:        { label: "Special",        color: "#06B6D4" },
+};
+
+// Service codes used in the Payday invoice "Tilvísun" (reference) field,
+// composed as "{po_number} {SERVICE_CODES[job.type]}".
+// Special jobs vary case by case — defaulting to CP since the most common
+// ad-hoc rental is a Cherry Picker; override in Payday if not a CP rental.
+export const SERVICE_CODES = {
+  provisions:    "P",
+  waste:         "W",
+  turnaround:    "L",
+  cherry_picker: "CP",
+  special:       "CP",
+};
+
+// Full service names for the Payday invoice comment (Athugasemdir).
+// Turnaround prints as "Luggage Operation" on the invoice per IPS convention.
+export const SERVICE_FULL_NAMES = {
+  provisions:    "Provision Loading",
+  waste:         "Waste Offload",
+  turnaround:    "Luggage Operation",
+  cherry_picker: "Cherry Picker rental",
+  special:       "Special Operation",
 };
 
 // Port a job is performed in. Akureyri jobs are SDK-billed by default.
@@ -533,6 +556,22 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     luggage_van:          { label: "Luggage Van" },
     luggage_cage:         { label: "Luggage Cage", flatDay: true },
     porter:               { label: "Porter", human: true },
+  },
+  cherry_picker: {
+    // Four cherry-picker sizes, billed per-day. Rate is all-inclusive
+    // (transfer, fuel, etc. — see rates.js). Only SDK customers; misuse on
+    // a non-SDK job renders the line as "—" via generateInvoice's
+    // pushUnpriced fallback. Use the form's quantity field to enter the
+    // number of rental days (qty × day rate = invoice total per row).
+    cherry_picker_22m:    { label: "Cherry Picker 22m", flatDay: true },
+    cherry_picker_25m:    { label: "Cherry Picker 25m", flatDay: true },
+    cherry_picker_40m:    { label: "Cherry Picker 40m", flatDay: true },
+    cherry_picker_60m:    { label: "Cherry Picker 60m", flatDay: true },
+    // CP rentals are usually self-operated by the customer's crew; we
+    // occasionally supply an operator. Not auto-attached when picking a
+    // cherry picker — opt in manually. Rate is currently unset in rates.js
+    // so it surfaces as "—" until we agree on a number.
+    cherry_picker_op:     { label: "Cherry Picker Operator", human: true },
   },
   special: {
     forklift:             { label: "Forklift", autoOperator: "forklift_op" },

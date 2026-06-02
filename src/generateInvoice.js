@@ -105,6 +105,7 @@ function buildRows(job, sheet) {
     timeUnit: hours ? `${hours}h` : "",
     nextDay: !!nextDay,
     unitPrice: "—",
+    unitPriceIsk: 0,
     total: "—",
     _totalNum: 0,
   });
@@ -134,6 +135,7 @@ function buildRows(job, sheet) {
                 timeUnit: `${seg.hours}h`,
                 nextDay: !!sh.nextDay,
                 unitPrice: fmtISK(unitPrice),
+                unitPriceIsk: unitPrice,
                 total: fmtISK(total),
                 _totalNum: total,
               });
@@ -147,6 +149,7 @@ function buildRows(job, sheet) {
               timeUnit: "1 day",
               nextDay: !!sh.nextDay,
               unitPrice: fmtISK(rate.flat),
+              unitPriceIsk: rate.flat,
               total: fmtISK(g.qty * rate.flat),
               _totalNum: g.qty * rate.flat,
             });
@@ -161,6 +164,7 @@ function buildRows(job, sheet) {
               timeUnit: "1 day",
               nextDay: !!sh.nextDay,
               unitPrice: fmtISK(rate.flat),
+              unitPriceIsk: rate.flat,
               total: fmtISK(g.qty * rate.flat),
               _totalNum: g.qty * rate.flat,
             });
@@ -174,6 +178,7 @@ function buildRows(job, sheet) {
               timeUnit: `${g.hours}h`,
               nextDay: !!sh.nextDay,
               unitPrice: fmtISK(rate.hourly),
+              unitPriceIsk: rate.hourly,
               total: fmtISK(total),
               _totalNum: total,
             });
@@ -206,6 +211,7 @@ function buildRows(job, sheet) {
         timeUnit: "Per call",
         nextDay: false,
         unitPrice: fmtISK(tr.rate),
+        unitPriceIsk: tr.rate,
         total: fmtISK(tr.rate),
         _totalNum: tr.rate,
       });
@@ -228,6 +234,7 @@ function buildVikingTurnaroundRows(job, sheet) {
     timeUnit: "Per call",
     nextDay: false,
     unitPrice: fmtISK(rate),
+    unitPriceIsk: rate,
     total: fmtISK(rate),
     _totalNum: rate,
   }];
@@ -251,18 +258,28 @@ function loadImage(src) {
   });
 }
 
+/**
+ * Render the cost-breakdown PDF for a completed job and trigger a download.
+ *
+ * Returns the computed rows + grand total so callers (the Invoice button)
+ * can feed the same numbers to the Payday draft submitter without
+ * recomputing. Returns null on failure (the user has already been alerted).
+ *
+ *   @returns {{ rows, total }} on success
+ *   @returns {null}           on missing rate sheet, empty hours, or error
+ */
 export default async function generateInvoice(job, rateSheetKey) {
   try {
     const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
     const sheet = RATE_SHEETS[rateSheetKey];
     if (!sheet) {
       alert("No rate sheet selected — cannot generate invoice.");
-      return;
+      return null;
     }
 
     const useVikingFlat = rateSheetKey === "viking" && job.type === "turnaround" && sheet.turnaroundFlat;
     const rows = useVikingFlat ? buildVikingTurnaroundRows(job, sheet) : buildRows(job, sheet);
-    if (rows.length === 0) { alert("No hours data found for this job."); return; }
+    if (rows.length === 0) { alert("No hours data found for this job."); return null; }
 
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageW = doc.internal.pageSize.getWidth();
@@ -381,8 +398,11 @@ export default async function generateInvoice(job, rateSheetKey) {
     const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
     const dateSlug = job.date || "undated";
     doc.save(`IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`);
+
+    return { rows, total: grandTotal };
   } catch (err) {
     console.error("Invoice generation failed:", err);
     alert("Failed to generate invoice: " + err.message);
+    return null;
   }
 }

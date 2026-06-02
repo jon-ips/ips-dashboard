@@ -10,6 +10,8 @@ import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
+import { createDraftInvoice } from "./paydayInvoice.js";
+import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
@@ -35,7 +37,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobModal, setJobModal] = useState(null); // null | "new" | jobId
   const emptyEquip = (type) => Object.fromEntries(Object.keys(JOB_EQUIPMENT_BY_TYPE[type] || {}).map(k => [k, 0]));
   const emptyShift = (type) => ({ startTime: "", nextDay: false, equipment: emptyEquip(type) });
-  const defaultJobForm = { port: "REY", type: "provisions", date: "", ship: "", notes: "", shifts: [emptyShift("provisions")] };
+  const defaultJobForm = { port: "REY", type: "provisions", date: "", ship: "", po_number: "", notes: "", shifts: [emptyShift("provisions")] };
   const [jobForm, setJobForm] = useState(defaultJobForm);
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
@@ -45,15 +47,57 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [showDeleted, setShowDeleted] = useState(false);
   const [jobSyncError, setJobSyncError] = useState(null);
   const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
+  // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
+  // used to map job → Payday customer and pre-fill payment terms. Empty
+  // until DB load completes; the Payday submitter surfaces a clear error
+  // if the resolved cruise line has no payday_customer_id.
+  const [cruiseLines, setCruiseLines] = useState([]);
+  // Per-job invoice flow feedback: { jobId, status: "working"|"success"|"error", msg }
+  const [invoiceStatus, setInvoiceStatus] = useState(null);
+
+  // Pre-compute Viking Mars's final 2026 call date. Used by vatRules to grant
+  // 0% VAT to that one call (voyage ends in a foreign port).
+  const lastVikingMarsDate = useMemo(() => findLastVikingMarsDate(SHIPS), []);
+
+  // ─── INVOICE FLOW ────────────────────────────────────────────────────────
+  // 1. generateInvoice produces the PDF AND returns rows + total
+  // 2. Look up the cruise_lines row → payday_customer_id + payment_terms_days
+  // 3. POST a draft to Payday (status: "draft", never auto-sent)
+  // 4. Show banner; user attaches the PDF + sends manually from Payday
+  const runInvoiceFlow = useCallback(async (job, rateSheetKey) => {
+    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Generating PDF…" });
+    const pdfResult = await generateInvoice(job, rateSheetKey);
+    if (!pdfResult) { setInvoiceStatus(null); return; }
+
+    // Resolve cruise line: Akureyri jobs always bill SDK by convention, but
+    // there's no single "SDK" customer in Payday — each cruise-line label
+    // (TUI, Aida, etc.) is its own customer. We still need a name here, so
+    // fall back to the colleague's SHIPS-derived lookup. AK jobs whose ship
+    // isn't in the SHIPS array will fail with a clear "no customer" message.
+    const clName = getCruiseLineForShip(job.ship, job.date);
+    const cruiseLine = cruiseLines.find(c => c.name === clName) || null;
+
+    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Creating Payday draft…" });
+    const res = await createDraftInvoice(job, cruiseLine, pdfResult.rows, lastVikingMarsDate);
+    if (!res.ok) {
+      setInvoiceStatus({ jobId: job.id, status: "error", msg: res.error });
+      return;
+    }
+    setInvoiceStatus({
+      jobId: job.id,
+      status: "success",
+      msg: "Draft created in Payday. Open it there to attach the PDF and send.",
+    });
+  }, [cruiseLines, lastVikingMarsDate]);
 
   const startInvoice = useCallback((job) => {
     // Akureyri has its own rate sheet, regardless of cruise line.
-    if (job.port === "AK") { generateInvoice(job, "akureyri"); return; }
+    if (job.port === "AK") { runInvoiceFlow(job, "akureyri"); return; }
     const cl = getCruiseLineForShip(job.ship, job.date);
     const key = resolveRateSheet(cl);
-    if (key) generateInvoice(job, key);
+    if (key) runInvoiceFlow(job, key);
     else setRateSheetPicker(job);
-  }, []);
+  }, [runInvoiceFlow]);
 
   const recordSyncError = useCallback((context, err) => {
     let detail = "";
@@ -128,6 +172,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   // ─── JOBS STORAGE (Supabase with localStorage fallback) ──────────────────
   const rowToJob = (r) => ({
     id: r.id, port: r.port || "REY", type: r.type || "provisions", date: r.date, ship: r.ship || "",
+    po_number: r.po_number || "",
     notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
     completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
@@ -180,6 +225,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             type: j.type || "provisions",
             date: j.date,
             ship: j.ship || null,
+            po_number: j.po_number || null,
             notes: j.notes || null,
             shifts: j.shifts || [],
             completed: !!j.completed,
@@ -210,6 +256,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     try { localStorage.setItem("ws:jobs", JSON.stringify(j)); } catch (e) {}
   }, []);
 
+  // Load cruise_lines (id, name, payday_customer_id, payment_terms_days) so
+  // the invoice flow can map job → Payday customer + due-date. Fails silently;
+  // createDraftInvoice surfaces a clear error at click time if a required
+  // cruise line is missing or lacks a Payday mapping.
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("cruise_lines")
+          .select("id,name,payday_customer_id,payment_terms_days")
+          .order("name", { ascending: true });
+        if (Array.isArray(data)) setCruiseLines(data);
+      } catch (e) { console.warn("Failed to load cruise_lines:", e); }
+    })();
+  }, []);
+
   const saveDeletedJobs = useCallback((d) => {
     setDeletedJobs(d);
     try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(d)); } catch (e) {}
@@ -227,7 +290,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const shifts = job.shifts
       ? job.shifts.map(s => ({ startTime: s.startTime || "", nextDay: !!s.nextDay, equipment: { ...emptyEquip(type), ...s.equipment } }))
       : [{ startTime: job.startTime || "", nextDay: false, equipment: { ...emptyEquip(type), ...job.equipment } }];
-    setJobForm({ port: job.port || "REY", type, date: job.date, ship: extractShipName(job.ship) || "", notes: job.notes || "", shifts });
+    setJobForm({ port: job.port || "REY", type, date: job.date, ship: extractShipName(job.ship) || "", po_number: job.po_number || "", notes: job.notes || "", shifts });
     setTimePickerOpen(-1);
     setJobModal(job.id);
   }, []);
@@ -241,7 +304,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (jobModal === "new") {
       if (SUPABASE_CONFIGURED) {
         let data = null, error = null;
-        try { ({ data, error } = await supabase.from("jobs").insert({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
+        try { ({ data, error } = await supabase.from("jobs").insert({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number: jobForm.po_number?.trim() || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
         catch (e) { error = e; }
         if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
         if (data && data[0]) {
@@ -250,15 +313,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         } else {
           // Fallback: save locally with temp id (will retry sync on next load)
           if (!error) recordSyncError("create", "Supabase returned no row");
-          saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+          saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
         }
       } else {
-        saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+        saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
       }
     } else {
-      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts } : j));
+      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts } : j));
       if (SUPABASE_CONFIGURED) {
-        supabase.from("jobs").update({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
+        supabase.from("jobs").update({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number: jobForm.po_number?.trim() || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
       }
     }
     setJobModal(null);
@@ -734,6 +797,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     color: IPS_ACCENT, fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
                   }}>+ Add another start time</button>
                   <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>
+                      PO Number <span style={{ color: TEXT_DIM, textTransform: "none", letterSpacing: 0 }}>(required to invoice)</span>
+                    </div>
+                    <input
+                      value={jobForm.po_number}
+                      onChange={e => setJobForm(f => ({ ...f, po_number: e.target.value }))}
+                      placeholder="e.g. 85231"
+                      style={{ ...inputStyle, marginBottom: 16 }}
+                    />
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes</div>
                     <textarea value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional details..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
                   </div>
@@ -829,7 +901,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {Object.entries(RATE_SHEETS).map(([key, sheet]) => (
-                    <button key={key} onClick={() => { const j = rateSheetPicker; setRateSheetPicker(null); generateInvoice(j, key); }} style={{
+                    <button key={key} onClick={() => { const j = rateSheetPicker; setRateSheetPicker(null); runInvoiceFlow(j, key); }} style={{
                       padding: "12px 16px", borderRadius: 8, cursor: "pointer", textAlign: "left",
                       background: "rgba(87,181,200,0.08)", border: `1px solid rgba(87,181,200,0.3)`,
                       color: TEXT, fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
@@ -912,11 +984,48 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           </div>
                         )}
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
+                        {invoiceStatus?.jobId === job.id && (
+                          <div style={{
+                            marginTop: 6, fontSize: 11, fontFamily: "JetBrains Mono",
+                            padding: "6px 10px", borderRadius: 6,
+                            color: invoiceStatus.status === "error"   ? IPS_DANGER
+                                 : invoiceStatus.status === "success" ? IPS_SUCCESS
+                                 : IPS_ACCENT,
+                            background: invoiceStatus.status === "error"   ? `${IPS_DANGER}12`
+                                       : invoiceStatus.status === "success" ? `${IPS_SUCCESS}12`
+                                       : `${IPS_ACCENT}12`,
+                            border: `1px solid ${
+                              invoiceStatus.status === "error"   ? IPS_DANGER
+                              : invoiceStatus.status === "success" ? IPS_SUCCESS
+                              : IPS_ACCENT}33`,
+                          }}>{invoiceStatus.msg}</div>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: 4, position: "relative", zIndex: 2 }}>
-                        {job.completed && job.hoursWorked && (
-                          <button onClick={(e) => { e.stopPropagation(); startInvoice(job); }} style={{ background: "rgba(87,181,200,0.12)", border: `1px solid rgba(87,181,200,0.35)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_ACCENT, fontSize: 11, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: 1 }}>Invoice</button>
-                        )}
+                        {job.completed && job.hoursWorked && (() => {
+                          // Block when prerequisites are missing — show the reason as a tooltip.
+                          const missing = [];
+                          if (!job.po_number) missing.push("PO number");
+                          const blocked = missing.length > 0;
+                          const isWorking = invoiceStatus?.jobId === job.id && invoiceStatus.status === "working";
+                          return (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); if (!blocked && !isWorking) startInvoice(job); }}
+                              disabled={blocked || isWorking}
+                              title={blocked ? `Edit job to set: ${missing.join(", ")}` : ""}
+                              style={{
+                                background: blocked ? "rgba(255,255,255,0.04)" : "rgba(87,181,200,0.12)",
+                                border: `1px solid ${blocked ? BORDER : "rgba(87,181,200,0.35)"}`,
+                                borderRadius: 6, padding: "4px 10px",
+                                cursor: blocked || isWorking ? "not-allowed" : "pointer",
+                                color: blocked ? TEXT_DIM : IPS_ACCENT,
+                                fontSize: 11, fontWeight: 600,
+                                fontFamily: "'Satoshi', 'Inter', sans-serif",
+                                opacity: isWorking ? 0.6 : 1,
+                              }}
+                            >{isWorking ? "Working…" : "Invoice"}</button>
+                          );
+                        })()}
                         <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
                         <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
                       </div>
