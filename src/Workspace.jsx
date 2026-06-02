@@ -302,16 +302,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setPoAutoFilled(false);
   }, []);
 
-  // Auto-fill PO Number from the SDK call-number sheet (or DD.MM fallback) when
-  // ship/date/port change on a new job. Stops once the user types a value;
+  // Auto-fill PO Number — produces the full reference string (call number or
+  // DD.MM, plus service code, plus " AKU" when applicable). The Payday
+  // composer takes the field verbatim. Stops once the user types a value;
   // re-enables if they clear the field.
   useEffect(() => {
     if (jobModal !== "new" || !poAutoFilled) return;
-    const auto = computeAutoPONumber({ ship: jobForm.ship, date: jobForm.date, port: jobForm.port });
+    const auto = computeAutoPONumber({ ship: jobForm.ship, date: jobForm.date, port: jobForm.port, type: jobForm.type });
     if (auto && auto !== jobForm.po_number) {
       setJobForm(f => ({ ...f, po_number: auto }));
     }
-  }, [jobForm.ship, jobForm.date, jobForm.port, jobModal, poAutoFilled, jobForm.po_number]);
+  }, [jobForm.ship, jobForm.date, jobForm.port, jobForm.type, jobModal, poAutoFilled, jobForm.po_number]);
 
   const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;

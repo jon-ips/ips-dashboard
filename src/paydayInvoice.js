@@ -11,7 +11,7 @@
 // the future, this is the single place to update.
 
 import { payday } from "./payday.js";
-import { SERVICE_CODES, SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
+import { SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
 /**
@@ -52,7 +52,6 @@ function shipDisplayName(rawShip) {
  * @returns {object} payload ready for payday.invoices.create
  */
 export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDate) {
-  const code = SERVICE_CODES[job.type] || "";
   const fullName = SERVICE_FULL_NAMES[job.type] || JOB_TYPES[job.type]?.label || job.type;
   const ship = shipDisplayName(job.ship);
   const berth = (job.berth || "").trim();
@@ -61,11 +60,10 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   const termsDays = Number.isFinite(cruiseLine?.payment_terms_days) ? cruiseLine.payment_terms_days : 30;
   const dueDate = addDays(job.date, termsDays);
 
-  // Reference: "{PO} {ServiceCode}" plus a trailing " AKU" for Akureyri jobs.
-  // PO is required upstream; we still trim to defend against accidental
-  // whitespace.
-  const akuSuffix = job?.port === "AK" ? "AKU" : "";
-  const reference = [po, code, akuSuffix].filter(Boolean).join(" ");
+  // Reference: use the PO field verbatim. The new-job form auto-fills it
+  // with the full "{base} {ServiceCode} [AKU]" string, so no further
+  // composition is required here.
+  const reference = po;
 
   // Comment block (Athugasemdir): three blocks separated by blank lines.
   //   <ship> - <berth>

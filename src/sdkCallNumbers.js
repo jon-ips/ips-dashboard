@@ -3,7 +3,7 @@
 // the PO number on new SDK-billed jobs. Match is by ship name + port +
 // date in [date, endDate] range.
 
-import { SDK_LINES, extractShipName, getCruiseLineForShip } from "./constants.js";
+import { SDK_LINES, extractShipName, getCruiseLineForShip, SERVICE_CODES } from "./constants.js";
 
 export const SDK_CALL_NUMBERS = [
   { callNumber: "99772", ship: "AIDAsol", date: "2026-04-16", endDate: "2026-04-17", port: "REY" },
@@ -86,19 +86,27 @@ export function getCallNumberForShip(shipName, dateIso, port) {
   return entry?.callNumber || null;
 }
 
-// Compute the auto-filled PO number for a job-in-progress. The Payday
-// composer appends " {service_code}" (and " AKU" for AK) at draft time, so
-// this returns just the raw call number or DD.MM with no trailing tokens.
-export function computeAutoPONumber({ ship, date, port }) {
+// Compute the full auto-filled PO number for a job-in-progress, including
+// the trailing service code and " AKU" suffix for Akureyri jobs. The Payday
+// composer takes the field verbatim, so the field IS the final invoice
+// reference (e.g. "82450 CP AKU", "28.06 L").
+export function computeAutoPONumber({ ship, date, port, type }) {
   if (!ship || !date) return "";
   const shipName = extractShipName(ship);
   const cruiseLine = getCruiseLineForShip(ship, date);
   const isSDK = cruiseLine && SDK_LINES.some(l => l.toLowerCase() === cruiseLine.toLowerCase());
+
+  let base = "";
   if (isSDK) {
     const callNumber = getCallNumberForShip(shipName, date, port);
-    if (callNumber) return callNumber;
+    if (callNumber) base = callNumber;
   }
-  // Fallback: DD.MM
-  const [, m, d] = date.split("-");
-  return `${d}.${m}`;
+  if (!base) {
+    const [, m, d] = date.split("-");
+    base = `${d}.${m}`;
+  }
+
+  const code = SERVICE_CODES[type] || "";
+  const akuSuffix = port === "AK" ? "AKU" : "";
+  return [base, code, akuSuffix].filter(Boolean).join(" ");
 }
