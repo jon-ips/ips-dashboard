@@ -569,8 +569,8 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     cherry_picker_60m:    { label: "Cherry Picker 60m", flatDay: true },
     // CP rentals are usually self-operated by the customer's crew; we
     // occasionally supply an operator. Not auto-attached when picking a
-    // cherry picker — opt in manually. Rate is currently unset in rates.js
-    // so it surfaces as "—" until we agree on a number.
+    // cherry picker — opt in manually. Billed at the Crane Operator rate
+    // (SDK 12,480 / 15,930; Akureyri 16,060 / 19,272).
     cherry_picker_op:     { label: "Cherry Picker Operator", human: true },
   },
   special: {
