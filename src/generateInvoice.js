@@ -366,8 +366,12 @@ export default async function generateInvoice(job, rateSheetKey) {
     doc.setTextColor(80);
     const shipDisplay = extractShipName(job.ship);
     if (shipDisplay) doc.text(`Ship: ${shipDisplay}`, 14, footerY + 2);
-    const berth = getBerthForShip(job.ship, job.date);
-    doc.text(berth ? `${berth}, Reykjavik, Iceland` : "Reykjavik, Iceland", 14, footerY + 9);
+    if (job.port === "AK") {
+      doc.text("Akureyri, Iceland", 14, footerY + 9);
+    } else {
+      const berth = getBerthForShip(job.ship, job.date);
+      doc.text(berth ? `${berth}, Reykjavik, Iceland` : "Reykjavik, Iceland", 14, footerY + 9);
+    }
 
     doc.setFontSize(8);
     doc.setTextColor(150);

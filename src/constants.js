@@ -332,6 +332,12 @@ export const JOB_TYPES = {
   turnaround: { label: "Turnaround", color: "#A78BFA" },
   special:    { label: "Special", color: "#06B6D4" },
 };
+
+// Port a job is performed in. Akureyri jobs are SDK-billed by default.
+export const PORTS = {
+  REY: { label: "REY", longLabel: "Reykjavík", color: "#57B5C8" },
+  AK:  { label: "AK",  longLabel: "Akureyri",  color: "#F97316" },
+};
 export const JOB_EQUIPMENT_BY_TYPE = {
   provisions: {
     forklift:             { label: "Forklift", autoOperator: "forklift_op" },

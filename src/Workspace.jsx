@@ -4,7 +4,7 @@ import {
   SHIPS, IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
-  JOB_TYPES, JOB_EQUIPMENT_BY_TYPE,
+  JOB_TYPES, JOB_EQUIPMENT_BY_TYPE, PORTS,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
@@ -35,7 +35,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobModal, setJobModal] = useState(null); // null | "new" | jobId
   const emptyEquip = (type) => Object.fromEntries(Object.keys(JOB_EQUIPMENT_BY_TYPE[type] || {}).map(k => [k, 0]));
   const emptyShift = (type) => ({ startTime: "", nextDay: false, equipment: emptyEquip(type) });
-  const defaultJobForm = { type: "provisions", date: "", ship: "", notes: "", shifts: [emptyShift("provisions")] };
+  const defaultJobForm = { port: "REY", type: "provisions", date: "", ship: "", notes: "", shifts: [emptyShift("provisions")] };
   const [jobForm, setJobForm] = useState(defaultJobForm);
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
@@ -47,6 +47,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [rateSheetPicker, setRateSheetPicker] = useState(null); // job awaiting rate-sheet choice
 
   const startInvoice = useCallback((job) => {
+    // Akureyri work is SDK-billed regardless of cruise line.
+    if (job.port === "AK") { generateInvoice(job, "sdk"); return; }
     const cl = getCruiseLineForShip(job.ship, job.date);
     const key = resolveRateSheet(cl);
     if (key) generateInvoice(job, key);
@@ -125,7 +127,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   // ─── JOBS STORAGE (Supabase with localStorage fallback) ──────────────────
   const rowToJob = (r) => ({
-    id: r.id, type: r.type || "provisions", date: r.date, ship: r.ship || "",
+    id: r.id, port: r.port || "REY", type: r.type || "provisions", date: r.date, ship: r.ship || "",
     notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
     completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
@@ -174,6 +176,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         if (!j.date) continue;
         try {
           const { data, error } = await supabase.from("jobs").insert({
+            port: j.port || "REY",
             type: j.type || "provisions",
             date: j.date,
             ship: j.ship || null,
@@ -224,7 +227,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const shifts = job.shifts
       ? job.shifts.map(s => ({ startTime: s.startTime || "", nextDay: !!s.nextDay, equipment: { ...emptyEquip(type), ...s.equipment } }))
       : [{ startTime: job.startTime || "", nextDay: false, equipment: { ...emptyEquip(type), ...job.equipment } }];
-    setJobForm({ type, date: job.date, ship: extractShipName(job.ship) || "", notes: job.notes || "", shifts });
+    setJobForm({ port: job.port || "REY", type, date: job.date, ship: extractShipName(job.ship) || "", notes: job.notes || "", shifts });
     setTimePickerOpen(-1);
     setJobModal(job.id);
   }, []);
@@ -238,7 +241,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (jobModal === "new") {
       if (SUPABASE_CONFIGURED) {
         let data = null, error = null;
-        try { ({ data, error } = await supabase.from("jobs").insert({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
+        try { ({ data, error } = await supabase.from("jobs").insert({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
         catch (e) { error = e; }
         if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
         if (data && data[0]) {
@@ -247,15 +250,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         } else {
           // Fallback: save locally with temp id (will retry sync on next load)
           if (!error) recordSyncError("create", "Supabase returned no row");
-          saveJobs([...jobs, { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+          saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
         }
       } else {
-        saveJobs([...jobs, { id: generateId(), type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+        saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
       }
     } else {
-      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts } : j));
+      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes, shifts: cleanShifts } : j));
       if (SUPABASE_CONFIGURED) {
-        supabase.from("jobs").update({ type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
+        supabase.from("jobs").update({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
       }
     }
     setJobModal(null);
@@ -614,6 +617,20 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
                 {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Port *</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {Object.entries(PORTS).map(([k, v]) => (
+                        <button key={k} onClick={() => setJobForm(f => ({ ...f, port: k }))} title={v.longLabel} style={{
+                          flex: 1, padding: "6px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
+                          background: jobForm.port === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${jobForm.port === k ? v.color : BORDER}`,
+                          color: jobForm.port === k ? v.color : TEXT_DIM, fontWeight: 600, fontSize: 12,
+                          fontFamily: "JetBrains Mono", letterSpacing: 1,
+                        }}>{v.label}</button>
+                      ))}
+                    </div>
+                  </div>
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Job Type *</div>
                     <div style={{ display: "flex", gap: 8 }}>
