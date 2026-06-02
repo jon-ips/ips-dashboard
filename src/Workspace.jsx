@@ -989,13 +989,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtJobEquipment(job)}</div>
                         {job.completed && job.hoursWorked && (
                           <div style={{ fontSize: 11, color: IPS_SUCCESS, marginTop: 4, fontFamily: "JetBrains Mono" }}>
-                            {Array.isArray(job.hoursWorked) ? (
+                            {(() => { const unitFor = (k) => (job.type === "cherry_picker" && JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.flatDay) ? "d" : "h"; return Array.isArray(job.hoursWorked) ? (
                               // New per-shift format
                               job.hoursWorked.map((sh, si) => {
                                 const prefix = job.hoursWorked.length > 1 && sh.startTime ? `[${sh.startTime}] ` : "";
                                 const items = Object.entries(sh.equipment || {}).flatMap(([k, groups]) => {
                                   const label = JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k;
-                                  return groups.map(g => `${g.qty}× ${label}: ${g.hours}h`);
+                                  const u = unitFor(k);
+                                  return groups.map(g => `${g.qty}× ${label}: ${g.hours}${u}`);
                                 });
                                 return <div key={si}>{prefix}{items.join(" · ")}</div>;
                               })
@@ -1003,13 +1004,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               // Legacy flat format
                               Object.entries(job.hoursWorked).map(([k, v]) => {
                                 const label = JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k;
+                                const u = unitFor(k);
                                 if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
-                                  return v.map(g => `${g.qty}× ${label}: ${g.hours}h`).join(" · ");
+                                  return v.map(g => `${g.qty}× ${label}: ${g.hours}${u}`).join(" · ");
                                 }
-                                if (Array.isArray(v)) return v.map((h, i) => `${label}${v.length > 1 ? ` #${i+1}` : ""}: ${h}h`).join(" · ");
-                                return `${label}: ${v}h`;
+                                if (Array.isArray(v)) return v.map((h, i) => `${label}${v.length > 1 ? ` #${i+1}` : ""}: ${h}${u}`).join(" · ");
+                                return `${label}: ${v}${u}`;
                               }).join(" · ")
-                            )}
+                            ); })()}
                           </div>
                         )}
                         {job.notes && <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 4 }}>{job.notes}</div>}
