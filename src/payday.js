@@ -230,7 +230,14 @@ export const payday = {
     create: (body, attachment = null) => {
       if (attachment?.blob) {
         const fd = new FormData();
-        fd.append("data", JSON.stringify(body));
+        // Send `data` as a Blob with application/json type instead of a
+        // raw string. A bare-string FormData part has no inner
+        // Content-Type and arrives as text/plain on the server, which
+        // some multipart parsers won't auto-deserialize as JSON. Wrapping
+        // it as a typed Blob declares the inner Content-Type on the part
+        // itself, matching the shape used by clients that work against
+        // Payday's documented example.
+        fd.append("data", new Blob([JSON.stringify(body)], { type: "application/json" }));
         fd.append("attachment1", attachment.blob, attachment.filename || "attachment.pdf");
         return paydayRequest("/invoices", { method: "POST", body: fd, raw: true });
       }
