@@ -179,6 +179,12 @@ async function fetchAllPages(endpoint, params = {}) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+// Escape hatch for the diagnostic / probe code in paydayInvoice.js to fire
+// ad-hoc GETs at arbitrary paths without us having to add typed methods
+// for every URL candidate. Not for production paths — those go through the
+// typed surface below.
+export const _paydayProbeGet = (path) => paydayRequest(path);
+
 export const payday = {
   // Connection test. In dev we can introspect the local VITE_ vars; in
   // prod the credentials live server-side on the Netlify Function, so the

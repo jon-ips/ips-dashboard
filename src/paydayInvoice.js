@@ -10,7 +10,7 @@
 // is created in draft vs. sent state. If their API uses a different shape in
 // the future, this is the single place to update.
 
-import { payday } from "./payday.js";
+import { payday, _paydayProbeGet } from "./payday.js";
 import { SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
@@ -184,43 +184,60 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
 }
 
 /**
- * Read-only probe: verify the /invoices/{id}/attachments endpoint actually
- * exists before we create a new invoice. Uses the most recent existing
- * invoice as the probe target so we don't have to create anything to
- * discover whether our URL guess is right.
+ * Read-only probe: figure out which URL Payday actually uses for invoice
+ * attachments, BEFORE we create a real invoice. Uses an existing invoice
+ * as the probe target so we don't have to create anything to discover the
+ * right URL. Tries several common REST patterns in one go and reports
+ * back the first one that resolves (200), or a summary if all 404 so the
+ * caller can abort with full context.
  *
- * Three possible outcomes:
- *   { ok: true }                  — endpoint resolved, safe to proceed
- *   { ok: true, skipped: "..." }  — no existing invoice to probe with;
- *                                   caller should proceed best-effort
- *   { ok: false, error: "..." }   — endpoint 404'd; caller should abort
- *                                   BEFORE creating a new invoice
+ * Returns:
+ *   { ok: true, path }              — probe found a working path; `path` is the
+ *                                     URL template (e.g. "/invoices/:id/attachments")
+ *   { ok: true, skipped: "..." }    — couldn't probe (no existing invoices, list
+ *                                     call failed); proceed best-effort
+ *   { ok: false, error, attempts }  — every candidate path 404'd; ABORT
  */
 export async function probeAttachmentsEndpoint() {
   const list = await payday.invoices.list({ perpage: 1 });
   if (!list.ok) {
-    // List itself failed — can't probe. Don't block the create on this.
     return { ok: true, skipped: "Couldn't list existing invoices for probe." };
   }
   const probeId = list.data?.[0]?.id;
   if (!probeId) {
     return { ok: true, skipped: "No existing invoices on file to probe against." };
   }
-  const probe = await payday.invoices.listAttachments(probeId);
-  if (probe.ok) return { ok: true };
 
-  const status = probe.error?.status;
-  if (status === 404) {
-    return {
-      ok: false,
-      error: `Attachment endpoint /invoices/{id}/attachments returned 404. The URL guess is wrong — aborting before we create a new invoice. Next guess to try: POST /attachments with invoiceId in the body, or POST /files.`,
-    };
+  // Candidate URL templates ordered most-likely → least-likely. ":id" gets
+  // substituted with probeId; "?invoiceId=:id" becomes a real query string.
+  // Each template returns the URL we *would* POST to in production if the
+  // probe resolves — store it on the result so the caller can use it later.
+  const candidates = [
+    "/invoices/:id/attachments",  // already known to 404, but kept so we double-check
+    "/invoices/:id/files",
+    "/invoices/:id/documents",
+    "/attachments?invoiceId=:id",
+    "/files?invoiceId=:id",
+    "/documents?invoiceId=:id",
+  ];
+
+  const attempts = [];
+  for (const tmpl of candidates) {
+    const path = tmpl.replace(":id", probeId);
+    // _paydayProbeGet routes through paydayRequest so dev (client-side
+    // Bearer token) and prod (Netlify function) both behave correctly.
+    const r = await _paydayProbeGet(path);
+    attempts.push({ url: path, status: r.error?.status ?? (r.ok ? 200 : null), ok: !!r.ok });
+    if (r.ok) return { ok: true, path: tmpl, attempts };
   }
-  // 401 / 403 / 5xx — surface the message but don't treat as a hard fail.
-  // Most likely a transient issue or permissions; let the user proceed and
-  // see if the actual upload still works.
-  const msg = probe.error?.message || `HTTP ${status || "?"}`;
-  return { ok: true, skipped: `Probe returned ${msg}; proceeding without strong confidence.` };
+
+  // Every candidate 404'd (or otherwise failed). Build a readable summary.
+  const summary = attempts.map(a => `  ${a.url} → ${a.status ?? "?"}`).join("\n");
+  return {
+    ok: false,
+    attempts,
+    error: `None of the attachment endpoint guesses resolved. Tried:\n${summary}\nAborting before we create a new invoice. Tell me which to try next, or check Payday's API docs.`,
+  };
 }
 
 /**
