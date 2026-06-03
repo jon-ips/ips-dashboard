@@ -154,49 +154,25 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // The Math.round/100 protects against floating-point dust on the
   // division (e.g. 4.000000000001 → 4).
   //
-  // ── Unit price + VAT payload shape (Payday's quirks documented here)
+  // Line payload (the shape Payday's docs example uses): fill in the
+  // ex-VAT unit price and the VAT percentage, and Payday computes the
+  // inc-VAT total itself. We deliberately do NOT send
+  // `unitPriceIncludingVat` — earlier experiments where we sent both
+  // fields tripped Payday's VAT inference and silently zeroed VSK %.
   //
-  // Background — what we tried and what each variant did to the draft:
+  // Field-name notes (learned from Payday error responses):
+  //   - Unit price must be sent as `unitPriceExcludingVat`. The plain
+  //     `unitPrice` field is silently dropped, then Payday 400s with
+  //     "unit price excluding VAT or unit price including VAT must be
+  //     specified".
+  //   - VAT field is `vatPercentage` (docs invoice line object table).
+  //     We previously sent `vatRate` which Payday silently dropped and
+  //     defaulted every line to 0%.
+  //   - Our rate sheets are stored ex-VAT, so unitPriceIsk maps
+  //     directly to unitPriceExcludingVat with no conversion.
   //
-  //   1) Only `unitPriceExcludingVat: 19790` + `vatPercentage: 24`:
-  //      Payday put 19,790 in the Með VSK (incl-VAT) column and
-  //      back-computed Án VSK = 19,790 / 1.24 = 15,960. The VAT
-  //      percentage WAS respected (24%) but the unit-price field
-  //      arrived in the wrong column. Looked like Payday silently
-  //      treats `unitPriceExcludingVat` as if it were
-  //      `unitPriceIncludingVat` when only one is given — contrary to
-  //      their own docs example, but consistent across multiple draft
-  //      creates we observed.
-  //
-  //   2) Both `unitPriceExcludingVat: 19790` + `unitPriceIncludingVat:
-  //      24539.6` + `vatPercentage: 24`:
-  //      Payday respected `unitPriceExcludingVat` as ex-VAT (Án VSK
-  //      = 19,790 ✓) but silently set VAT to 0% on every line, and
-  //      computed Með VSK = 19,790 × (1 + 0) = 19,790. Most plausible
-  //      cause: when both prices are present, Payday infers VAT from
-  //      the inc/exc ratio, hits float-precision dust from
-  //      19790 × 1.24, can't quantize it to a "valid" Icelandic VAT
-  //      rate, and falls back to 0% — ignoring our explicit
-  //      `vatPercentage`. (The SDK customer's default IS 24% in
-  //      Payday — manual invoices to it default correctly. It's our
-  //      payload, specifically the both-prices form, that overrides
-  //      to 0%.)
-  //
-  //   3) Only `unitPriceIncludingVat: 24539.6` + `vatPercentage: 24`
-  //      (this version): single price field avoids the both-prices
-  //      VAT-inference path entirely, and the inc-VAT field name
-  //      matches the column Payday wants to display. Payday should
-  //      back-compute Án VSK = 24,539.6 / 1.24 = 19,790 ✓ and apply
-  //      VAT 24% ✓ as we explicitly send it.
-  //
-  // We deliberately do NOT also send `unitPriceExcludingVat` because
-  // variant 2 demonstrated that triggers VAT to be inferred (and
-  // silently zeroed). Math.round(... * 100) / 100 strips float dust on
-  // the multiplication, so the inc-VAT value serialises cleanly as a
-  // 2-decimal value rather than 24539.60000000004.
-  //
-  // Unpriced rows (no rate sheet match) still come through with
-  // unitInc = 0; the line stays visible at qty = r.amount, and the
+  // Unpriced rows (no rate sheet match) come through with
+  // unitPriceIsk = 0; the line stays visible at qty = r.amount and the
   // user types the missing rate in Payday's UI.
   const lines = rows.map(r => {
     const unitExc  = Number(r.unitPriceIsk) || 0;
@@ -204,13 +180,11 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     const quantity = unitExc > 0
       ? Math.round((total / unitExc) * 100) / 100
       : (Number(r.amount) || 0);
-    const vatPct   = vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate);
-    const unitInc  = Math.round(unitExc * (1 + vatPct / 100) * 100) / 100;
     return {
       description:           r.resource,
       quantity,
-      unitPriceIncludingVat: unitInc,
-      vatPercentage:         vatPct,
+      unitPriceExcludingVat: unitExc,
+      vatPercentage:         vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
     };
   });
 
