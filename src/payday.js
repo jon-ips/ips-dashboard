@@ -219,18 +219,18 @@ export const payday = {
     // invoice. Posts multipart/form-data — the FormData branch in
     // paydayRequest lets fetch set the Content-Type boundary itself.
     //
-    // Endpoint is a guess based on REST conventions (/invoices/{id}/
-    // attachments). If Payday rejects with 404 we'll try /attachments
-    // with the invoiceId in the body next.
+    // Endpoint is /invoices/{id}/attachment (SINGULAR) per the Payday API
+    // docs. We previously guessed the plural form and got 404s. The
+    // multipart field name ("file") is still a guess — if the upload 400s
+    // with a "file required" style error, that's the next thing to adjust.
     attachFile: (invoiceId, blob, filename = "attachment.pdf") => {
       const fd = new FormData();
       fd.append("file", blob, filename);
-      return paydayRequest(`/invoices/${invoiceId}/attachments`, { method: "POST", body: fd });
+      return paydayRequest(`/invoices/${invoiceId}/attachment`, { method: "POST", body: fd });
     },
-    // Read-only probe: does GET /invoices/{id}/attachments resolve at all?
-    // Used as a pre-flight check before creating a new invoice so a wrong
-    // URL guess doesn't leave a stray finalized invoice on the books.
-    listAttachments: (invoiceId) => paydayRequest(`/invoices/${invoiceId}/attachments`),
+    // Read-only probe: does GET /invoices/{id}/attachment resolve at all?
+    // Used as a pre-flight check before creating a new invoice.
+    getAttachment: (invoiceId) => paydayRequest(`/invoices/${invoiceId}/attachment`),
   },
 
   expenses: {

@@ -11,7 +11,7 @@ import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment, probeAttachmentsEndpoint } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment, probeAttachmentUpload } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
@@ -122,17 +122,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       return;
     }
 
-    // ── Probe the attachments endpoint BEFORE creating a new invoice. If
-    // the URL guess is wrong (404), we abort here so a wrong guess never
-    // costs you a real invoice on the books. The probe uses an existing
-    // invoice via GET — read-only, no side effects.
-    const probe = await probeAttachmentsEndpoint();
+    // ── Verify the attachment upload path BEFORE creating a new invoice.
+    // The probe does a real test upload to an EXISTING invoice (a ~15-byte
+    // dummy PDF), so if the multipart shape is wrong we find out without
+    // stranding a freshly-created, un-attachable finalized invoice. If the
+    // probe fails we abort here — zero new invoices on the books.
+    const probe = await probeAttachmentUpload();
     if (!probe.ok) {
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: probe.error }));
       return;
     }
-    // probe.skipped is allowed — proceed best-effort (no existing invoices
-    // to probe with, or probe returned a non-404 transient).
+    // probe.skipped is allowed — proceed best-effort (e.g. first-ever
+    // invoice, nothing existing to test against).
 
     // Create the invoice in Payday. If this fails, the PDF is already on
     // disk — the user can hand-upload later, or retry the whole flow.

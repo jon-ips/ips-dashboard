@@ -184,82 +184,56 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
 }
 
 /**
- * Read-only probe: figure out which URL Payday actually uses for invoice
- * attachments, BEFORE we create a real invoice. Uses an existing invoice
- * as the probe target so we don't have to create anything to discover the
- * right URL. Tries several common REST patterns in one go and reports
- * back the first one that resolves (200), or a summary if all 404 so the
- * caller can abort with full context.
+ * Verify the FULL attachment upload path works BEFORE we create a real
+ * invoice. The endpoint is documented as POST /invoices/{id}/attachment
+ * (singular), but two things are still unverified: the multipart field
+ * name, and whether POST behaves as expected. The only way to confirm
+ * end-to-end without creating a new invoice is to do a real test upload
+ * against an *existing* invoice.
+ *
+ * We upload a tiny dummy PDF to the most recent existing invoice. If it
+ * succeeds, the URL + method + field name are all correct and the real
+ * create→upload flow is safe. If it fails, we abort BEFORE creating any
+ * new invoice — so a wrong field name never leaves a finalized invoice
+ * stranded without its breakdown (finalized invoices can't be hand-
+ * attached in Payday's UI, so a partial failure would be unfixable).
+ *
+ * Side effect: a ~15-byte dummy attachment lands on one existing invoice.
+ * The probe returns that invoice's id so the caller can tell the user.
  *
  * Returns:
- *   { ok: true, path }              — probe found a working path; `path` is the
- *                                     URL template (e.g. "/invoices/:id/attachments")
- *   { ok: true, skipped: "..." }    — couldn't probe (no existing invoices, list
- *                                     call failed); proceed best-effort
- *   { ok: false, error, attempts }  — every candidate path 404'd; ABORT
+ *   { ok: true, probedInvoiceId }   — upload path verified; safe to proceed
+ *   { ok: true, skipped: "..." }    — no existing invoice to test against;
+ *                                     proceed best-effort (first-ever invoice)
+ *   { ok: false, error }            — upload failed; ABORT before create
  */
-export async function probeAttachmentsEndpoint() {
+export async function probeAttachmentUpload() {
   const list = await payday.invoices.list({ perpage: 1 });
   if (!list.ok) {
-    return { ok: true, skipped: "Couldn't list existing invoices for probe." };
+    return { ok: true, skipped: "Couldn't list existing invoices to test the upload path." };
   }
   const probeId = list.data?.[0]?.id;
   if (!probeId) {
-    return { ok: true, skipped: "No existing invoices on file to probe against." };
+    return { ok: true, skipped: "No existing invoices to test the upload path against." };
   }
 
-  // Candidate URL templates ordered most-likely → least-likely. ":id" gets
-  // substituted with probeId; "?invoiceId=:id" becomes a real query string.
-  // Each template returns the URL we *would* POST to in production if the
-  // probe resolves — store it on the result so the caller can use it later.
-  const candidates = [
-    "/invoices/:id/attachments",  // already known to 404, but kept so we double-check
-    "/invoices/:id/files",
-    "/invoices/:id/documents",
-    "/attachments?invoiceId=:id",
-    "/files?invoiceId=:id",
-    "/documents?invoiceId=:id",
-  ];
-
-  const attempts = [];
-  for (const tmpl of candidates) {
-    const path = tmpl.replace(":id", probeId);
-    // _paydayProbeGet routes through paydayRequest so dev (client-side
-    // Bearer token) and prod (Netlify function) both behave correctly.
-    const r = await _paydayProbeGet(path);
-    attempts.push({ url: path, status: r.error?.status ?? (r.ok ? 200 : null), ok: !!r.ok });
-    if (r.ok) return { ok: true, path: tmpl, attempts };
+  // Minimal valid-ish PDF so Payday treats it as a real file, not junk.
+  const dummy = new Blob(["%PDF-1.4\n% IPS upload probe\n"], { type: "application/pdf" });
+  const res = await payday.invoices.attachFile(probeId, dummy, "ips-upload-probe.pdf");
+  if (res.ok) {
+    return { ok: true, probedInvoiceId: probeId };
   }
 
-  // Every candidate 404'd. Before giving up, inspect the existing invoice's
-  // own JSON — attachments may be a FIELD on the invoice (settable inline at
-  // create / via PATCH) rather than a separate sub-resource. This is the
-  // last read-only diagnostic; whatever keys it surfaces tell us how Payday
-  // models attachments (if at all). All read-only — no invoice created.
-  //
-  // Use the RAW probe getter, not payday.invoices.get — the latter runs the
-  // list-oriented unwrapper which would mistake the invoice's `lines` array
-  // for the payload and hand back the wrong object (see payday.js).
-  const full = await _paydayProbeGet(`/invoices/${probeId}`);
-  const invoiceObj = full.ok && full.data && typeof full.data === "object" && !Array.isArray(full.data)
-    ? full.data
-    : null;
-  const invoiceKeys = invoiceObj ? Object.keys(invoiceObj) : [];
-  const attachmentish = invoiceKeys.filter(k =>
-    /attach|file|document|pdf|media|upload/i.test(k));
-
-  const summary = attempts.map(a => `  ${a.url} → ${a.status ?? "?"}`).join("\n");
+  const e = res.error || {};
+  const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
+  const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
+  const combined  = [statusBit, msgBit].filter(Boolean).join(" — ");
   return {
     ok: false,
-    attempts,
-    invoiceKeys,
-    attachmentish,
     error:
-      `None of the attachment sub-resource guesses resolved (all 404):\n${summary}\n\n` +
-      `Existing invoice top-level fields:\n  ${invoiceKeys.join(", ") || "(none returned)"}\n\n` +
-      `Attachment-looking fields: ${attachmentish.length ? attachmentish.join(", ") : "NONE"}\n\n` +
-      `No new invoice was created. If there are no attachment-looking fields, the public ` +
-      `Payday API almost certainly can't attach files — its UI uses private endpoints for that.`,
+      `Attachment upload test failed (${combined || "no detail"}). ` +
+      `No new invoice was created. The endpoint path is likely right but the ` +
+      `multipart field name may be wrong — full response is in the browser console.`,
   };
 }
 
