@@ -113,24 +113,19 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const { job, rateSheetKey, rows, cruiseLine } = invoicePreview;
     setInvoicePreview(p => p && ({ ...p, submitting: true, error: null }));
 
-    // Generate the PDF first. returnBlob=true gives us the same bytes the
-    // user gets locally, so the attachment in Payday matches the file on
-    // disk byte-for-byte. We need the blob BEFORE the create call now —
-    // attachment piggybacks on the create POST as a multipart field.
-    const pdfResult = await generateInvoice(job, rateSheetKey, { returnBlob: true });
+    // Download the cost-breakdown PDF to the user's disk. The auto-attach
+    // path (multipart upload at create time) is documented but currently
+    // 500s server-side at Payday — see the header in paydayInvoice.js.
+    // The workaround is: create the invoice as DRAFT in Payday, save the
+    // PDF locally, and the user manually attaches it in Payday's UI
+    // before clicking Send.
+    const pdfResult = await generateInvoice(job, rateSheetKey);
     if (!pdfResult) {
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
       return;
     }
 
-    // Single multipart POST to /invoices: invoice JSON + PDF in one
-    // request. Payday has no separate upload endpoint — the file rides
-    // along on create. Either both land or neither does, so there's no
-    // half-finished state to recover from.
-    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate, {
-      blob: pdfResult.blob,
-      filename: pdfResult.filename,
-    });
+    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
     if (!createRes.ok) {
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: createRes.error }));
       return;
@@ -140,7 +135,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setInvoiceStatus({
       jobId: job.id,
       status: "success",
-      msg: "Invoice created in Payday with the cost-breakdown PDF attached. Open it there to review and click \"Send invoice\" when ready.",
+      msg: "Draft invoice created in Payday. The cost-breakdown PDF was saved to your Downloads — attach it to the draft in Payday, review, then click \"Send invoice\".",
     });
   }, [invoicePreview, lastVikingMarsDate]);
 

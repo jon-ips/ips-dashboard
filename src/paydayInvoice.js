@@ -5,10 +5,23 @@
 // sends — the user reviews + sends manually from Payday's UI, where they also
 // attach the local PDF.
 //
-// Status note: we set status: "draft" on the payload. The Payday alpha API
-// docs we have describe this as the field that controls whether the invoice
-// is created in draft vs. sent state. If their API uses a different shape in
-// the future, this is the single place to update.
+// Status note: we set status: "DRAFT" on the payload — the all-caps value
+// the docs status table uses (DRAFT, SENT, PAID, CANCELLED, CREDIT,
+// DELETED). Lower-case "draft", title-case "Draft", and isDraft: true
+// were all silently finalized in earlier attempts; uppercase matches the
+// canonical case in the docs.
+//
+// Why we need DRAFT specifically (and not just SENT-but-unsent): Payday
+// won't accept manual PDF attachments on finalized invoices through the
+// UI. The cost-breakdown PDF is critical for our review workflow, so
+// the invoice has to land in editable DRAFT state where the user can
+// upload the PDF that downloaded locally before clicking Send.
+//
+// (The multipart create-with-attachment code path in payday.js is the
+// "correct" solution per Payday's docs, but is currently 500ing on
+// Payday's server — under investigation with their support. When they
+// fix it we can drop the DRAFT workaround and pass the attachment
+// inline.)
 
 import { payday } from "./payday.js";
 import { SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
@@ -120,19 +133,10 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     currencyCode: "ISK",
     reference,
     description,
+    // Uppercase to match the canonical status values from the docs.
+    // See the file header for the full reasoning.
+    status: "DRAFT",
     lines,
-    // No draft flag.
-    //
-    // Payday's "Drög" (Draft) tab is a UI affordance for work-in-progress
-    // that hasn't reached the server yet — it's NOT an API state. Any
-    // invoice POSTed through /invoices is created on the server in a
-    // ready-to-send state but is NOT auto-sent to the customer. The user
-    // reviews it in Payday and clicks the green "Send invoice" button to
-    // dispatch (or doesn't, if they want to cancel / edit further).
-    //
-    // We tried status: "draft" / status: "Draft" / isDraft: true on
-    // earlier iterations — all silently ignored, all created normal
-    // unsent invoices. The unsent state IS the draft workflow.
   };
 }
 
