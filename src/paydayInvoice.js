@@ -107,16 +107,22 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   //   <blank>
   //   <full service name>
   //
-  // Location is the city, not the berth — "Akureyri" for AK jobs,
-  // "Reykjavík" otherwise — so the customer recognises where the work
-  // happened without having to know berth names.
+  // Location convention:
+  //   - Akureyri jobs (port === "AK") → "Akureyri" (the city name).
+  //     There's effectively one cruise berth in Akureyri, so the berth
+  //     name adds no information for the customer.
+  //   - Reykjavík jobs → the berth name (e.g. "Skarfabakki",
+  //     "Miðbakki"). Reykjavík has multiple cruise berths and the
+  //     specific one matters for billing context.
+  //   - If a Reykjavík job is missing a berth, the dash is dropped and
+  //     only the ship name appears on the header line.
   //
   // Field name: `description` per the invoice attribute table — top
   // level. We previously sent this as `comment`, which Payday's JSON
   // create silently ignored (it's a line-level field, not an invoice-
   // level one). The multipart endpoint isn't as forgiving and 500s on
   // the unknown field, so we use the documented name.
-  const location = job.port === "AK" ? "Akureyri" : "Reykjavík";
+  const location = job.port === "AK" ? "Akureyri" : (job.berth || "").trim();
   const headerLine = [ship, location].filter(Boolean).join(" - ");
   const description = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
     .filter(part => part !== undefined)
