@@ -1,4 +1,4 @@
-// ─── Payday API proxy (Netlify Function) ───────────────────────────────────
+// ─── Payday API proxy (Netlify Function v2) ────────────────────────────────
 //
 // Holds Payday OAuth credentials server-side so they never reach the browser
 // bundle. The client makes plain requests to /payday-api/<endpoint>;
@@ -6,32 +6,38 @@
 // function exchanges credentials for a bearer token, retries on 401, and
 // proxies the response back unchanged.
 //
+// Why v2 (export default + Request/Response objects) rather than v1
+// (event.body strings + isBase64Encoded flag):
+// v1 passed request bodies as STRINGS, and binary content (like the PDF
+// bytes inside a multipart/form-data invoice create) only survived intact
+// if Netlify chose to base64-encode it — a heuristic we couldn't control
+// or audit. v2's req.arrayBuffer() gives us the raw bytes directly, with
+// no encoding round-trip, so multipart uploads forward to Payday byte-
+// for-byte regardless of the inner Content-Type.
+//
 // Required environment variables (set in Netlify UI → Site settings →
 // Environment variables — NOT prefixed with VITE_, since these stay
 // server-side):
 //   PAYDAY_CLIENT_ID
 //   PAYDAY_CLIENT_SECRET
-//
-// The token cache lives in module scope so it survives between invocations
-// while the Lambda is warm. Cold starts re-exchange — fine for our volumes.
 
 const PAYDAY_API = "https://api.payday.is";
 const API_VERSION = "alpha";
-const CLIENT_ID = process.env.PAYDAY_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.PAYDAY_CLIENT_SECRET || "";
 
-// Token cache — warm-only.
+// Token cache lives in module scope — survives between invocations on a
+// warm function instance. Cold starts re-exchange the token, which is
+// fine at our volume.
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
-async function getAccessToken(forceRefresh = false) {
+async function getAccessToken(clientId, clientSecret, forceRefresh = false) {
   if (!forceRefresh && cachedToken && Date.now() < tokenExpiresAt - 60_000) {
     return cachedToken;
   }
   const res = await fetch(`${PAYDAY_API}/auth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Api-Version": API_VERSION },
-    body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }),
+    body: JSON.stringify({ clientId, clientSecret }),
   });
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
@@ -45,108 +51,95 @@ async function getAccessToken(forceRefresh = false) {
   return cachedToken;
 }
 
-// Strip our routing prefix off the incoming path so we can forward what's
-// left to Payday. Handles both the post-redirect form
-// (/.netlify/functions/payday/...) and the direct-invocation form
-// (/payday-api/...) — defensive against either route working.
-function payloadPath(eventPath) {
-  if (!eventPath) return "";
-  const cleaned = eventPath
+// Strip the routing prefix off the incoming path so we can forward
+// what's left to Payday. Handles both possible inbound shapes:
+//   /.netlify/functions/payday/<path>   (post-redirect)
+//   /payday-api/<path>                  (direct invocation)
+function payloadPath(pathname) {
+  if (!pathname) return "/";
+  const cleaned = pathname
     .replace(/^\/\.netlify\/functions\/payday/, "")
     .replace(/^\/payday-api/, "");
   return cleaned || "/";
 }
 
-export const handler = async (event) => {
-  // Reject the auth/token endpoint explicitly — the function manages auth on
-  // its own; an external caller has no business hitting that path.
-  const path = payloadPath(event.path);
+export default async (req) => {
+  const clientId     = process.env.PAYDAY_CLIENT_ID     || "";
+  const clientSecret = process.env.PAYDAY_CLIENT_SECRET || "";
+
+  const url = new URL(req.url);
+  const path = payloadPath(url.pathname);
+
+  // Reject /auth/token explicitly — the function manages auth on its own
+  // and the credentials never need to be exposed to the browser.
   if (path === "/auth/token") {
-    return {
-      statusCode: 403,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Auth is handled server-side; do not call /auth/token directly." }),
-    };
+    return new Response(
+      JSON.stringify({ message: "Auth is handled server-side; do not call /auth/token directly." }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    );
   }
 
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+  if (!clientId || !clientSecret) {
+    return new Response(
+      JSON.stringify({
         message: "Payday credentials are not configured on the Netlify Function (PAYDAY_CLIENT_ID / PAYDAY_CLIENT_SECRET).",
       }),
-    };
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
   }
 
-  // Forward query string verbatim — Netlify gives us rawQuery for this.
-  const url = `${PAYDAY_API}${path}${event.rawQuery ? "?" + event.rawQuery : ""}`;
+  const upstreamUrl = `${PAYDAY_API}${path}${url.search || ""}`;
+  const method = (req.method || "GET").toUpperCase();
+  const hasBody = !["GET", "HEAD"].includes(method);
 
-  // Pass through whatever Content-Type the client sent so multipart uploads
-  // (attachments) work alongside JSON requests. Netlify hands us headers
-  // case-insensitively under either property name depending on runtime; the
-  // double-lookup below covers both. When no Content-Type is present we
-  // default to JSON since every non-attachment endpoint we call uses it.
-  const inboundCT =
-    event.headers?.["content-type"] ||
-    event.headers?.["Content-Type"]  ||
-    "application/json";
+  // Read body as raw bytes. This is the whole point of the v2 migration:
+  // multipart bodies (and any other binary content) come through
+  // unmangled, with the multipart boundary intact.
+  const bodyBytes = hasBody ? await req.arrayBuffer() : undefined;
 
-  // Netlify base64-encodes binary request bodies (multipart, octet-stream).
-  // Decode back to a Buffer before forwarding so the multipart boundary
-  // bytes survive intact.
-  const upstreamBody = event.body == null
-    ? undefined
-    : event.isBase64Encoded
-      ? Buffer.from(event.body, "base64")
-      : event.body;
+  // Preserve the inbound Content-Type verbatim — for multipart this
+  // includes the boundary parameter, which must match the bytes in the
+  // body or the upstream parser will reject the request.
+  const contentType = req.headers.get("content-type") || "application/json";
 
-  const callPayday = async (token) => fetch(url, {
-    method: event.httpMethod || "GET",
+  const callPayday = async (token) => fetch(upstreamUrl, {
+    method,
     headers: {
       Authorization: `Bearer ${token}`,
-      "Content-Type": inboundCT,
+      "Content-Type": contentType,
       "Api-Version": API_VERSION,
     },
-    body: ["GET", "HEAD"].includes((event.httpMethod || "GET").toUpperCase())
-      ? undefined
-      : upstreamBody,
+    body: bodyBytes,
   });
 
   try {
-    let token = await getAccessToken();
+    let token = await getAccessToken(clientId, clientSecret);
     let res = await callPayday(token);
 
-    // 401 → refresh + retry once. Mirrors the old client-side behaviour.
+    // 401 → refresh + retry once.
     if (res.status === 401) {
-      token = await getAccessToken(true);
+      token = await getAccessToken(clientId, clientSecret, true);
       res = await callPayday(token);
     }
 
-    const body = await res.text();
-    // Forward upstream response headers that matter for client-side
-    // diagnostics. `Allow` is required on 405 responses (RFC 9110
-    // §15.5.6) and tells us which method to use — without forwarding it,
-    // the browser only sees "HTTP 405" with no clue what's accepted.
-    // We allow-list specific headers rather than passing everything
-    // through to avoid leaking server-internal headers.
-    const outHeaders = {
-      "Content-Type": res.headers.get("content-type") || "application/json",
-    };
+    // Forward an allow-list of upstream response headers that matter for
+    // client-side diagnostics. Allow is required on 405 responses
+    // (RFC 9110 §15.5.6) and tells us which method to use. Allow-listed
+    // rather than passed through wholesale so server-internal headers
+    // don't leak.
+    const outHeaders = new Headers();
+    outHeaders.set("Content-Type", res.headers.get("content-type") || "application/json");
     for (const name of ["allow", "www-authenticate", "retry-after", "location"]) {
       const v = res.headers.get(name);
-      if (v) outHeaders[name.replace(/(^|-)([a-z])/g, (_, p, c) => p + c.toUpperCase())] = v;
+      if (v) outHeaders.set(name, v);
     }
-    return {
-      statusCode: res.status,
-      headers: outHeaders,
-      body: body || "",
-    };
+
+    const body = await res.text();
+    return new Response(body || "", { status: res.status, headers: outHeaders });
   } catch (err) {
-    return {
-      statusCode: 502,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `Payday proxy error: ${err.message}` }),
-    };
+    return new Response(
+      JSON.stringify({ message: `Payday proxy error: ${err.message}` }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
   }
 };
