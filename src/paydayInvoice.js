@@ -172,8 +172,15 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
       description:           r.resource,
       quantity,
       unitPriceExcludingVat: unitPrice,
-      // per-line VAT — uses cruise line + ship + call date + last-Mars-call lookup
-      vatRate:               vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
+      // per-line VAT — uses cruise line + ship + call date + last-Mars-call
+      // lookup. Field name is `vatPercentage` per the invoice line object
+      // table in the docs; we previously sent `vatRate` (the column name
+      // on our side), which Payday silently dropped and then defaulted
+      // every line to 0% VAT. The preview UI happened to render the
+      // right number because it read our own payload's `vatRate` field —
+      // a coincidence that hid the bug until SDK invoices showed up in
+      // Payday at 0% when they should have been 24%.
+      vatPercentage:         vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
     };
   });
 

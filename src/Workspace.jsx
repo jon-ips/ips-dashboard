@@ -1030,7 +1030,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{r.amount}</span>
                           <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", color: TEXT_DIM, fontSize: 11 }}>{r.timeUnit}</span>
                           <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{r.unitPrice}</span>
-                          <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 11, color: line.vatRate === 0 ? IPS_WARN : TEXT_DIM }}>{line.vatRate}%</span>
+                          <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 11, color: line.vatPercentage === 0 ? IPS_WARN : TEXT_DIM }}>{line.vatPercentage}%</span>
                           <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{r.total}</span>
                         </div>
                       );
