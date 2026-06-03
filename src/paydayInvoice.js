@@ -236,8 +236,15 @@ export async function probeAttachmentsEndpoint() {
   // create / via PATCH) rather than a separate sub-resource. This is the
   // last read-only diagnostic; whatever keys it surfaces tell us how Payday
   // models attachments (if at all). All read-only — no invoice created.
-  const full = await payday.invoices.get(probeId);
-  const invoiceKeys = full.ok && full.data ? Object.keys(full.data) : [];
+  //
+  // Use the RAW probe getter, not payday.invoices.get — the latter runs the
+  // list-oriented unwrapper which would mistake the invoice's `lines` array
+  // for the payload and hand back the wrong object (see payday.js).
+  const full = await _paydayProbeGet(`/invoices/${probeId}`);
+  const invoiceObj = full.ok && full.data && typeof full.data === "object" && !Array.isArray(full.data)
+    ? full.data
+    : null;
+  const invoiceKeys = invoiceObj ? Object.keys(invoiceObj) : [];
   const attachmentish = invoiceKeys.filter(k =>
     /attach|file|document|pdf|media|upload/i.test(k));
 

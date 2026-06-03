@@ -66,7 +66,7 @@ async function getAccessToken() {
 
 // ─── Core request function ───────────────────────────────────────────────────
 
-async function paydayRequest(endpoint, { method = "GET", params = {}, body = null } = {}) {
+async function paydayRequest(endpoint, { method = "GET", params = {}, body = null, raw = false } = {}) {
   // In dev the client handles auth; in prod the Netlify Function handles it.
   // See header comment for the full architecture.
   let token = null;
@@ -144,8 +144,15 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
     }
 
     const json = await res.json();
+    // raw mode: return the parsed JSON exactly as Payday sent it, with no
+    // unwrapping. Needed when inspecting single-object responses (e.g. one
+    // invoice) — the list-oriented unwrap below would otherwise mistake the
+    // object's own `lines` array for the payload and discard the object.
+    if (raw) return { ok: true, data: json, page: null, error: null };
     // Payday wraps arrays in named keys: { customers: [...], page: 1, pages: N, total: N }
     // Extract the first array value, and build a page object from top-level fields.
+    // NOTE: this is a list-response heuristic — for single-object GETs that
+    // contain an array field it returns the wrong thing. Use raw:true there.
     const arrayKey = Object.keys(json).find(k => Array.isArray(json[k]));
     const data = arrayKey ? json[arrayKey] : (json.data || json);
     const page = json.pages != null ? { page: json.page, pages: json.pages, total: json.total, perPage: json.perPage } : null;
@@ -182,8 +189,9 @@ async function fetchAllPages(endpoint, params = {}) {
 // Escape hatch for the diagnostic / probe code in paydayInvoice.js to fire
 // ad-hoc GETs at arbitrary paths without us having to add typed methods
 // for every URL candidate. Not for production paths — those go through the
-// typed surface below.
-export const _paydayProbeGet = (path) => paydayRequest(path);
+// typed surface below. raw:true so single-object responses come back
+// unmangled (see the unwrap note in paydayRequest).
+export const _paydayProbeGet = (path) => paydayRequest(path, { raw: true });
 
 export const payday = {
   // Connection test. In dev we can introspect the local VITE_ vars; in
