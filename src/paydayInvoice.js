@@ -128,10 +128,31 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     .filter(part => part !== undefined)
     .join("\n");
 
-  // generateInvoice (origin/main) emits rows with `amount`, `unitPriceIsk`,
-  // and `_totalNum` (numeric line total). We mirror those into the Payday
-  // shape; unpriced lines come through as 0/0 — Payday accepts the draft
-  // and the user types in the missing rate in the UI when reviewing.
+  // generateInvoice emits rows with `amount`, `unitPriceIsk`, and
+  // `_totalNum` (the full line total). The shape doesn't map 1:1 to
+  // Payday because the PDF and Payday count quantities differently:
+  //
+  //   - PDF: amount = resource count (e.g. 1 forklift), unit = label
+  //          like "4h" / "Per call", total = amount × hours × rate
+  //   - Payday: quantity × unitPriceExcludingVat = line total. There's
+  //             no "hours" dimension on a line — hours have to be
+  //             folded into quantity.
+  //
+  // So for Payday we send quantity = _totalNum / unitPriceIsk. That
+  // gives Payday's qty × unitPrice math the same result as our PDF
+  // total. Example: 1 telescopic forklift at 19,790 ISK/hr for 4 hours
+  // → _totalNum 79,160, unitPriceIsk 19,790 → Payday quantity 4. Two
+  // forklifts at the same rate for 4 hours → _totalNum 158,320 →
+  // quantity 8.
+  //
+  // Unpriced rows (e.g. resources missing from the rate sheet) come
+  // through with unitPriceIsk 0 and _totalNum 0. Falling back to
+  // r.amount keeps the line visible with a sensible qty so the user
+  // can type the missing rate in Payday's UI without re-entering the
+  // resource count too.
+  //
+  // The Math.round/100 protects against floating-point dust on the
+  // division (e.g. 4.000000000001 → 4).
   //
   // Field-name notes (learned from Payday error responses):
   //   - Unit price must be sent as `unitPriceExcludingVat`. The plain
@@ -141,13 +162,20 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   //   - Our rate sheets are all stored ex-VAT (VAT is added on top per
   //     line via `vatRate`), so unitPriceIsk maps directly to
   //     unitPriceExcludingVat with no conversion.
-  const lines = rows.map(r => ({
-    description:           r.resource,
-    quantity:              Number(r.amount) || 0,
-    unitPriceExcludingVat: Number(r.unitPriceIsk) || 0,
-    // per-line VAT — uses cruise line + ship + call date + last-Mars-call lookup
-    vatRate:               vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
-  }));
+  const lines = rows.map(r => {
+    const unitPrice = Number(r.unitPriceIsk) || 0;
+    const total     = Number(r._totalNum)    || 0;
+    const quantity  = unitPrice > 0
+      ? Math.round((total / unitPrice) * 100) / 100
+      : (Number(r.amount) || 0);
+    return {
+      description:           r.resource,
+      quantity,
+      unitPriceExcludingVat: unitPrice,
+      // per-line VAT — uses cruise line + ship + call date + last-Mars-call lookup
+      vatRate:               vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
+    };
+  });
 
   return {
     // Field-name notes (learned from Payday error responses):
