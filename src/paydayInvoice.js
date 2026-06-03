@@ -10,7 +10,7 @@
 // is created in draft vs. sent state. If their API uses a different shape in
 // the future, this is the single place to update.
 
-import { payday, _paydayProbeGet } from "./payday.js";
+import { payday } from "./payday.js";
 import { SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
@@ -131,11 +131,20 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
 }
 
 /**
- * Validate prerequisites then POST a draft invoice to Payday.
+ * Validate prerequisites then POST an invoice (optionally with a PDF
+ * attachment) to Payday in a single multipart call. The Payday API has
+ * no separate "upload attachment" endpoint — file attachment piggybacks
+ * on the create call as an `attachment1` multipart field. See
+ * payday.invoices.create for the request shape.
  *
+ * @param {object} job
+ * @param {object} cruiseLine
+ * @param {Array}  rows
+ * @param {string|null} lastVikingMarsDate
+ * @param {{ blob: Blob, filename: string } | null} [attachment]
  * @returns {{ok: true, data: any} | {ok: false, error: string}}
  */
-export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate) {
+export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate, attachment = null) {
   // ── Preflight ───────────────────────────────────────────────────────────
   // Cruise line is resolved upstream from job.ship + job.date (no
   // cruise_line_id stored on the job). Report a missing lookup distinctly
@@ -165,7 +174,7 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
   }
 
   const payload = buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDate);
-  const res = await payday.invoices.create(payload);
+  const res = await payday.invoices.create(payload, attachment);
   if (!res.ok) {
     const e = res.error || {};
     // Build a human-readable message that always includes the HTTP status
@@ -178,95 +187,6 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
     return {
       ok: false,
       error: `Payday rejected the invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
-    };
-  }
-  return { ok: true, data: res.data };
-}
-
-/**
- * Verify the FULL attachment upload path works BEFORE we create a real
- * invoice. The endpoint is documented as POST /invoices/{id}/attachment
- * (singular), but two things are still unverified: the multipart field
- * name, and whether POST behaves as expected. The only way to confirm
- * end-to-end without creating a new invoice is to do a real test upload
- * against an *existing* invoice.
- *
- * We upload a tiny dummy PDF to the most recent existing invoice. If it
- * succeeds, the URL + method + field name are all correct and the real
- * create→upload flow is safe. If it fails, we abort BEFORE creating any
- * new invoice — so a wrong field name never leaves a finalized invoice
- * stranded without its breakdown (finalized invoices can't be hand-
- * attached in Payday's UI, so a partial failure would be unfixable).
- *
- * Side effect: a ~15-byte dummy attachment lands on one existing invoice.
- * The probe returns that invoice's id so the caller can tell the user.
- *
- * Returns:
- *   { ok: true, probedInvoiceId }   — upload path verified; safe to proceed
- *   { ok: true, skipped: "..." }    — no existing invoice to test against;
- *                                     proceed best-effort (first-ever invoice)
- *   { ok: false, error }            — upload failed; ABORT before create
- */
-export async function probeAttachmentUpload() {
-  const list = await payday.invoices.list({ perpage: 1 });
-  if (!list.ok) {
-    return { ok: true, skipped: "Couldn't list existing invoices to test the upload path." };
-  }
-  const probeId = list.data?.[0]?.id;
-  if (!probeId) {
-    return { ok: true, skipped: "No existing invoices to test the upload path against." };
-  }
-
-  // Minimal valid-ish PDF so Payday treats it as a real file, not junk.
-  const dummy = new Blob(["%PDF-1.4\n% IPS upload probe\n"], { type: "application/pdf" });
-  const res = await payday.invoices.attachFile(probeId, dummy, "ips-upload-probe.pdf");
-  if (res.ok) {
-    return { ok: true, probedInvoiceId: probeId };
-  }
-
-  const e = res.error || {};
-  const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
-  const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
-  // On 405 the Allow header is the diagnostic — list the methods Payday
-  // accepts at this URL so we know whether to switch to PUT, PATCH, etc.
-  // without another round trip through the browser console.
-  const allowBit  = e.allow ? `Allow: ${e.allow}` : "";
-  const combined  = [statusBit, msgBit, allowBit].filter(Boolean).join(" — ");
-  return {
-    ok: false,
-    error:
-      `Attachment upload test failed (${combined || "no detail"}). ` +
-      `No new invoice was created. ` +
-      (e.status === 405
-        ? `405 means the URL is right but POST isn't accepted — the Allow header above lists the methods that are.`
-        : `The endpoint path is likely right but the multipart field name may be wrong — full response is in the browser console.`),
-  };
-}
-
-/**
- * Upload a file (typically the cost-breakdown PDF) as an attachment on
- * an already-created Payday invoice. Best-effort — the invoice itself
- * still stands even if the attachment fails, so callers should treat a
- * failure here as a warning, not a fatal error.
- *
- * @param {string} invoiceId   Payday's invoice ID (from createDraftInvoice's response)
- * @param {Blob}   blob        The PDF Blob (e.g. from generateInvoice with returnBlob: true)
- * @param {string} filename    Suggested filename in Payday
- * @returns {{ok: true, data: any} | {ok: false, error: string}}
- */
-export async function uploadInvoiceAttachment(invoiceId, blob, filename) {
-  if (!invoiceId)  return { ok: false, error: "Missing invoice ID — can't attach the PDF." };
-  if (!blob)       return { ok: false, error: "Missing PDF blob — can't attach." };
-
-  const res = await payday.invoices.attachFile(invoiceId, blob, filename || "cost-breakdown.pdf");
-  if (!res.ok) {
-    const e = res.error || {};
-    const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
-    const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
-    const combined  = [statusBit, msgBit].filter(Boolean).join(" — ");
-    return {
-      ok: false,
-      error: `Couldn't attach PDF to invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
     };
   }
   return { ok: true, data: res.data };

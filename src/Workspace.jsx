@@ -11,7 +11,7 @@ import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment, probeAttachmentUpload } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
@@ -113,60 +113,35 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const { job, rateSheetKey, rows, cruiseLine } = invoicePreview;
     setInvoicePreview(p => p && ({ ...p, submitting: true, error: null }));
 
-    // Generate the PDF once. returnBlob=true gives us the same bytes that
-    // download locally, so the attachment Payday gets matches the file on
-    // the user's disk byte-for-byte.
+    // Generate the PDF first. returnBlob=true gives us the same bytes the
+    // user gets locally, so the attachment in Payday matches the file on
+    // disk byte-for-byte. We need the blob BEFORE the create call now —
+    // attachment piggybacks on the create POST as a multipart field.
     const pdfResult = await generateInvoice(job, rateSheetKey, { returnBlob: true });
     if (!pdfResult) {
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
       return;
     }
 
-    // ── Verify the attachment upload path BEFORE creating a new invoice.
-    // The probe does a real test upload to an EXISTING invoice (a ~15-byte
-    // dummy PDF), so if the multipart shape is wrong we find out without
-    // stranding a freshly-created, un-attachable finalized invoice. If the
-    // probe fails we abort here — zero new invoices on the books.
-    const probe = await probeAttachmentUpload();
-    if (!probe.ok) {
-      setInvoicePreview(p => p && ({ ...p, submitting: false, error: probe.error }));
-      return;
-    }
-    // probe.skipped is allowed — proceed best-effort (e.g. first-ever
-    // invoice, nothing existing to test against).
-
-    // Create the invoice in Payday. If this fails, the PDF is already on
-    // disk — the user can hand-upload later, or retry the whole flow.
-    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
+    // Single multipart POST to /invoices: invoice JSON + PDF in one
+    // request. Payday has no separate upload endpoint — the file rides
+    // along on create. Either both land or neither does, so there's no
+    // half-finished state to recover from.
+    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate, {
+      blob: pdfResult.blob,
+      filename: pdfResult.filename,
+    });
     if (!createRes.ok) {
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: createRes.error }));
       return;
     }
 
-    // Upload the cost-breakdown PDF as an attachment. Best-effort: if the
-    // upload fails the invoice still stands, but we tell the user to
-    // attach manually in Payday's UI.
-    const invoiceId = createRes.data?.id || createRes.data?.invoice?.id;
-    const attachRes = invoiceId
-      ? await uploadInvoiceAttachment(invoiceId, pdfResult.blob, pdfResult.filename)
-      : { ok: false, error: "Payday didn't return an invoice ID; can't attach the PDF automatically." };
-
     setInvoicePreview(null);
-    if (attachRes.ok) {
-      setInvoiceStatus({
-        jobId: job.id,
-        status: "success",
-        msg: "Invoice created in Payday with the cost-breakdown PDF attached. Open it there to review and click \"Send invoice\" when ready.",
-      });
-    } else {
-      // Invoice is real; only the attachment failed. Tell the user clearly
-      // so they don't think the whole flow blew up.
-      setInvoiceStatus({
-        jobId: job.id,
-        status: "error",
-        msg: `Invoice created in Payday, but PDF attachment failed. Attach it manually in Payday. (${attachRes.error})`,
-      });
-    }
+    setInvoiceStatus({
+      jobId: job.id,
+      status: "success",
+      msg: "Invoice created in Payday with the cost-breakdown PDF attached. Open it there to review and click \"Send invoice\" when ready.",
+    });
   }, [invoicePreview, lastVikingMarsDate]);
 
   const startInvoice = useCallback((job) => {

@@ -193,13 +193,6 @@ async function fetchAllPages(endpoint, params = {}) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-// Escape hatch for the diagnostic / probe code in paydayInvoice.js to fire
-// ad-hoc GETs at arbitrary paths without us having to add typed methods
-// for every URL candidate. Not for production paths — those go through the
-// typed surface below. raw:true so single-object responses come back
-// unmangled (see the unwrap note in paydayRequest).
-export const _paydayProbeGet = (path) => paydayRequest(path, { raw: true });
-
 export const payday = {
   // Connection test. In dev we can introspect the local VITE_ vars; in
   // prod the credentials live server-side on the Netlify Function, so the
@@ -220,24 +213,30 @@ export const payday = {
   invoices: {
     list: (params) => fetchAllPages("/invoices", params),
     get: (id, params) => paydayRequest(`/invoices/${id}`, { params }),
-    create: (body) => paydayRequest("/invoices", { method: "POST", body }),
-    update: (id, body) => paydayRequest(`/invoices/${id}`, { method: "PATCH", body }),
-    // Attach a binary file (e.g. our cost-breakdown PDF) to an existing
-    // invoice. Posts multipart/form-data — the FormData branch in
-    // paydayRequest lets fetch set the Content-Type boundary itself.
+    // Create an invoice — optionally with a PDF attachment.
     //
-    // Endpoint is /invoices/{id}/attachment (SINGULAR) per the Payday API
-    // docs. We previously guessed the plural form and got 404s. The
-    // multipart field name ("file") is still a guess — if the upload 400s
-    // with a "file required" style error, that's the next thing to adjust.
-    attachFile: (invoiceId, blob, filename = "attachment.pdf") => {
-      const fd = new FormData();
-      fd.append("file", blob, filename);
-      return paydayRequest(`/invoices/${invoiceId}/attachment`, { method: "POST", body: fd });
+    // Payday's create endpoint accepts EITHER application/json OR
+    // multipart/form-data. The multipart form is the only way to attach
+    // a file: there's no separate /attachments POST endpoint (we spent
+    // a while finding that out — /invoices/{id}/attachment is GET-only,
+    // it serves the download). When attaching:
+    //   - `data`        field carries the invoice JSON as a STRING
+    //   - `attachment1` field carries the file (the docs example uses
+    //     this exact name; presumably attachment2..N also work)
+    //
+    // raw:true on both branches because the invoice response contains
+    // `lines` and `payments` arrays — paydayRequest's default list-unwrap
+    // would pick one of those and discard the rest of the invoice.
+    create: (body, attachment = null) => {
+      if (attachment?.blob) {
+        const fd = new FormData();
+        fd.append("data", JSON.stringify(body));
+        fd.append("attachment1", attachment.blob, attachment.filename || "attachment.pdf");
+        return paydayRequest("/invoices", { method: "POST", body: fd, raw: true });
+      }
+      return paydayRequest("/invoices", { method: "POST", body, raw: true });
     },
-    // Read-only probe: does GET /invoices/{id}/attachment resolve at all?
-    // Used as a pre-flight check before creating a new invoice.
-    getAttachment: (invoiceId) => paydayRequest(`/invoices/${invoiceId}/attachment`),
+    update: (id, body) => paydayRequest(`/invoices/${id}`, { method: "PATCH", body }),
   },
 
   expenses: {
