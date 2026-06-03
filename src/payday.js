@@ -85,14 +85,17 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
 
   const url = `${BASE}${endpoint}${qs ? "?" + qs : ""}`;
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Api-Version": API_VERSION,
-  };
+  // Two body modes:
+  //   FormData → multipart upload (attachments). Don't set Content-Type
+  //   manually — browser fetch derives the multipart boundary itself.
+  //   anything else → JSON body, with Content-Type: application/json.
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const headers = { "Api-Version": API_VERSION };
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (!isFormData) headers["Content-Type"] = "application/json";
 
   const options = { method, headers };
-  if (body) options.body = JSON.stringify(body);
+  if (body) options.body = isFormData ? body : JSON.stringify(body);
 
   try {
     let res = await fetch(url, options);
@@ -105,7 +108,9 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
       const freshToken = await getAccessToken();
       if (freshToken) {
         headers.Authorization = `Bearer ${freshToken}`;
-        res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        // Re-send the same body — FormData is reusable, JSON gets restringified.
+        const retryBody = isFormData ? body : (body ? JSON.stringify(body) : undefined);
+        res = await fetch(url, { method, headers, body: retryBody });
       }
     }
 
@@ -196,6 +201,18 @@ export const payday = {
     get: (id, params) => paydayRequest(`/invoices/${id}`, { params }),
     create: (body) => paydayRequest("/invoices", { method: "POST", body }),
     update: (id, body) => paydayRequest(`/invoices/${id}`, { method: "PATCH", body }),
+    // Attach a binary file (e.g. our cost-breakdown PDF) to an existing
+    // invoice. Posts multipart/form-data — the FormData branch in
+    // paydayRequest lets fetch set the Content-Type boundary itself.
+    //
+    // Endpoint is a guess based on REST conventions (/invoices/{id}/
+    // attachments). If Payday rejects with 404 we'll try /attachments
+    // with the invoiceId in the body next.
+    attachFile: (invoiceId, blob, filename = "attachment.pdf") => {
+      const fd = new FormData();
+      fd.append("file", blob, filename);
+      return paydayRequest(`/invoices/${invoiceId}/attachments`, { method: "POST", body: fd });
+    },
   },
 
   expenses: {

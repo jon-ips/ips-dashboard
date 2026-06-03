@@ -82,16 +82,35 @@ export const handler = async (event) => {
   // Forward query string verbatim — Netlify gives us rawQuery for this.
   const url = `${PAYDAY_API}${path}${event.rawQuery ? "?" + event.rawQuery : ""}`;
 
+  // Pass through whatever Content-Type the client sent so multipart uploads
+  // (attachments) work alongside JSON requests. Netlify hands us headers
+  // case-insensitively under either property name depending on runtime; the
+  // double-lookup below covers both. When no Content-Type is present we
+  // default to JSON since every non-attachment endpoint we call uses it.
+  const inboundCT =
+    event.headers?.["content-type"] ||
+    event.headers?.["Content-Type"]  ||
+    "application/json";
+
+  // Netlify base64-encodes binary request bodies (multipart, octet-stream).
+  // Decode back to a Buffer before forwarding so the multipart boundary
+  // bytes survive intact.
+  const upstreamBody = event.body == null
+    ? undefined
+    : event.isBase64Encoded
+      ? Buffer.from(event.body, "base64")
+      : event.body;
+
   const callPayday = async (token) => fetch(url, {
     method: event.httpMethod || "GET",
     headers: {
       Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+      "Content-Type": inboundCT,
       "Api-Version": API_VERSION,
     },
     body: ["GET", "HEAD"].includes((event.httpMethod || "GET").toUpperCase())
       ? undefined
-      : (event.body || undefined),
+      : upstreamBody,
   });
 
   try {

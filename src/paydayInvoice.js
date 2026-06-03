@@ -182,3 +182,32 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
   }
   return { ok: true, data: res.data };
 }
+
+/**
+ * Upload a file (typically the cost-breakdown PDF) as an attachment on
+ * an already-created Payday invoice. Best-effort — the invoice itself
+ * still stands even if the attachment fails, so callers should treat a
+ * failure here as a warning, not a fatal error.
+ *
+ * @param {string} invoiceId   Payday's invoice ID (from createDraftInvoice's response)
+ * @param {Blob}   blob        The PDF Blob (e.g. from generateInvoice with returnBlob: true)
+ * @param {string} filename    Suggested filename in Payday
+ * @returns {{ok: true, data: any} | {ok: false, error: string}}
+ */
+export async function uploadInvoiceAttachment(invoiceId, blob, filename) {
+  if (!invoiceId)  return { ok: false, error: "Missing invoice ID — can't attach the PDF." };
+  if (!blob)       return { ok: false, error: "Missing PDF blob — can't attach." };
+
+  const res = await payday.invoices.attachFile(invoiceId, blob, filename || "cost-breakdown.pdf");
+  if (!res.ok) {
+    const e = res.error || {};
+    const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
+    const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
+    const combined  = [statusBit, msgBit].filter(Boolean).join(" — ");
+    return {
+      ok: false,
+      error: `Couldn't attach PDF to invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
+    };
+  }
+  return { ok: true, data: res.data };
+}

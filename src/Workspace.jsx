@@ -11,7 +11,7 @@ import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
@@ -112,21 +112,48 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (!invoicePreview) return;
     const { job, rateSheetKey, rows, cruiseLine } = invoicePreview;
     setInvoicePreview(p => p && ({ ...p, submitting: true, error: null }));
-    // Download the PDF (re-renders with the same row data we just previewed),
-    // then POST to Payday. Two awaits so the PDF lands locally even if
-    // Payday errors — the user can still hand-upload it later.
-    await generateInvoice(job, rateSheetKey);
-    const res = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
-    if (!res.ok) {
-      setInvoicePreview(p => p && ({ ...p, submitting: false, error: res.error }));
+
+    // Generate the PDF once. returnBlob=true gives us the same bytes that
+    // download locally, so the attachment Payday gets matches the file on
+    // the user's disk byte-for-byte.
+    const pdfResult = await generateInvoice(job, rateSheetKey, { returnBlob: true });
+    if (!pdfResult) {
+      setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
       return;
     }
+
+    // Create the invoice in Payday. If this fails, the PDF is already on
+    // disk — the user can hand-upload later, or retry the whole flow.
+    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
+    if (!createRes.ok) {
+      setInvoicePreview(p => p && ({ ...p, submitting: false, error: createRes.error }));
+      return;
+    }
+
+    // Upload the cost-breakdown PDF as an attachment. Best-effort: if the
+    // upload fails the invoice still stands, but we tell the user to
+    // attach manually in Payday's UI.
+    const invoiceId = createRes.data?.id || createRes.data?.invoice?.id;
+    const attachRes = invoiceId
+      ? await uploadInvoiceAttachment(invoiceId, pdfResult.blob, pdfResult.filename)
+      : { ok: false, error: "Payday didn't return an invoice ID; can't attach the PDF automatically." };
+
     setInvoicePreview(null);
-    setInvoiceStatus({
-      jobId: job.id,
-      status: "success",
-      msg: "Invoice created in Payday. Open it there to attach the PDF and click \"Send invoice\" when ready.",
-    });
+    if (attachRes.ok) {
+      setInvoiceStatus({
+        jobId: job.id,
+        status: "success",
+        msg: "Invoice created in Payday with the cost-breakdown PDF attached. Open it there to review and click \"Send invoice\" when ready.",
+      });
+    } else {
+      // Invoice is real; only the attachment failed. Tell the user clearly
+      // so they don't think the whole flow blew up.
+      setInvoiceStatus({
+        jobId: job.id,
+        status: "error",
+        msg: `Invoice created in Payday, but PDF attachment failed. Attach it manually in Payday. (${attachRes.error})`,
+      });
+    }
   }, [invoicePreview, lastVikingMarsDate]);
 
   const startInvoice = useCallback((job) => {

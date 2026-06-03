@@ -274,12 +274,16 @@ function loadImage(src) {
  *     When true, compute and render the PDF but do NOT call doc.save() —
  *     useful for the Preview modal where the rows are needed but spamming
  *     the user's Downloads folder before they've confirmed would be rude.
+ *   @param {boolean} [opts.returnBlob=false]
+ *     When true, the returned object also includes { blob, filename } so
+ *     the caller can upload the PDF as an attachment (e.g. to Payday).
  *
- *   @returns {{ rows, total }} on success
- *   @returns {null}           on missing rate sheet, empty hours, or error
+ *   @returns {{ rows, total, blob?, filename? }} on success
+ *   @returns {null}                              on missing rate sheet, empty hours, or error
  */
 export default async function generateInvoice(job, rateSheetKey, opts = {}) {
   const skipDownload = !!opts.skipDownload;
+  const returnBlob   = !!opts.returnBlob;
   try {
     const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
     const sheet = RATE_SHEETS[rateSheetKey];
@@ -405,14 +409,21 @@ export default async function generateInvoice(job, rateSheetKey, opts = {}) {
     doc.setTextColor(150);
     doc.text("Iceland Port Services", pageW / 2, 288, { align: "center" });
 
-    // Save (unless caller is just previewing — see opts.skipDownload).
-    if (!skipDownload) {
-      const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
-      const dateSlug = job.date || "undated";
-      doc.save(`IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`);
-    }
+    // Compute the filename once — used for both the local download and the
+    // attachment upload, so both end up with the same name.
+    const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
+    const dateSlug = job.date || "undated";
+    const filename = `IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`;
 
-    return { rows, total: grandTotal };
+    // Save (unless caller is just previewing — see opts.skipDownload).
+    if (!skipDownload) doc.save(filename);
+
+    const result = { rows, total: grandTotal };
+    if (returnBlob) {
+      result.blob = doc.output("blob");
+      result.filename = filename;
+    }
+    return result;
   } catch (err) {
     console.error("Invoice generation failed:", err);
     alert("Failed to generate invoice: " + err.message);
