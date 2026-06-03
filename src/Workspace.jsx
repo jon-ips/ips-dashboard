@@ -11,7 +11,7 @@ import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
@@ -59,50 +59,84 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [cruiseLines, setCruiseLines] = useState([]);
   // Per-job invoice flow feedback: { jobId, status: "working"|"success"|"error", msg }
   const [invoiceStatus, setInvoiceStatus] = useState(null);
+  // Preview-modal state. Holds everything we need to render the preview AND
+  // submit when the user confirms — so we don't recompute rows / payload
+  // between Preview and Confirm. Shape:
+  //   { job, rateSheetKey, rows, total, cruiseLine, payload,
+  //     submitting: bool, error: string|null }
+  const [invoicePreview, setInvoicePreview] = useState(null);
 
   // Pre-compute Viking Mars's final 2026 call date. Used by vatRules to grant
   // 0% VAT to that one call (voyage ends in a foreign port).
   const lastVikingMarsDate = useMemo(() => findLastVikingMarsDate(SHIPS), []);
 
   // ─── INVOICE FLOW ────────────────────────────────────────────────────────
-  // 1. generateInvoice produces the PDF AND returns rows + total
-  // 2. Look up the cruise_lines row → payday_customer_id + payment_terms_days
-  // 3. POST a draft to Payday (status: "draft", never auto-sent)
-  // 4. Show banner; user attaches the PDF + sends manually from Payday
-  const runInvoiceFlow = useCallback(async (job, rateSheetKey) => {
-    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Generating PDF…" });
-    const pdfResult = await generateInvoice(job, rateSheetKey);
-    if (!pdfResult) { setInvoiceStatus(null); return; }
+  // Two stages, because Payday's public API only creates *finalized*
+  // invoices (no API-side draft state). We make the human review happen
+  // in the dashboard before any data hits Payday's books.
+  //
+  //   Stage 1 — openPreview(job, rateSheetKey):
+  //     Compute rows + total + resolved cruise line + exact Payday payload.
+  //     No PDF download yet, no API call. Renders the preview modal.
+  //
+  //   Stage 2 — confirmInvoice() (modal's Confirm button):
+  //     Download the PDF, then POST to Payday. Modal dismisses on success
+  //     and shows the success banner under the row. On error the modal
+  //     stays open with an error pinned inside, so the user can retry or
+  //     cancel cleanly.
+  const openPreview = useCallback(async (job, rateSheetKey) => {
+    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Preparing preview…" });
+    const result = await generateInvoice(job, rateSheetKey, { skipDownload: true });
+    if (!result) { setInvoiceStatus(null); return; }
 
-    // Resolve cruise line: Akureyri jobs always bill SDK by convention, but
-    // there's no single "SDK" customer in Payday — each cruise-line label
-    // (TUI, Aida, etc.) is its own customer. We still need a name here, so
-    // fall back to the colleague's SHIPS-derived lookup. AK jobs whose ship
-    // isn't in the SHIPS array will fail with a clear "no customer" message.
+    // Resolve cruise line via the colleague's SHIPS-derived lookup. Akureyri
+    // is intentionally not special-cased here — getCruiseLineForShip resolves
+    // the named SDK line (TUI, Aida, …) and we trust the rate-sheet routing
+    // (resolveRateSheet / job.port === "AK") to pick the right rate sheet.
     const clName = getCruiseLineForShip(job.ship, job.date);
     const cruiseLine = cruiseLines.find(c => c.name === clName) || null;
+    const payload = buildDraftInvoicePayload(job, cruiseLine, result.rows, lastVikingMarsDate);
 
-    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Creating Payday draft…" });
-    const res = await createDraftInvoice(job, cruiseLine, pdfResult.rows, lastVikingMarsDate);
-    if (!res.ok) {
-      setInvoiceStatus({ jobId: job.id, status: "error", msg: res.error });
-      return;
-    }
-    setInvoiceStatus({
-      jobId: job.id,
-      status: "success",
-      msg: "Draft created in Payday. Open it there to attach the PDF and send.",
+    setInvoiceStatus(null);
+    setInvoicePreview({
+      job, rateSheetKey,
+      rows: result.rows,
+      total: result.total,
+      cruiseLine, payload,
+      submitting: false,
+      error: null,
     });
   }, [cruiseLines, lastVikingMarsDate]);
 
+  const confirmInvoice = useCallback(async () => {
+    if (!invoicePreview) return;
+    const { job, rateSheetKey, rows, cruiseLine } = invoicePreview;
+    setInvoicePreview(p => p && ({ ...p, submitting: true, error: null }));
+    // Download the PDF (re-renders with the same row data we just previewed),
+    // then POST to Payday. Two awaits so the PDF lands locally even if
+    // Payday errors — the user can still hand-upload it later.
+    await generateInvoice(job, rateSheetKey);
+    const res = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
+    if (!res.ok) {
+      setInvoicePreview(p => p && ({ ...p, submitting: false, error: res.error }));
+      return;
+    }
+    setInvoicePreview(null);
+    setInvoiceStatus({
+      jobId: job.id,
+      status: "success",
+      msg: "Invoice created in Payday. Open it there to attach the PDF and click \"Send invoice\" when ready.",
+    });
+  }, [invoicePreview, lastVikingMarsDate]);
+
   const startInvoice = useCallback((job) => {
     // Akureyri has its own rate sheet, regardless of cruise line.
-    if (job.port === "AK") { runInvoiceFlow(job, "akureyri"); return; }
+    if (job.port === "AK") { openPreview(job, "akureyri"); return; }
     const cl = getCruiseLineForShip(job.ship, job.date);
     const key = resolveRateSheet(cl);
-    if (key) runInvoiceFlow(job, key);
+    if (key) openPreview(job, key);
     else setRateSheetPicker(job);
-  }, [runInvoiceFlow]);
+  }, [openPreview]);
 
   const recordSyncError = useCallback((context, err) => {
     let detail = "";
@@ -930,7 +964,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {Object.entries(RATE_SHEETS).map(([key, sheet]) => (
-                    <button key={key} onClick={() => { const j = rateSheetPicker; setRateSheetPicker(null); runInvoiceFlow(j, key); }} style={{
+                    <button key={key} onClick={() => { const j = rateSheetPicker; setRateSheetPicker(null); openPreview(j, key); }} style={{
                       padding: "12px 16px", borderRadius: 8, cursor: "pointer", textAlign: "left",
                       background: "rgba(87,181,200,0.08)", border: `1px solid rgba(87,181,200,0.3)`,
                       color: TEXT, fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
@@ -940,6 +974,81 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </div>
             </div>
           )}
+
+          {/* INVOICE PREVIEW MODAL — review before pushing to Payday */}
+          {invoicePreview && (() => {
+            const { job, rows, total, cruiseLine, payload, submitting, error } = invoicePreview;
+            const sheet = RATE_SHEETS[invoicePreview.rateSheetKey];
+            const close = () => { if (!submitting) setInvoicePreview(null); };
+            const fmtIsk = (n) =>
+              Number.isFinite(n) ? Math.round(n).toLocaleString("is-IS") + " ISK" : "—";
+            return (
+              <div onClick={close} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div onClick={e => e.stopPropagation()} style={{ width: 760, maxWidth: "calc(100vw - 40px)", maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>Review invoice before creating in Payday</div>
+                    <button onClick={close} disabled={submitting} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: submitting ? "not-allowed" : "pointer", lineHeight: 1, opacity: submitting ? 0.5 : 1 }}>×</button>
+                  </div>
+                  <div style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 16, fontFamily: "JetBrains Mono", lineHeight: 1.5 }}>
+                    Payday's API only creates finalized invoices — clicking Confirm will put this on Payday's books.
+                    Nothing's been sent to Payday yet.
+                  </div>
+
+                  {/* Job + customer summary */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, background: "rgba(0,0,0,0.15)", padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <div><span style={{ color: TEXT_DIM }}>Customer:</span> <strong>{cruiseLine?.name || <span style={{ color: IPS_DANGER }}>not resolved</span>}</strong></div>
+                    <div><span style={{ color: TEXT_DIM }}>Rate sheet:</span> {sheet?.label || invoicePreview.rateSheetKey}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Ship:</span> {job.ship || "—"}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Job date:</span> {job.date}{job.port === "AK" ? " · AK" : ""}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Invoice date:</span> {payload.invoiceDate}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Due / Final:</span> {payload.dueDate}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Reference:</span> {payload.reference || <span style={{ color: TEXT_DIM, fontStyle: "italic" }}>(empty)</span>}</div>
+                    <div><span style={{ color: TEXT_DIM }}>Currency:</span> {payload.currencyCode}</div>
+                  </div>
+
+                  {/* Line items */}
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Lines ({rows.length})</div>
+                  <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 60px 110px 60px 120px", gap: 8, padding: "8px 12px", fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono", textTransform: "uppercase", letterSpacing: 1, background: "rgba(0,0,0,0.2)" }}>
+                      <span>Description</span><span style={{ textAlign: "right" }}>Qty</span><span style={{ textAlign: "right" }}>Unit</span><span style={{ textAlign: "right" }}>Excl. VAT</span><span style={{ textAlign: "center" }}>VAT %</span><span style={{ textAlign: "right" }}>Total</span>
+                    </div>
+                    {rows.map((r, i) => {
+                      const line = payload.lines[i] || {};
+                      return (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 50px 60px 110px 60px 120px", gap: 8, padding: "8px 12px", fontSize: 12, borderTop: `1px solid ${BORDER}`, alignItems: "center" }}>
+                          <span>{r.resource}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{r.amount}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", color: TEXT_DIM, fontSize: 11 }}>{r.timeUnit}</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono" }}>{r.unitPrice}</span>
+                          <span style={{ textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 11, color: line.vatRate === 0 ? IPS_WARN : TEXT_DIM }}>{line.vatRate}%</span>
+                          <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{r.total}</span>
+                        </div>
+                      );
+                    })}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", padding: "10px 12px", borderTop: `2px solid ${BORDER}`, background: "rgba(0,0,0,0.15)", fontSize: 13, fontWeight: 700 }}>
+                      <span>Total (excl. VAT)</span>
+                      <span style={{ textAlign: "right", fontFamily: "JetBrains Mono", color: IPS_ACCENT }}>{fmtIsk(total)}</span>
+                    </div>
+                  </div>
+
+                  {/* Comment */}
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Comment</div>
+                  <pre style={{ margin: 0, marginBottom: 16, padding: 10, background: "rgba(0,0,0,0.2)", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", color: TEXT, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{payload.comment || "(empty)"}</pre>
+
+                  {error && (
+                    <div style={{ padding: "10px 14px", background: `${IPS_DANGER}15`, border: `1px solid ${IPS_DANGER}`, borderRadius: 8, marginBottom: 12, fontSize: 12, color: IPS_DANGER, fontFamily: "JetBrains Mono" }}>{error}</div>
+                  )}
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                    <button onClick={close} disabled={submitting} style={{ padding: "10px 20px", borderRadius: 8, cursor: submitting ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif", opacity: submitting ? 0.5 : 1 }}>Cancel</button>
+                    <button onClick={confirmInvoice} disabled={submitting} style={{ padding: "10px 24px", borderRadius: 8, cursor: submitting ? "wait" : "pointer", background: submitting ? "rgba(87,181,200,0.4)" : IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>
+                      {submitting ? "Creating in Payday…" : "Confirm — download PDF & create"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ═══ JOBS VIEW ═══ */}
           {wsView === "jobs" && (<>

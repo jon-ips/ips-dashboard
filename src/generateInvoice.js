@@ -269,10 +269,17 @@ function loadImage(src) {
  * can feed the same numbers to the Payday draft submitter without
  * recomputing. Returns null on failure (the user has already been alerted).
  *
+ *   @param {object} [opts]
+ *   @param {boolean} [opts.skipDownload=false]
+ *     When true, compute and render the PDF but do NOT call doc.save() —
+ *     useful for the Preview modal where the rows are needed but spamming
+ *     the user's Downloads folder before they've confirmed would be rude.
+ *
  *   @returns {{ rows, total }} on success
  *   @returns {null}           on missing rate sheet, empty hours, or error
  */
-export default async function generateInvoice(job, rateSheetKey) {
+export default async function generateInvoice(job, rateSheetKey, opts = {}) {
+  const skipDownload = !!opts.skipDownload;
   try {
     const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
     const sheet = RATE_SHEETS[rateSheetKey];
@@ -398,10 +405,12 @@ export default async function generateInvoice(job, rateSheetKey) {
     doc.setTextColor(150);
     doc.text("Iceland Port Services", pageW / 2, 288, { align: "center" });
 
-    // Save
-    const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
-    const dateSlug = job.date || "undated";
-    doc.save(`IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`);
+    // Save (unless caller is just previewing — see opts.skipDownload).
+    if (!skipDownload) {
+      const shipName = (job.ship || "job").replace(/[^a-zA-Z0-9]/g, "_");
+      const dateSlug = job.date || "undated";
+      doc.save(`IPS_Invoice_${jt.label.replace(/\s/g, "_")}_${shipName}_${dateSlug}.pdf`);
+    }
 
     return { rows, total: grandTotal };
   } catch (err) {
