@@ -122,16 +122,23 @@ async function paydayRequest(endpoint, { method = "GET", params = {}, body = nul
       const rawBody = await res.text().catch(() => "");
       let parsed = null;
       try { parsed = rawBody ? JSON.parse(rawBody) : null; } catch { /* not JSON */ }
+      // 405 Method Not Allowed MUST include an `Allow` header listing the
+      // accepted methods (RFC 9110 §15.5.6). When attachment uploads fail
+      // with 405, the Allow header tells us exactly which verb to use
+      // (PUT vs POST vs PATCH) — without it we're guessing again.
+      const allow = res.headers.get("allow") || res.headers.get("Allow") || null;
       const error = {
         status: res.status,
         statusText: res.statusText,
         url,
         method,
-        // Surface a useful message even when the body is empty.
+        allow,
+        // Surface a useful message even when the body is empty. Include
+        // the Allow header when present so the message itself is useful.
         message: parsed?.message
               || parsed?.error
               || parsed?.title
-              || (rawBody ? rawBody.slice(0, 500) : `HTTP ${res.status} ${res.statusText}`),
+              || (rawBody ? rawBody.slice(0, 500) : `HTTP ${res.status} ${res.statusText}${allow ? ` (Allow: ${allow})` : ""}`),
         body: parsed ?? rawBody,
       };
       // Log the full diagnostic to the console so the developer can copy it.

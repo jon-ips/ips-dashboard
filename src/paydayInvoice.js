@@ -227,13 +227,19 @@ export async function probeAttachmentUpload() {
   const e = res.error || {};
   const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
   const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
-  const combined  = [statusBit, msgBit].filter(Boolean).join(" — ");
+  // On 405 the Allow header is the diagnostic — list the methods Payday
+  // accepts at this URL so we know whether to switch to PUT, PATCH, etc.
+  // without another round trip through the browser console.
+  const allowBit  = e.allow ? `Allow: ${e.allow}` : "";
+  const combined  = [statusBit, msgBit, allowBit].filter(Boolean).join(" — ");
   return {
     ok: false,
     error:
       `Attachment upload test failed (${combined || "no detail"}). ` +
-      `No new invoice was created. The endpoint path is likely right but the ` +
-      `multipart field name may be wrong — full response is in the browser console.`,
+      `No new invoice was created. ` +
+      (e.status === 405
+        ? `405 means the URL is right but POST isn't accepted — the Allow header above lists the methods that are.`
+        : `The endpoint path is likely right but the multipart field name may be wrong — full response is in the browser console.`),
   };
 }
 
