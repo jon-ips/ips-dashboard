@@ -65,13 +65,19 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // composition is required here.
   const reference = po;
 
-  // Comment block (Athugasemdir): three blocks separated by blank lines.
+  // Description block (Athugasemdir): three blocks separated by blank lines.
   //   <ship> - <berth>
   //   <date dd.mm.yyyy>
   //
   //   <full service name>
+  //
+  // Field name: `description` per the invoice attribute table — top
+  // level. We previously sent this as `comment`, which Payday's JSON
+  // create silently ignored (it's a line-level field, not an invoice-
+  // level one). The multipart endpoint isn't as forgiving and 500s on
+  // the unknown field, so we use the documented name.
   const headerLine = [ship, berth].filter(Boolean).join(" - ");
-  const comment = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
+  const description = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
     .filter(part => part !== undefined)
     .join("\n");
 
@@ -113,7 +119,7 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     // in ISK; hardcoded until we have a reason to vary it.
     currencyCode: "ISK",
     reference,
-    comment,
+    description,
     lines,
     // No draft flag.
     //
