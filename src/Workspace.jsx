@@ -1041,9 +1041,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   </div>
 
-                  {/* Comment */}
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Comment</div>
-                  <pre style={{ margin: 0, marginBottom: 16, padding: 10, background: "rgba(0,0,0,0.2)", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", color: TEXT, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{payload.comment || "(empty)"}</pre>
+                  {/* Description */}
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Description</div>
+                  <pre style={{ margin: 0, marginBottom: 16, padding: 10, background: "rgba(0,0,0,0.2)", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", color: TEXT, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{payload.description || "(empty)"}</pre>
 
                   {error && (
                     <div style={{ padding: "10px 14px", background: `${IPS_DANGER}15`, border: `1px solid ${IPS_DANGER}`, borderRadius: 8, marginBottom: 12, fontSize: 12, color: IPS_DANGER, fontFamily: "JetBrains Mono" }}>{error}</div>

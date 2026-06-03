@@ -24,7 +24,7 @@
 // inline.)
 
 import { payday } from "./payday.js";
-import { SERVICE_FULL_NAMES, JOB_TYPES } from "./constants.js";
+import { SERVICE_FULL_NAMES, SERVICE_CODES, JOB_TYPES } from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
 /**
@@ -56,6 +56,23 @@ function shipDisplayName(rawShip) {
 }
 
 /**
+ * Extract the bare reference number from job.po_number — i.e. strip any
+ * trailing service code and/or "AKU" suffix the user may have already
+ * appended (the new-job form auto-fills the full string, but some jobs
+ * are entered with just the raw number). We re-derive the suffix from
+ * job.type and job.port at invoice time so the reference is always
+ * consistent regardless of what's in the po_number field.
+ */
+function bareReferenceNumber(po) {
+  if (!po) return "";
+  const tokens = po.trim().split(/\s+/);
+  const codes = new Set(Object.values(SERVICE_CODES));
+  if (tokens.length > 1 && tokens[tokens.length - 1].toUpperCase() === "AKU") tokens.pop();
+  if (tokens.length > 1 && codes.has(tokens[tokens.length - 1])) tokens.pop();
+  return tokens.join(" ");
+}
+
+/**
  * Build the Payday create-invoice payload from a job + context.
  *
  * @param {object} job              the completed job (with cruise_line_id, po_number, berth, type, date)
@@ -67,29 +84,40 @@ function shipDisplayName(rawShip) {
 export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDate) {
   const fullName = SERVICE_FULL_NAMES[job.type] || JOB_TYPES[job.type]?.label || job.type;
   const ship = shipDisplayName(job.ship);
-  const berth = (job.berth || "").trim();
-  const po = (job.po_number || "").trim();
 
   const termsDays = Number.isFinite(cruiseLine?.payment_terms_days) ? cruiseLine.payment_terms_days : 30;
   const dueDate = addDays(job.date, termsDays);
 
-  // Reference: use the PO field verbatim. The new-job form auto-fills it
-  // with the full "{base} {ServiceCode} [AKU]" string, so no further
-  // composition is required here.
-  const reference = po;
+  // Reference (Payday's "Tilvísun"): always "<refNumber> <ServiceCode> [AKU]".
+  // The new-job form auto-fills po_number with the composed string, but
+  // some jobs are saved with just the raw number — and the colleague
+  // sometimes edits the field directly. Re-compose from the job's
+  // canonical type and port so the reference is invariant regardless of
+  // what's stored. bareReferenceNumber strips any trailing code/AKU
+  // already on po_number so we don't double-append.
+  const refNumber = bareReferenceNumber(job.po_number);
+  const code = SERVICE_CODES[job.type] || "";
+  const akuSuffix = job.port === "AK" ? "AKU" : "";
+  const reference = [refNumber, code, akuSuffix].filter(Boolean).join(" ");
 
-  // Description block (Athugasemdir): three blocks separated by blank lines.
-  //   <ship> - <berth>
+  // Description block (Payday's "Athugasemdir"): four lines, blank in
+  // the middle.
+  //   <ship> - <location>
   //   <date dd.mm.yyyy>
-  //
+  //   <blank>
   //   <full service name>
+  //
+  // Location is the city, not the berth — "Akureyri" for AK jobs,
+  // "Reykjavík" otherwise — so the customer recognises where the work
+  // happened without having to know berth names.
   //
   // Field name: `description` per the invoice attribute table — top
   // level. We previously sent this as `comment`, which Payday's JSON
   // create silently ignored (it's a line-level field, not an invoice-
   // level one). The multipart endpoint isn't as forgiving and 500s on
   // the unknown field, so we use the documented name.
-  const headerLine = [ship, berth].filter(Boolean).join(" - ");
+  const location = job.port === "AK" ? "Akureyri" : "Reykjavík";
+  const headerLine = [ship, location].filter(Boolean).join(" - ");
   const description = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
     .filter(part => part !== undefined)
     .join("\n");
