@@ -160,27 +160,45 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   //     "unit price excluding VAT or unit price including VAT must be
   //     specified".
   //   - Our rate sheets are all stored ex-VAT (VAT is added on top per
-  //     line via `vatRate`), so unitPriceIsk maps directly to
+  //     line via `vatPercentage`), so unitPriceIsk maps directly to
   //     unitPriceExcludingVat with no conversion.
+  //
+  // Why we send BOTH unit price fields (ex and inc VAT):
+  // In practice Payday landed our ex-VAT value of 19,790 in the
+  // *with-VAT* column (Með VSK) and back-calculated 19,790 / 1.24 →
+  // 15,960 for the ex-VAT column (Án VSK) — i.e. it treated
+  // `unitPriceExcludingVat` as if it were `unitPriceIncludingVat`,
+  // contradicting their own docs example. Could be a customer-level
+  // "prices include VAT" setting, a JSON-vs-multipart parsing quirk,
+  // or a server bug; in any case we can't control which side Payday
+  // trusts. Sending BOTH fields with internally-consistent values
+  // (inc = exc × (1 + vat/100)) makes the resulting display correct
+  // regardless of which field Payday uses as its source of truth.
+  //
+  // Note: we deliberately do NOT pre-round the inc-VAT value. JSON
+  // serialises decimals fine, and Payday's screen rounds for display
+  // anyway. Pre-rounding here would risk an exc/inc mismatch that
+  // could trip a server-side validation.
   const lines = rows.map(r => {
-    const unitPrice = Number(r.unitPriceIsk) || 0;
-    const total     = Number(r._totalNum)    || 0;
-    const quantity  = unitPrice > 0
-      ? Math.round((total / unitPrice) * 100) / 100
+    const unitExc  = Number(r.unitPriceIsk) || 0;
+    const total    = Number(r._totalNum)    || 0;
+    const quantity = unitExc > 0
+      ? Math.round((total / unitExc) * 100) / 100
       : (Number(r.amount) || 0);
+    const vatPct   = vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate);
+    const unitInc  = unitExc * (1 + vatPct / 100);
     return {
       description:           r.resource,
       quantity,
-      unitPriceExcludingVat: unitPrice,
-      // per-line VAT — uses cruise line + ship + call date + last-Mars-call
-      // lookup. Field name is `vatPercentage` per the invoice line object
-      // table in the docs; we previously sent `vatRate` (the column name
-      // on our side), which Payday silently dropped and then defaulted
-      // every line to 0% VAT. The preview UI happened to render the
-      // right number because it read our own payload's `vatRate` field —
-      // a coincidence that hid the bug until SDK invoices showed up in
+      unitPriceExcludingVat: unitExc,
+      unitPriceIncludingVat: unitInc,
+      // Field name is `vatPercentage` per the docs invoice line object;
+      // we previously sent `vatRate` which Payday silently dropped and
+      // then defaulted every line to 0%. The preview happened to render
+      // the right value because it read our own payload field — a
+      // coincidence that hid the bug until SDK invoices showed up in
       // Payday at 0% when they should have been 24%.
-      vatPercentage:         vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate),
+      vatPercentage:         vatPct,
     };
   });
 
