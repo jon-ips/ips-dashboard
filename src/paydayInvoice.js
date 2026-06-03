@@ -231,12 +231,28 @@ export async function probeAttachmentsEndpoint() {
     if (r.ok) return { ok: true, path: tmpl, attempts };
   }
 
-  // Every candidate 404'd (or otherwise failed). Build a readable summary.
+  // Every candidate 404'd. Before giving up, inspect the existing invoice's
+  // own JSON — attachments may be a FIELD on the invoice (settable inline at
+  // create / via PATCH) rather than a separate sub-resource. This is the
+  // last read-only diagnostic; whatever keys it surfaces tell us how Payday
+  // models attachments (if at all). All read-only — no invoice created.
+  const full = await payday.invoices.get(probeId);
+  const invoiceKeys = full.ok && full.data ? Object.keys(full.data) : [];
+  const attachmentish = invoiceKeys.filter(k =>
+    /attach|file|document|pdf|media|upload/i.test(k));
+
   const summary = attempts.map(a => `  ${a.url} → ${a.status ?? "?"}`).join("\n");
   return {
     ok: false,
     attempts,
-    error: `None of the attachment endpoint guesses resolved. Tried:\n${summary}\nAborting before we create a new invoice. Tell me which to try next, or check Payday's API docs.`,
+    invoiceKeys,
+    attachmentish,
+    error:
+      `None of the attachment sub-resource guesses resolved (all 404):\n${summary}\n\n` +
+      `Existing invoice top-level fields:\n  ${invoiceKeys.join(", ") || "(none returned)"}\n\n` +
+      `Attachment-looking fields: ${attachmentish.length ? attachmentish.join(", ") : "NONE"}\n\n` +
+      `No new invoice was created. If there are no attachment-looking fields, the public ` +
+      `Payday API almost certainly can't attach files — its UI uses private endpoints for that.`,
   };
 }
 
