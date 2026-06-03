@@ -154,31 +154,50 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // The Math.round/100 protects against floating-point dust on the
   // division (e.g. 4.000000000001 → 4).
   //
-  // Field-name notes (learned from Payday error responses):
-  //   - Unit price must be sent as `unitPriceExcludingVat`. The plain
-  //     `unitPrice` field is silently dropped, then Payday 400s with
-  //     "unit price excluding VAT or unit price including VAT must be
-  //     specified".
-  //   - Our rate sheets are all stored ex-VAT (VAT is added on top per
-  //     line via `vatPercentage`), so unitPriceIsk maps directly to
-  //     unitPriceExcludingVat with no conversion.
+  // ── Unit price + VAT payload shape (Payday's quirks documented here)
   //
-  // Why we send BOTH unit price fields (ex and inc VAT):
-  // In practice Payday landed our ex-VAT value of 19,790 in the
-  // *with-VAT* column (Með VSK) and back-calculated 19,790 / 1.24 →
-  // 15,960 for the ex-VAT column (Án VSK) — i.e. it treated
-  // `unitPriceExcludingVat` as if it were `unitPriceIncludingVat`,
-  // contradicting their own docs example. Could be a customer-level
-  // "prices include VAT" setting, a JSON-vs-multipart parsing quirk,
-  // or a server bug; in any case we can't control which side Payday
-  // trusts. Sending BOTH fields with internally-consistent values
-  // (inc = exc × (1 + vat/100)) makes the resulting display correct
-  // regardless of which field Payday uses as its source of truth.
+  // Background — what we tried and what each variant did to the draft:
   //
-  // Note: we deliberately do NOT pre-round the inc-VAT value. JSON
-  // serialises decimals fine, and Payday's screen rounds for display
-  // anyway. Pre-rounding here would risk an exc/inc mismatch that
-  // could trip a server-side validation.
+  //   1) Only `unitPriceExcludingVat: 19790` + `vatPercentage: 24`:
+  //      Payday put 19,790 in the Með VSK (incl-VAT) column and
+  //      back-computed Án VSK = 19,790 / 1.24 = 15,960. The VAT
+  //      percentage WAS respected (24%) but the unit-price field
+  //      arrived in the wrong column. Looked like Payday silently
+  //      treats `unitPriceExcludingVat` as if it were
+  //      `unitPriceIncludingVat` when only one is given — contrary to
+  //      their own docs example, but consistent across multiple draft
+  //      creates we observed.
+  //
+  //   2) Both `unitPriceExcludingVat: 19790` + `unitPriceIncludingVat:
+  //      24539.6` + `vatPercentage: 24`:
+  //      Payday respected `unitPriceExcludingVat` as ex-VAT (Án VSK
+  //      = 19,790 ✓) but silently set VAT to 0% on every line, and
+  //      computed Með VSK = 19,790 × (1 + 0) = 19,790. Most plausible
+  //      cause: when both prices are present, Payday infers VAT from
+  //      the inc/exc ratio, hits float-precision dust from
+  //      19790 × 1.24, can't quantize it to a "valid" Icelandic VAT
+  //      rate, and falls back to 0% — ignoring our explicit
+  //      `vatPercentage`. (The SDK customer's default IS 24% in
+  //      Payday — manual invoices to it default correctly. It's our
+  //      payload, specifically the both-prices form, that overrides
+  //      to 0%.)
+  //
+  //   3) Only `unitPriceIncludingVat: 24539.6` + `vatPercentage: 24`
+  //      (this version): single price field avoids the both-prices
+  //      VAT-inference path entirely, and the inc-VAT field name
+  //      matches the column Payday wants to display. Payday should
+  //      back-compute Án VSK = 24,539.6 / 1.24 = 19,790 ✓ and apply
+  //      VAT 24% ✓ as we explicitly send it.
+  //
+  // We deliberately do NOT also send `unitPriceExcludingVat` because
+  // variant 2 demonstrated that triggers VAT to be inferred (and
+  // silently zeroed). Math.round(... * 100) / 100 strips float dust on
+  // the multiplication, so the inc-VAT value serialises cleanly as a
+  // 2-decimal value rather than 24539.60000000004.
+  //
+  // Unpriced rows (no rate sheet match) still come through with
+  // unitInc = 0; the line stays visible at qty = r.amount, and the
+  // user types the missing rate in Payday's UI.
   const lines = rows.map(r => {
     const unitExc  = Number(r.unitPriceIsk) || 0;
     const total    = Number(r._totalNum)    || 0;
@@ -186,18 +205,11 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
       ? Math.round((total / unitExc) * 100) / 100
       : (Number(r.amount) || 0);
     const vatPct   = vatRateFor(cruiseLine?.name, ship, job.date, lastVikingMarsDate);
-    const unitInc  = unitExc * (1 + vatPct / 100);
+    const unitInc  = Math.round(unitExc * (1 + vatPct / 100) * 100) / 100;
     return {
       description:           r.resource,
       quantity,
-      unitPriceExcludingVat: unitExc,
       unitPriceIncludingVat: unitInc,
-      // Field name is `vatPercentage` per the docs invoice line object;
-      // we previously sent `vatRate` which Payday silently dropped and
-      // then defaulted every line to 0%. The preview happened to render
-      // the right value because it read our own payload field — a
-      // coincidence that hid the bug until SDK invoices showed up in
-      // Payday at 0% when they should have been 24%.
       vatPercentage:         vatPct,
     };
   });
