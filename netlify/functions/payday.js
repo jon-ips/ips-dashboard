@@ -124,9 +124,22 @@ export const handler = async (event) => {
     }
 
     const body = await res.text();
+    // Forward upstream response headers that matter for client-side
+    // diagnostics. `Allow` is required on 405 responses (RFC 9110
+    // §15.5.6) and tells us which method to use — without forwarding it,
+    // the browser only sees "HTTP 405" with no clue what's accepted.
+    // We allow-list specific headers rather than passing everything
+    // through to avoid leaking server-internal headers.
+    const outHeaders = {
+      "Content-Type": res.headers.get("content-type") || "application/json",
+    };
+    for (const name of ["allow", "www-authenticate", "retry-after", "location"]) {
+      const v = res.headers.get(name);
+      if (v) outHeaders[name.replace(/(^|-)([a-z])/g, (_, p, c) => p + c.toUpperCase())] = v;
+    }
     return {
       statusCode: res.status,
-      headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
+      headers: outHeaders,
       body: body || "",
     };
   } catch (err) {
