@@ -213,6 +213,10 @@ export const payday = {
       fd.append("file", blob, filename);
       return paydayRequest(`/invoices/${invoiceId}/attachments`, { method: "POST", body: fd });
     },
+    // Read-only probe: does GET /invoices/{id}/attachments resolve at all?
+    // Used as a pre-flight check before creating a new invoice so a wrong
+    // URL guess doesn't leave a stray finalized invoice on the books.
+    listAttachments: (invoiceId) => paydayRequest(`/invoices/${invoiceId}/attachments`),
   },
 
   expenses: {

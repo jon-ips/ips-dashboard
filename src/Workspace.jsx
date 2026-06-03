@@ -11,7 +11,7 @@ import generateInvoice from "./generateInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload, uploadInvoiceAttachment, probeAttachmentsEndpoint } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
@@ -121,6 +121,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
       return;
     }
+
+    // ── Probe the attachments endpoint BEFORE creating a new invoice. If
+    // the URL guess is wrong (404), we abort here so a wrong guess never
+    // costs you a real invoice on the books. The probe uses an existing
+    // invoice via GET — read-only, no side effects.
+    const probe = await probeAttachmentsEndpoint();
+    if (!probe.ok) {
+      setInvoicePreview(p => p && ({ ...p, submitting: false, error: probe.error }));
+      return;
+    }
+    // probe.skipped is allowed — proceed best-effort (no existing invoices
+    // to probe with, or probe returned a non-404 transient).
 
     // Create the invoice in Payday. If this fails, the PDF is already on
     // disk — the user can hand-upload later, or retry the whole flow.

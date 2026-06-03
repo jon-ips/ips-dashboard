@@ -184,6 +184,46 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
 }
 
 /**
+ * Read-only probe: verify the /invoices/{id}/attachments endpoint actually
+ * exists before we create a new invoice. Uses the most recent existing
+ * invoice as the probe target so we don't have to create anything to
+ * discover whether our URL guess is right.
+ *
+ * Three possible outcomes:
+ *   { ok: true }                  — endpoint resolved, safe to proceed
+ *   { ok: true, skipped: "..." }  — no existing invoice to probe with;
+ *                                   caller should proceed best-effort
+ *   { ok: false, error: "..." }   — endpoint 404'd; caller should abort
+ *                                   BEFORE creating a new invoice
+ */
+export async function probeAttachmentsEndpoint() {
+  const list = await payday.invoices.list({ perpage: 1 });
+  if (!list.ok) {
+    // List itself failed — can't probe. Don't block the create on this.
+    return { ok: true, skipped: "Couldn't list existing invoices for probe." };
+  }
+  const probeId = list.data?.[0]?.id;
+  if (!probeId) {
+    return { ok: true, skipped: "No existing invoices on file to probe against." };
+  }
+  const probe = await payday.invoices.listAttachments(probeId);
+  if (probe.ok) return { ok: true };
+
+  const status = probe.error?.status;
+  if (status === 404) {
+    return {
+      ok: false,
+      error: `Attachment endpoint /invoices/{id}/attachments returned 404. The URL guess is wrong — aborting before we create a new invoice. Next guess to try: POST /attachments with invoiceId in the body, or POST /files.`,
+    };
+  }
+  // 401 / 403 / 5xx — surface the message but don't treat as a hard fail.
+  // Most likely a transient issue or permissions; let the user proceed and
+  // see if the actual upload still works.
+  const msg = probe.error?.message || `HTTP ${status || "?"}`;
+  return { ok: true, skipped: `Probe returned ${msg}; proceeding without strong confidence.` };
+}
+
+/**
  * Upload a file (typically the cost-breakdown PDF) as an attachment on
  * an already-created Payday invoice. Best-effort — the invoice itself
  * still stands even if the attachment fails, so callers should treat a
