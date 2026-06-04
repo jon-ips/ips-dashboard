@@ -833,24 +833,48 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   {isBindingar && (<>
                     <div>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start time</div>
-                      <div style={{ position: "relative", width: 160 }}>
-                        <button onClick={() => setTimePickerOpen(timePickerOpen === 0 ? -1 : 0)} style={{ ...inputStyle, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", width: "100%" }}>
-                          <span style={{ color: jobForm.shifts[0]?.startTime ? TEXT : TEXT_DIM }}>{jobForm.shifts[0]?.startTime || "— Start time —"}</span>
-                          <span style={{ marginLeft: "auto", color: TEXT_DIM, fontSize: 10 }}>▼</span>
-                        </button>
-                        {timePickerOpen === 0 && (<>
-                          <div onClick={() => setTimePickerOpen(-1)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
-                          <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#112F45", border: `1px solid ${BORDER}`, borderRadius: 8, marginTop: 4, padding: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, width: 200, maxHeight: 280, overflowY: "auto" }}>
-                            {Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
-                              <button key={t} onClick={() => { setJobForm(f => ({ ...f, shifts: [{ startTime: t, nextDay: false, equipment: f.shifts[0]?.equipment || {} }] })); setTimePickerOpen(-1); }} style={{
-                                padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: jobForm.shifts[0]?.startTime === t ? 700 : 400, textAlign: "center",
-                                background: jobForm.shifts[0]?.startTime === t ? `${jt.color}25` : "transparent",
-                                border: jobForm.shifts[0]?.startTime === t ? `1px solid ${jt.color}` : "1px solid transparent",
-                                color: jobForm.shifts[0]?.startTime === t ? jt.color : TEXT,
-                              }}>{t}</button>
-                            ))}
-                          </div>
-                        </>)}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <div style={{ position: "relative", width: 160 }}>
+                          <button onClick={() => setTimePickerOpen(timePickerOpen === 0 ? -1 : 0)} style={{ ...inputStyle, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", width: "100%" }}>
+                            <span style={{ color: jobForm.shifts[0]?.startTime ? TEXT : TEXT_DIM }}>{jobForm.shifts[0]?.startTime || "— Start time —"}</span>
+                            <span style={{ marginLeft: "auto", color: TEXT_DIM, fontSize: 10 }}>▼</span>
+                          </button>
+                          {timePickerOpen === 0 && (<>
+                            <div onClick={() => setTimePickerOpen(-1)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+                            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#112F45", border: `1px solid ${BORDER}`, borderRadius: 8, marginTop: 4, padding: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, width: 200, maxHeight: 280, overflowY: "auto" }}>
+                              {Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
+                                <button key={t} onClick={() => { setJobForm(f => ({ ...f, shifts: [{ startTime: t, nextDay: false, equipment: f.shifts[0]?.equipment || {} }] })); setTimePickerOpen(-1); }} style={{
+                                  padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: jobForm.shifts[0]?.startTime === t ? 700 : 400, textAlign: "center",
+                                  background: jobForm.shifts[0]?.startTime === t ? `${jt.color}25` : "transparent",
+                                  border: jobForm.shifts[0]?.startTime === t ? `1px solid ${jt.color}` : "1px solid transparent",
+                                  color: jobForm.shifts[0]?.startTime === t ? jt.color : TEXT,
+                                }}>{t}</button>
+                              ))}
+                            </div>
+                          </>)}
+                        </div>
+                        {(() => {
+                          const cur = jobForm.shifts[0]?.startTime;
+                          const adjust = (delta) => {
+                            if (!cur) return;
+                            const [h, m] = cur.split(":").map(Number);
+                            const total = ((h * 60 + m + delta) % 1440 + 1440) % 1440;
+                            const nh = String(Math.floor(total / 60)).padStart(2, "0");
+                            const nm = String(total % 60).padStart(2, "0");
+                            setJobForm(f => ({ ...f, shifts: [{ ...f.shifts[0], startTime: `${nh}:${nm}` }] }));
+                          };
+                          const btn = (delta, label) => (
+                            <button onClick={() => adjust(delta)} disabled={!cur} style={{
+                              padding: "6px 10px", borderRadius: 6, cursor: cur ? "pointer" : "not-allowed",
+                              background: cur ? `${jt.color}15` : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${cur ? jt.color + "40" : BORDER}`,
+                              color: cur ? jt.color : TEXT_DIM,
+                              fontSize: 11, fontWeight: 700, fontFamily: "JetBrains Mono",
+                              opacity: cur ? 1 : 0.5,
+                            }}>{label}</button>
+                          );
+                          return (<>{btn(-15, "−15")}{btn(15, "+15")}</>);
+                        })()}
                       </div>
                     </div>
                     <div>
