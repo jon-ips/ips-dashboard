@@ -341,6 +341,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setPoAutoFilled(true);
   }, []);
 
+  const openNewBindingarJob = useCallback(() => {
+    setJobForm({ ...defaultJobForm, type: "bindingar", port: "REY", shifts: [emptyShift("bindingar")] });
+    setTimePickerOpen(-1);
+    setJobModal("new");
+    setPoAutoFilled(true);
+  }, []);
+
   const openEditJob = useCallback((job) => {
     const type = job.type || "provisions";
     // Backward compat: old jobs have startTime/equipment at top level
@@ -798,7 +805,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Job Type *</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {Object.entries(JOB_TYPES).map(([k, v]) => (
+                      {Object.entries(JOB_TYPES).filter(([k]) => k !== "bindingar").map(([k, v]) => (
                         <button key={k} onClick={() => setJobForm(f => ({
                           ...f,
                           type: k,
@@ -1306,7 +1313,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       <div style={{ fontSize: 14, fontWeight: 700, color: bjt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Bindingar</div>
                       <div style={{ fontSize: 12, color: TEXT_DIM }}>{bindingarJobs.length} job{bindingarJobs.length !== 1 ? "s" : ""}</div>
                     </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <button onClick={openNewBindingarJob} style={{
+                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
+                        fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                      }}>+ New Bindingar</button>
                       <select value={bindingarMonth} onChange={e => setBindingarMonth(e.target.value)} style={{ ...inputStyle, padding: "6px 10px", width: "auto", cursor: "pointer", colorScheme: "dark", backgroundColor: "#112F45" }}>
                         {[5, 6, 7, 8, 9, 10].map(m => {
                           const val = `2026-${String(m).padStart(2, "0")}`;
@@ -1314,7 +1325,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         })}
                       </select>
                       <button onClick={() => generateBindingarInvoice(bindingarJobs, bYear, bMonthNum - 1)} style={{
-                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
+                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: "rgba(20,184,166,0.12)", border: `1px solid ${bjt.color}`, color: bjt.color,
                         fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
                       }}>Generate {monthLabel} invoice</button>
                     </div>
