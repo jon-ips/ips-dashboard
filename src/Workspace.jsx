@@ -802,6 +802,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   </div>
                   )}
+                  {!isBindingar && (
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Job Type *</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -821,6 +822,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       ))}
                     </div>
                   </div>
+                  )}
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Date *</div>
                     <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value, ship: "" }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
