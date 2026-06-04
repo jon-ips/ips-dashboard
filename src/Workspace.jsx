@@ -8,6 +8,7 @@ import {
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
+import generateBindingarInvoice, { MONTH_NAMES as BINDINGAR_MONTH_NAMES } from "./generateBindingarInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
@@ -52,6 +53,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   // edits the field (or for edits, where we never overwrite). Re-enables if
   // the user clears the field, so they can fall back to the computed value.
   const [poAutoFilled, setPoAutoFilled] = useState(true);
+  // Selected month for the Bindingar monthly invoice generator (YYYY-MM).
+  // Defaults to the current calendar month.
+  const [bindingarMonth, setBindingarMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
   // until DB load completes; the Payday submitter surfaces a clear error
@@ -360,31 +367,51 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;
+    const isBindingar = jobForm.type === "bindingar";
     const cleanShifts = jobForm.shifts
       .map(s => ({ startTime: s.startTime, nextDay: !!s.nextDay, equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0)) }))
       .filter(s => Object.keys(s.equipment).length > 0);
     if (cleanShifts.length === 0) return;
+
+    // Bindingar jobs auto-complete on save with synthesized hoursWorked
+    // (hours: 0 placeholder per group; quantity carries the billing weight).
+    const port = isBindingar ? "REY" : (jobForm.port || "REY");
+    const po_number = isBindingar ? null : (jobForm.po_number?.trim() || null);
+    const completed = isBindingar ? true : undefined;
+    const hoursWorked = isBindingar ? cleanShifts.map(sh => ({
+      startTime: sh.startTime,
+      nextDay: !!sh.nextDay,
+      equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, qty]) => [k, [{ qty, hours: 0 }]])),
+    })) : undefined;
+
     if (jobModal === "new") {
+      const insertPayload = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
+      if (isBindingar) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
+      const localBase = { id: generateId(), port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts, completed: !!completed, createdAt: new Date().toISOString() };
+      if (isBindingar) localBase.hoursWorked = hoursWorked;
       if (SUPABASE_CONFIGURED) {
         let data = null, error = null;
-        try { ({ data, error } = await supabase.from("jobs").insert({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number: jobForm.po_number?.trim() || null, notes: jobForm.notes || null, shifts: cleanShifts })); }
+        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); }
         catch (e) { error = e; }
         if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
         if (data && data[0]) {
           const newJob = rowToJob(data[0]);
           saveJobs([...jobs, newJob]);
         } else {
-          // Fallback: save locally with temp id (will retry sync on next load)
           if (!error) recordSyncError("create", "Supabase returned no row");
-          saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+          saveJobs([...jobs, localBase]);
         }
       } else {
-        saveJobs([...jobs, { id: generateId(), port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts, completed: false, createdAt: new Date().toISOString() }]);
+        saveJobs([...jobs, localBase]);
       }
     } else {
-      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: jobForm.po_number?.trim() || "", notes: jobForm.notes, shifts: cleanShifts } : j));
+      const updatePatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts };
+      if (isBindingar) { updatePatch.completed = true; updatePatch.hoursWorked = hoursWorked; }
+      saveJobs(jobs.map(j => j.id === jobModal ? { ...j, ...updatePatch } : j));
       if (SUPABASE_CONFIGURED) {
-        supabase.from("jobs").update({ port: jobForm.port || "REY", type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number: jobForm.po_number?.trim() || null, notes: jobForm.notes || null, shifts: cleanShifts }).eq("id", jobModal).then(() => {});
+        const dbPatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
+        if (isBindingar) { dbPatch.completed = true; dbPatch.hours_worked = hoursWorked; }
+        supabase.from("jobs").update(dbPatch).eq("id", jobModal).then(() => {});
       }
     }
     setJobModal(null);
@@ -750,8 +777,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
                 </div>
 
-                {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; return (
+                {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; const isBindingar = jobForm.type === "bindingar"; return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {!isBindingar && (
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Port *</div>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -766,12 +794,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       ))}
                     </div>
                   </div>
+                  )}
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Job Type *</div>
-                    <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {Object.entries(JOB_TYPES).map(([k, v]) => (
-                        <button key={k} onClick={() => setJobForm(f => ({ ...f, type: k, shifts: f.shifts.map(s => ({ ...s, equipment: emptyEquip(k) })) }))} style={{
-                          flex: 1, padding: "8px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
+                        <button key={k} onClick={() => setJobForm(f => ({
+                          ...f,
+                          type: k,
+                          port: JOB_TYPES[k]?.reyOnly ? "REY" : f.port,
+                          shifts: f.shifts.map(s => ({ ...s, equipment: emptyEquip(k) })),
+                        }))} style={{
+                          flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, cursor: "pointer", transition: "all 0.2s",
                           background: jobForm.type === k ? `${v.color}18` : "rgba(255,255,255,0.03)",
                           border: `1px solid ${jobForm.type === k ? v.color : BORDER}`,
                           color: jobForm.type === k ? v.color : TEXT_DIM, fontWeight: 600, fontSize: 12,
@@ -796,8 +830,31 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     )}
                   </div>
 
+                  {isBindingar && (
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Resources *</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                        {Object.entries(equipList).map(([k, v]) => {
+                          const qty = jobForm.shifts[0]?.equipment[k] || 0;
+                          const setQty = (newQty) => setJobForm(f => ({
+                            ...f,
+                            shifts: [{ startTime: "", nextDay: false, equipment: { ...(f.shifts[0]?.equipment || {}), [k]: newQty } }],
+                          }));
+                          return (
+                            <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: qty > 0 ? `${jt.color}12` : "rgba(255,255,255,0.03)", border: `1px solid ${qty > 0 ? jt.color : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
+                              <span style={{ fontSize: 12, flex: 1, color: qty > 0 ? TEXT : TEXT_DIM, fontWeight: 500 }}>{v.label}</span>
+                              <button onClick={() => setQty(Math.max(0, qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>−</button>
+                              <span style={{ width: 24, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: qty > 0 ? jt.color : TEXT_DIM }}>{qty}</span>
+                              <button onClick={() => setQty(qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "JetBrains Mono" }}>+</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* ── SHIFTS (start time + equipment per shift) ── */}
-                  {jobForm.shifts.map((shift, si) => (
+                  {!isBindingar && jobForm.shifts.map((shift, si) => (
                     <div key={si} style={{ border: `1px solid ${jobForm.shifts.length > 1 ? jt.color + "40" : BORDER}`, borderRadius: 10, padding: 12, background: jobForm.shifts.length > 1 ? `${jt.color}06` : "transparent" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -862,12 +919,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                     </div>
                   ))}
+                  {!isBindingar && (
                   <button onClick={() => setJobForm(f => ({ ...f, shifts: [...f.shifts, emptyShift(f.type)] }))} style={{
                     width: "100%", padding: "8px 0", borderRadius: 8, cursor: "pointer",
                     background: "rgba(255,255,255,0.03)", border: `1px dashed ${BORDER}`,
                     color: IPS_ACCENT, fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
                   }}>+ Add another start time</button>
+                  )}
                   <div>
+                    {!isBindingar && (<>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>
                       PO Number <span style={{ color: TEXT_DIM, textTransform: "none", letterSpacing: 0 }}>(required to invoice)</span>
                     </div>
@@ -877,6 +937,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       placeholder="e.g. 85231"
                       style={{ ...inputStyle, marginBottom: 16 }}
                     />
+                    </>)}
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Notes</div>
                     <textarea value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional details..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
                   </div>
@@ -1086,7 +1147,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </Card>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[...jobs].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
+                {[...jobs].filter(j => j.type !== "bindingar").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
                   const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
                   return (
                   <Card key={job.id} style={{ padding: "12px 16px", borderLeft: `4px solid ${jt.color}` }}>
@@ -1185,6 +1246,59 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 })}
               </div>
             )}
+
+            {/* ═══ BINDINGAR SECTION ═══ */}
+            {(() => {
+              const bindingarJobs = jobs.filter(j => j.type === "bindingar");
+              const bjt = JOB_TYPES.bindingar;
+              const [bYear, bMonthNum] = bindingarMonth.split("-").map(Number);
+              const monthLabel = `${BINDINGAR_MONTH_NAMES[bMonthNum - 1]} ${bYear}`;
+              return (
+                <div style={{ marginTop: 32 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: bjt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Bindingar</div>
+                      <div style={{ fontSize: 12, color: TEXT_DIM }}>{bindingarJobs.length} job{bindingarJobs.length !== 1 ? "s" : ""}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <select value={bindingarMonth} onChange={e => setBindingarMonth(e.target.value)} style={{ ...inputStyle, padding: "6px 10px", width: "auto", cursor: "pointer", colorScheme: "dark", backgroundColor: "#112F45" }}>
+                        {[5, 6, 7, 8, 9, 10].map(m => {
+                          const val = `2026-${String(m).padStart(2, "0")}`;
+                          return <option key={val} value={val} style={{ background: "#112F45", color: TEXT }}>{BINDINGAR_MONTH_NAMES[m - 1]} 2026</option>;
+                        })}
+                      </select>
+                      <button onClick={() => generateBindingarInvoice(bindingarJobs, bYear, bMonthNum - 1)} style={{
+                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
+                        fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                      }}>Generate {monthLabel} invoice</button>
+                    </div>
+                  </div>
+                  {bindingarJobs.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: "center", fontSize: 13, color: TEXT_DIM, background: "rgba(255,255,255,0.02)", border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
+                      No Bindingar jobs yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[...bindingarJobs].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(job => (
+                        <Card key={job.id} style={{ padding: "10px 14px", borderLeft: `4px solid ${bjt.color}` }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2, flexWrap: "wrap" }}>
+                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
+                                {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
+                              </div>
+                              <div style={{ fontSize: 12, color: TEXT, fontFamily: "JetBrains Mono" }}>{fmtJobEquipment(job)}</div>
+                            </div>
+                            <button onClick={() => openEditJob(job)} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>
+                            <button onClick={() => deleteJob(job.id)} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Del</button>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Recently Deleted */}
             {deletedJobs.length > 0 && (
@@ -1508,8 +1622,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                               {dayJobs.slice(0, 2).map(j => {
                                 const isAK = j.port === "AK";
+                                const isBindingar = j.type === "bindingar";
                                 const jc = isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
-                                const badge = isAK ? "AK" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
+                                const badge = isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
                                 return (
                                 <div key={j.id} onClick={() => openEditJob(j)} style={{
                                   display: "flex", alignItems: "center", gap: 3, cursor: "pointer",

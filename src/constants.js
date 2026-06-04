@@ -487,6 +487,9 @@ export const JOB_TYPES = {
   turnaround:     { label: "Turnaround",     color: "#A78BFA" },
   cherry_picker:  { label: "Cherry Picker",  color: "#3B82F6" },
   special:        { label: "Special",        color: "#06B6D4" },
+  // Bindingar (mooring/tying): REY-only, no hour logging. Billed monthly
+  // in bulk to Faxaflóahafnir at a flat rate per resource per job.
+  bindingar:      { label: "Bindingar",      color: "#14B8A6", reyOnly: true, noHours: true, monthlyBilled: true },
 };
 
 // Service codes used in the Payday invoice "Tilvísun" (reference) field,
@@ -499,6 +502,7 @@ export const SERVICE_CODES = {
   turnaround:    "L",
   cherry_picker: "CP",
   special:       "CP",
+  bindingar:     "B",
 };
 
 // Full service names for the Payday invoice comment (Athugasemdir).
@@ -509,6 +513,7 @@ export const SERVICE_FULL_NAMES = {
   turnaround:    "Luggage Operation",
   cherry_picker: "Cherry Picker rental",
   special:       "Special Operation",
+  bindingar:     "Bindingar",
 };
 
 // Port a job is performed in. Akureyri jobs are SDK-billed by default.
@@ -591,6 +596,12 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     pallet_jack_electric: { label: "Electric Pallet Jack", flatDay: true },
     stevedore:            { label: "Stevedore", human: true },
     porter:               { label: "Porter", human: true },
+  },
+  // Bindingar (mooring): just two resources. No hours, no shifts — the
+  // quantity is the unit. Billed monthly in bulk to Faxaflóahafnir.
+  bindingar: {
+    endamadur: { label: "Endamaður", perJob: true },
+    lyftari:   { label: "Lyftari",   perJob: true },
   },
 };
 
