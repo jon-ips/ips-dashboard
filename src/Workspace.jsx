@@ -10,7 +10,7 @@ import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
 import generateBindingarInvoice, { MONTH_NAMES as BINDINGAR_MONTH_NAMES } from "./generateBindingarInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
-import { extractShipName, getCruiseLineForShip } from "./constants.js";
+import { extractShipName, getCruiseLineForShip, getBerthForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
 import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
@@ -1346,6 +1346,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
                                 {getJobStartTime(job) && <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{getJobStartTime(job)}</span>}
                                 {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
+                                {(() => { const berth = getBerthForShip(job.ship, job.date); return berth ? <span style={{ fontSize: 12, fontWeight: 600, color: bjt.color, background: `${bjt.color}15`, padding: "1px 8px", borderRadius: 4 }}>{berth}</span> : null; })()}
                               </div>
                               <div style={{ fontSize: 12, color: TEXT, fontFamily: "JetBrains Mono" }}>{fmtJobEquipment(job)}</div>
                             </div>
