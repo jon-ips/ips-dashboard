@@ -1220,6 +1220,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
                           {getJobStartTime(job) && <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{getJobStartTime(job)}</span>}
                           {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
+                          {(() => { const berth = getBerthForShip(job.ship, job.date); return berth ? <span style={{ fontSize: 12, fontWeight: 600, color: jt.color, background: `${jt.color}15`, padding: "1px 8px", borderRadius: 4 }}>{berth}</span> : null; })()}
                         </div>
                         <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtJobEquipment(job)}</div>
                         {job.completed && job.hoursWorked && (
