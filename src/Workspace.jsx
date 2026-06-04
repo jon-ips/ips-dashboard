@@ -830,7 +830,29 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     )}
                   </div>
 
-                  {isBindingar && (
+                  {isBindingar && (<>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start time</div>
+                      <div style={{ position: "relative", width: 160 }}>
+                        <button onClick={() => setTimePickerOpen(timePickerOpen === 0 ? -1 : 0)} style={{ ...inputStyle, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", width: "100%" }}>
+                          <span style={{ color: jobForm.shifts[0]?.startTime ? TEXT : TEXT_DIM }}>{jobForm.shifts[0]?.startTime || "— Start time —"}</span>
+                          <span style={{ marginLeft: "auto", color: TEXT_DIM, fontSize: 10 }}>▼</span>
+                        </button>
+                        {timePickerOpen === 0 && (<>
+                          <div onClick={() => setTimePickerOpen(-1)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+                          <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#112F45", border: `1px solid ${BORDER}`, borderRadius: 8, marginTop: 4, padding: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, width: 200, maxHeight: 280, overflowY: "auto" }}>
+                            {Array.from({ length: 48 }, (_, i) => { const idx = (i + 12) % 48; const h = String(Math.floor(idx / 2)).padStart(2, "0"); const m = idx % 2 === 0 ? "00" : "30"; return `${h}:${m}`; }).map(t => (
+                              <button key={t} onClick={() => { setJobForm(f => ({ ...f, shifts: [{ startTime: t, nextDay: false, equipment: f.shifts[0]?.equipment || {} }] })); setTimePickerOpen(-1); }} style={{
+                                padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: jobForm.shifts[0]?.startTime === t ? 700 : 400, textAlign: "center",
+                                background: jobForm.shifts[0]?.startTime === t ? `${jt.color}25` : "transparent",
+                                border: jobForm.shifts[0]?.startTime === t ? `1px solid ${jt.color}` : "1px solid transparent",
+                                color: jobForm.shifts[0]?.startTime === t ? jt.color : TEXT,
+                              }}>{t}</button>
+                            ))}
+                          </div>
+                        </>)}
+                      </div>
+                    </div>
                     <div>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Resources *</div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
@@ -838,7 +860,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           const qty = jobForm.shifts[0]?.equipment[k] || 0;
                           const setQty = (newQty) => setJobForm(f => ({
                             ...f,
-                            shifts: [{ startTime: "", nextDay: false, equipment: { ...(f.shifts[0]?.equipment || {}), [k]: newQty } }],
+                            shifts: [{ startTime: f.shifts[0]?.startTime || "", nextDay: false, equipment: { ...(f.shifts[0]?.equipment || {}), [k]: newQty } }],
                           }));
                           return (
                             <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: qty > 0 ? `${jt.color}12` : "rgba(255,255,255,0.03)", border: `1px solid ${qty > 0 ? jt.color : BORDER}`, borderRadius: 8, padding: "6px 10px" }}>
@@ -851,7 +873,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         })}
                       </div>
                     </div>
-                  )}
+                  </>)}
 
                   {/* ── SHIFTS (start time + equipment per shift) ── */}
                   {!isBindingar && jobForm.shifts.map((shift, si) => (
@@ -1285,6 +1307,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             <div style={{ flex: 1 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2, flexWrap: "wrap" }}>
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
+                                {getJobStartTime(job) && <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: TEXT_DIM }}>{getJobStartTime(job)}</span>}
                                 {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{job.ship}</span>}
                               </div>
                               <div style={{ fontSize: 12, color: TEXT, fontFamily: "JetBrains Mono" }}>{fmtJobEquipment(job)}</div>
