@@ -59,6 +59,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
+  // Collapsable sections in the Jobs view.
+  const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [bindingarCollapsed, setBindingarCollapsed] = useState(false);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
   // until DB load completes; the Payday submitter surfaces a clear error
@@ -1191,11 +1194,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed).length} active job{jobs.filter(j => !j.completed).length !== 1 ? "s" : ""}</div>
+              <button onClick={() => setJobsCollapsed(c => !c)} style={{
+                background: "none", border: "none", cursor: "pointer", padding: 0,
+                display: "flex", alignItems: "center", gap: 10, color: TEXT,
+              }}>
+                <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 12, textAlign: "center" }}>{jobsCollapsed ? "▶" : "▼"}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: TEXT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Jobs</span>
+                <span style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed && j.type !== "bindingar").length} active</span>
+              </button>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
             </div>
 
-            {jobs.length === 0 ? (
+            {!jobsCollapsed && (jobs.length === 0 ? (
               <Card style={{ textAlign: "center", padding: 40 }}>
                 <div style={{ fontSize: 14, color: TEXT_DIM, marginBottom: 12 }}>No job orders yet.</div>
                 <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Log your first job</button>
@@ -1301,7 +1311,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   );
                 })}
               </div>
-            )}
+            ))}
 
             {/* ═══ BINDINGAR SECTION ═══ */}
             {(() => {
@@ -1312,10 +1322,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               return (
                 <div style={{ marginTop: 32 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: bjt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Bindingar</div>
-                      <div style={{ fontSize: 12, color: TEXT_DIM }}>{bindingarJobs.length} job{bindingarJobs.length !== 1 ? "s" : ""}</div>
-                    </div>
+                    <button onClick={() => setBindingarCollapsed(c => !c)} style={{
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      display: "flex", alignItems: "center", gap: 10,
+                    }}>
+                      <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 12, textAlign: "center" }}>{bindingarCollapsed ? "▶" : "▼"}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: bjt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Bindingar</span>
+                      <span style={{ fontSize: 12, color: TEXT_DIM }}>{bindingarJobs.length} job{bindingarJobs.length !== 1 ? "s" : ""}</span>
+                    </button>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <button onClick={openNewBindingarJob} style={{
                         padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
@@ -1333,7 +1347,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       }}>Generate {monthLabel} invoice</button>
                     </div>
                   </div>
-                  {bindingarJobs.length === 0 ? (
+                  {!bindingarCollapsed && (bindingarJobs.length === 0 ? (
                     <div style={{ padding: 20, textAlign: "center", fontSize: 13, color: TEXT_DIM, background: "rgba(255,255,255,0.02)", border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
                       No Bindingar jobs yet.
                     </div>
@@ -1357,7 +1371,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         </Card>
                       ))}
                     </div>
-                  )}
+                  ))}
                 </div>
               );
             })()}
