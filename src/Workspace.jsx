@@ -1770,7 +1770,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 const jc = isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
                                 const badge = isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
                                 return (
-                                <div key={j.id} onClick={() => openEditJob(j)} style={{
+                                <div key={j.id} onClick={() => openEditJob(j)} title={(() => {
+                                  const typeLabel = (JOB_TYPES[j.type] || JOB_TYPES.provisions).label;
+                                  const shipName = extractShipName(j.ship) || "—";
+                                  const equip = fmtJobEquipment(j);
+                                  return `${typeLabel} for ${shipName}${equip ? ` · ${equip}` : ""} — click to edit`;
+                                })()} style={{
                                   display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
                                   background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
                                   border: `1px solid ${jc}25`, borderRadius: 4, padding: "3px 6px",
