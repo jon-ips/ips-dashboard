@@ -1763,7 +1763,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 32, paddingRight: 32 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32 }}>
                               {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
