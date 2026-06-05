@@ -63,6 +63,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   });
   // Collapsable sections in the Jobs view.
   const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
+  const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
   const [bindingarCollapsed, setBindingarCollapsed] = useState(false);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
@@ -149,6 +151,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       status: "success",
       msg: "Draft invoice created in Payday. The cost-breakdown PDF was saved to your Downloads — attach it to the draft in Payday, review, then click \"Send invoice\".",
     });
+    // Mark the job as invoiced so it moves to the Invoiced section.
+    setJobs(prev => {
+      const updated = prev.map(j => j.id === job.id ? { ...j, invoiced: true } : j);
+      try { localStorage.setItem("ws:jobs", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ invoiced: true }).eq("id", job.id).then(() => {});
   }, [invoicePreview, lastVikingMarsDate]);
 
   const startInvoice = useCallback((job) => {
@@ -236,6 +245,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     po_number: r.po_number || "",
     notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
     completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
+    invoiced: r.invoiced || false,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
   });
 
@@ -1274,11 +1284,24 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <div style={{ fontSize: 14, color: TEXT_DIM, marginBottom: 12 }}>No job orders yet.</div>
                 <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Log your first job</button>
               </Card>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
-                  const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
-                  return (
+            ) : (() => {
+              const realJobs = [...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || ""));
+              const activeJobs = realJobs.filter(j => !j.completed);
+              const completedJobs = realJobs.filter(j => j.completed && !j.invoiced);
+              const invoicedJobs = realJobs.filter(j => j.invoiced);
+              const sectionHeader = (label, count, collapsed, onToggle, color) => (
+                <button onClick={onToggle} style={{
+                  background: "none", border: "none", cursor: "pointer", padding: "8px 0",
+                  display: "flex", alignItems: "center", gap: 8, color: TEXT, marginTop: 4,
+                }}>
+                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
+                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{count}</span>
+                </button>
+              );
+              const renderJobCard = (job) => {
+                const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
+                return (
                   <Card key={job.id} style={{ padding: "12px 16px", borderLeft: `4px solid ${jt.color}` }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                       <button onClick={() => toggleJobComplete(job.id)} style={{
@@ -1343,7 +1366,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         )}
                       </div>
                       <div style={{ display: "flex", gap: 4, position: "relative", zIndex: 2 }}>
-                        {job.completed && job.hoursWorked && (() => {
+                        {job.completed && job.hoursWorked && !job.invoiced && (() => {
                           // Block when prerequisites are missing — show the reason as a tooltip.
                           const missing = [];
                           if (!job.po_number) missing.push("PO number");
@@ -1372,10 +1395,32 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                     </div>
                   </Card>
-                  );
-                })}
-              </div>
-            ))}
+                );
+              };
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {activeJobs.map(renderJobCard)}
+                  </div>
+                  {completedJobs.length > 0 && (<>
+                    {sectionHeader("Completed", completedJobs.length, jobsCompletedCollapsed, () => setJobsCompletedCollapsed(c => !c), IPS_SUCCESS)}
+                    {!jobsCompletedCollapsed && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {completedJobs.map(renderJobCard)}
+                      </div>
+                    )}
+                  </>)}
+                  {invoicedJobs.length > 0 && (<>
+                    {sectionHeader("Invoiced", invoicedJobs.length, jobsInvoicedCollapsed, () => setJobsInvoicedCollapsed(c => !c), IPS_ACCENT)}
+                    {!jobsInvoicedCollapsed && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {invoicedJobs.map(renderJobCard)}
+                      </div>
+                    )}
+                  </>)}
+                </div>
+              );
+            })())}
 
             {/* ═══ BINDINGAR SECTION ═══ */}
             {(() => {
