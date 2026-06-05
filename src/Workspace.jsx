@@ -1702,7 +1702,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 const dateStr = cursor.toISOString().slice(0, 10);
                 if (dateStr >= monthStart && dateStr <= monthEnd) {
                   if (!pendingByDate[dateStr]) pendingByDate[dateStr] = [];
-                  pendingByDate[dateStr].push({ ship: s.ship, port: s.port || "REY", line: s.line });
+                  pendingByDate[dateStr].push({ ship: s.ship, port: s.port || "REY", line: s.line, berth: s.berth || "" });
                 }
                 cursor.setDate(cursor.getDate() + 1);
               }
@@ -1777,7 +1777,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
                                 }}>
                                   <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
-                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
                                   {j.ship && (
                                     <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
                                       flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
@@ -1795,7 +1795,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   border: `1px dashed ${IPS_WARN}80`, borderRadius: 4, padding: "3px 6px",
                                 }}>
                                   <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_WARN, flexShrink: 0 }}>ORDER</span>
-                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
                                 </div>
                               ))}
                               {dayTasks.map(t => {
