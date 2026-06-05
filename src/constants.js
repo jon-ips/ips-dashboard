@@ -464,7 +464,12 @@ export function getCruiseLineForShip(shipStr, dateIso) {
   );
   return entry?.line || "";
 }
-export const SDK_LINES = ["Aida", "Ambassador", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
+export const SDK_LINES = ["Aida", "Ambassador", "Carnival UK", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
+
+// Cruise lines IPS has a direct contract with (no SDK/Samskip agent in between).
+// Used together with SDK_LINES to drive the calendar's "ORDER missing" pills:
+// any visit by one of these lines without a logged job shows up as pending.
+export const DIRECT_CONTRACT_LINES = ["Viking", "Holland America", "Seabourn", "Princess"];
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
 export const PROSPECT_GROUPS = {

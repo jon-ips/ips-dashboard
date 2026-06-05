@@ -5,6 +5,7 @@ import {
   SURFACE, BORDER, TEXT, TEXT_DIM,
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
   JOB_TYPES, JOB_EQUIPMENT_BY_TYPE, PORTS,
+  SDK_LINES, DIRECT_CONTRACT_LINES,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
@@ -346,6 +347,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   const openNewBindingarJob = useCallback(() => {
     setJobForm({ ...defaultJobForm, type: "bindingar", port: "REY", shifts: [emptyShift("bindingar")] });
+    setTimePickerOpen(-1);
+    setJobModal("new");
+    setPoAutoFilled(true);
+  }, []);
+
+  // Open the new-job form with date/ship/port pre-filled (used by the
+  // calendar's "ORDER missing" pills for contracted/SDK ships).
+  const openNewJobForShip = useCallback((shipName, dateStr, port) => {
+    setJobForm({ ...defaultJobForm, date: dateStr, ship: shipName, port: port || "REY", shifts: [emptyShift("provisions")] });
     setTimePickerOpen(-1);
     setJobModal("new");
     setPoAutoFilled(true);
@@ -1643,6 +1653,46 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               }
             });
 
+            // Build pending-order map for SDK + directly-contracted ships
+            // whose port call has no logged job yet. One pill per day of the
+            // visit's date range; if ANY job exists for the ship within the
+            // range, no pills for that visit.
+            const ordersableLines = new Set([...SDK_LINES, ...DIRECT_CONTRACT_LINES]);
+            const jobDatesByShip = new Map();
+            jobs.forEach(j => {
+              const sn = extractShipName(j.ship);
+              if (!sn || !j.date) return;
+              if (!jobDatesByShip.has(sn)) jobDatesByShip.set(sn, new Set());
+              jobDatesByShip.get(sn).add(j.date);
+            });
+            const monthStart = `${year}-${String(monthIdx + 1).padStart(2, "0")}-01`;
+            const monthEnd = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+            const pendingByDate = {};
+            SHIPS.forEach(s => {
+              if (!ordersableLines.has(s.line)) return;
+              const start = s.date;
+              const end = s.endDate || s.date;
+              if (end < monthStart || start > monthEnd) return; // visit not in this month
+              const shipJobDates = jobDatesByShip.get(s.ship);
+              let alreadyOrdered = false;
+              if (shipJobDates) {
+                for (const d of shipJobDates) {
+                  if (d >= start && d <= end) { alreadyOrdered = true; break; }
+                }
+              }
+              if (alreadyOrdered) return;
+              const cursor = new Date(start + "T00:00:00");
+              const endDt = new Date(end + "T00:00:00");
+              while (cursor <= endDt) {
+                const dateStr = cursor.toISOString().slice(0, 10);
+                if (dateStr >= monthStart && dateStr <= monthEnd) {
+                  if (!pendingByDate[dateStr]) pendingByDate[dateStr] = [];
+                  pendingByDate[dateStr].push({ ship: s.ship, port: s.port || "REY", line: s.line });
+                }
+                cursor.setDate(cursor.getDate() + 1);
+              }
+            });
+
             const prevMonth = () => {
               if (wsCalMonth === 0) { setWsCalMonth(11); setWsCalYear(y => y - 1); }
               else setWsCalMonth(m => m - 1);
@@ -1674,7 +1724,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                         const dayTasks = tasksByDate[dateStr] || [];
                         const dayJobs = jobsByDate[dateStr] || [];
-                        const totalItems = dayTasks.length + dayJobs.length;
+                        const dayPending = pendingByDate[dateStr] || [];
+                        const totalItems = dayTasks.length + dayJobs.length + dayPending.length;
                         const today = new Date().toISOString().split("T")[0];
                         const isToday = dateStr === today;
                         const isWeekend = di >= 5;
@@ -1713,7 +1764,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 </div>
                                 );
                               })}
-                              {dayTasks.slice(0, Math.max(1, 4 - dayJobs.length)).map(t => {
+                              {dayPending.slice(0, Math.max(0, 4 - dayJobs.slice(0, 2).length)).map((p, pi) => (
+                                <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
+                                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+                                  background: "rgba(245,158,11,0.06)",
+                                  border: `1px dashed ${IPS_WARN}80`, borderRadius: 4, padding: "3px 6px",
+                                }}>
+                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_WARN, flexShrink: 0 }}>ORDER</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}</span>
+                                </div>
+                              ))}
+                              {dayTasks.slice(0, Math.max(1, 4 - dayJobs.length - dayPending.length)).map(t => {
                                 const p = WS_PROJECTS[t.project] || WS_PROJECTS.general;
                                 const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
                                 return (
