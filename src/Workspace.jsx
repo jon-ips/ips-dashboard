@@ -361,6 +361,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setPoAutoFilled(true);
   }, []);
 
+  // Bindingar variant, pre-filled with a specific date (used by the calendar's
+  // bottom-right B button on each day cell).
+  const openNewBindingarJobForDate = useCallback((dateStr) => {
+    setJobForm({ ...defaultJobForm, type: "bindingar", port: "REY", date: dateStr, shifts: [emptyShift("bindingar")] });
+    setTimePickerOpen(-1);
+    setJobModal("new");
+    setPoAutoFilled(true);
+  }, []);
+
   const openEditJob = useCallback((job) => {
     const type = job.type || "provisions";
     // Backward compat: old jobs have startTime/equipment at top level
@@ -1754,7 +1763,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 22 }}>
                               {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
@@ -1805,6 +1814,20 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 );
                               })}
                             </div>
+                            <button onClick={(e) => { e.stopPropagation(); openNewBindingarJobForDate(dateStr); }}
+                              title="Log Bindingar for this day"
+                              style={{
+                                position: "absolute", bottom: 4, right: 4,
+                                width: 18, height: 18, borderRadius: 4,
+                                background: `${JOB_TYPES.bindingar.color}25`,
+                                border: `1px solid ${JOB_TYPES.bindingar.color}70`,
+                                color: JOB_TYPES.bindingar.color,
+                                cursor: "pointer", padding: 0,
+                                fontSize: 10, fontWeight: 700, lineHeight: 1,
+                                fontFamily: "JetBrains Mono",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                zIndex: 2,
+                              }}>B</button>
                           </div>
                         );
                       })}
