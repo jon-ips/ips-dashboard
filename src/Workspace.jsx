@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
 import {
   SHIPS, IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
@@ -27,6 +27,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [wsSortDir, setWsSortDir] = useState("asc");
   const [wsCalMonth, setWsCalMonth] = useState(new Date().getMonth());
   const [wsCalYear, setWsCalYear] = useState(new Date().getFullYear());
+  const [wsCalLayout, setWsCalLayout] = useState("month"); // "month" | "next5"
   const [wsExpandedTask, setWsExpandedTask] = useState(null);
   const [wsNewNote, setWsNewNote] = useState("");
   const [wsNoteAuthor, setWsNoteAuthor] = useState("jon");
@@ -1722,8 +1723,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               if (!jobDatesByShip.has(sn)) jobDatesByShip.set(sn, new Set());
               jobDatesByShip.get(sn).add(j.date);
             });
-            const monthStart = `${year}-${String(monthIdx + 1).padStart(2, "0")}-01`;
-            const monthEnd = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+            // Date range to render: full month, or the 5 days starting today.
+            const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+            const todayStr = todayDate.toISOString().slice(0, 10);
+            let rangeStart, rangeEnd, next5Dates = null;
+            if (wsCalLayout === "next5") {
+              rangeStart = todayStr;
+              const re = new Date(todayDate); re.setDate(re.getDate() + 4);
+              rangeEnd = re.toISOString().slice(0, 10);
+              next5Dates = [];
+              for (let i = 0; i < 5; i++) {
+                const dd = new Date(todayDate); dd.setDate(dd.getDate() + i);
+                next5Dates.push(dd.toISOString().slice(0, 10));
+              }
+            } else {
+              rangeStart = `${year}-${String(monthIdx + 1).padStart(2, "0")}-01`;
+              rangeEnd = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+            }
             const pendingByDate = {};
             SHIPS.forEach(s => {
               const isAK = s.port === "AK";
@@ -1731,7 +1747,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               if (!orderable) return;
               const start = s.date;
               const end = s.endDate || s.date;
-              if (end < monthStart || start > monthEnd) return; // visit not in this month
+              if (end < rangeStart || start > rangeEnd) return;
               const shipJobDates = jobDatesByShip.get(s.ship);
               let alreadyOrdered = false;
               if (shipJobDates) {
@@ -1744,7 +1760,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const endDt = new Date(end + "T00:00:00");
               while (cursor <= endDt) {
                 const dateStr = cursor.toISOString().slice(0, 10);
-                if (dateStr >= monthStart && dateStr <= monthEnd) {
+                if (dateStr >= rangeStart && dateStr <= rangeEnd) {
                   if (!pendingByDate[dateStr]) pendingByDate[dateStr] = [];
                   pendingByDate[dateStr].push({ ship: s.ship, port: s.port || "REY", line: s.line, berth: s.berth || "" });
                 }
@@ -1761,15 +1777,150 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               else setWsCalMonth(m => m + 1);
             };
 
+            const isNext5 = wsCalLayout === "next5";
+            const cellHeight = isNext5 ? "clamp(320px, 60vh, 600px)" : "clamp(90px, 16vh, 220px)";
+
+            // One day cell — reused for the month grid and the next-5 grid.
+            // `dow` is 0=Mon..6=Sun for weekend tinting.
+            const renderDayCell = (dateStr, dayNum, dow, opts = {}) => {
+              const { showWeekday = false } = opts;
+              const dayTasks = tasksByDate[dateStr] || [];
+              const dayJobs = jobsByDate[dateStr] || [];
+              const dayPending = pendingByDate[dateStr] || [];
+              const totalItems = dayTasks.length + dayJobs.length + dayPending.length;
+              const isToday = dateStr === todayStr;
+              const isWeekend = dow >= 5;
+              const wkLabel = showWeekday ? new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase() : null;
+              return (
+                <div style={{
+                  minHeight: cellHeight, maxHeight: cellHeight,
+                  minWidth: 0, borderRadius: 8, padding: 8, position: "relative",
+                  display: "flex", flexDirection: "column", overflow: "hidden",
+                  background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
+                  border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexShrink: 0 }}>
+                    <span style={{
+                      fontFamily: "JetBrains Mono", fontSize: showWeekday ? "clamp(13px, 1.3vw, 18px)" : "clamp(12px, 1.1vw, 17px)", fontWeight: 700,
+                      color: isToday ? IPS_ACCENT : totalItems > 0 ? TEXT : TEXT_DIM,
+                      minWidth: 22, height: 26, padding: "0 8px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
+                    }}>{wkLabel && <span style={{ fontSize: "clamp(10px, 0.85vw, 12px)", color: TEXT_DIM, fontWeight: 600 }}>{wkLabel}</span>}{dayNum}</span>
+                    {totalItems > 0 && (
+                      <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32, marginRight: 4 }}>
+                    {dayJobs.map(j => {
+                      const isAK = j.port === "AK";
+                      const isBindingar = j.type === "bindingar";
+                      const isNoJob = j.type === "no_job";
+                      const jc = isNoJob ? IPS_DANGER : isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
+                      const badge = isNoJob ? "NO JOB" : isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
+                      return (
+                      <div key={j.id} onClick={() => {
+                        if (isNoJob) {
+                          if (window.confirm(`Remove "no job" for ${extractShipName(j.ship) || "—"}? The order-missing pill will reappear.`)) deleteJob(j.id);
+                          return;
+                        }
+                        openEditJob(j);
+                      }} title={(() => {
+                        if (isNoJob) return `No job for ${extractShipName(j.ship) || "—"} — click to remove`;
+                        const typeLabel = (JOB_TYPES[j.type] || JOB_TYPES.provisions).label;
+                        const shipName = extractShipName(j.ship) || "—";
+                        const equip = fmtJobEquipment(j);
+                        return `${typeLabel} for ${shipName}${equip ? ` · ${equip}` : ""} — click to edit`;
+                      })()} style={{
+                        display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                        background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
+                        border: `1px solid ${jc}25`, borderRadius: 5, padding: "5px 8px",
+                        borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
+                      }}>
+                        <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
+                        <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
+                        {j.ship && (
+                          <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
+                            flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
+                            color: jc, cursor: "pointer", padding: "0 6px", fontSize: "clamp(11px, 0.95vw, 14px)", fontWeight: 700,
+                            lineHeight: 1.2, fontFamily: "JetBrains Mono",
+                          }}>+</button>
+                        )}
+                      </div>
+                      );
+                    })}
+                    {dayPending.map((p, pi) => (
+                      <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
+                        display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                        background: "rgba(239,68,68,0.06)",
+                        border: `1px dashed ${IPS_DANGER}80`, borderRadius: 5, padding: "5px 8px",
+                      }}>
+                        <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
+                        <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
+                      </div>
+                    ))}
+                    {dayTasks.map(t => {
+                      const pr = WS_PROJECTS[t.project] || WS_PROJECTS.general;
+                      const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
+                      return (
+                        <div key={t.id} onClick={() => openEditTask(t)} style={{
+                          display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+                          background: t.completed ? "rgba(255,255,255,0.02)" : `${pr.color}0D`,
+                          border: `1px solid ${pr.color}25`, borderRadius: 4, padding: "3px 6px",
+                          borderLeft: `3px solid ${pr.color}`, opacity: t.completed ? 0.5 : 1,
+                        }}>
+                          <span style={{ width: 16, height: 16, borderRadius: 8, background: `${a.color}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "clamp(8px, 0.7vw, 10px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: a.color, flexShrink: 0 }}>{a.initials}</span>
+                          <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: t.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, textDecoration: t.completed ? "line-through" : "none" }}>{t.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); openNewBindingarJobForDate(dateStr); }}
+                    title="Log Bindingar for this day"
+                    style={{
+                      position: "absolute", bottom: 4, right: 4,
+                      width: 28, height: 28, borderRadius: 5,
+                      background: `${JOB_TYPES.bindingar.color}25`,
+                      border: `1px solid ${JOB_TYPES.bindingar.color}70`,
+                      color: JOB_TYPES.bindingar.color,
+                      cursor: "pointer", padding: 0,
+                      fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      fontFamily: "JetBrains Mono",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      zIndex: 2,
+                    }}>B+</button>
+                </div>
+              );
+            };
+
             return (
               <>
                 <Card style={{ marginBottom: 16, padding: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <button onClick={prevMonth} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono" }}>◀</button>
-                    <div style={{ fontSize: 16, fontWeight: 700 }}>{monthName} {year}</div>
-                    <button onClick={nextMonth} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono" }}>▶</button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <button onClick={prevMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>◀</button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{isNext5 ? "Next 5 Days" : `${monthName} ${year}`}</div>
+                      <button onClick={() => setWsCalLayout(l => l === "next5" ? "month" : "next5")} style={{
+                        background: isNext5 ? IPS_ACCENT : "rgba(87,181,200,0.1)",
+                        border: `1px solid ${IPS_ACCENT}${isNext5 ? "" : "60"}`,
+                        borderRadius: 6, padding: "6px 12px", cursor: "pointer",
+                        color: isNext5 ? "#fff" : IPS_ACCENT, fontSize: 12, fontWeight: 600,
+                        fontFamily: "'Satoshi', 'Inter', sans-serif",
+                      }}>{isNext5 ? "Month View" : "Next 5 Days"}</button>
+                    </div>
+                    <button onClick={nextMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>▶</button>
                   </div>
                 </Card>
+                {isNext5 ? (
+                  <Card style={{ padding: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                      {next5Dates.map((ds) => {
+                        const d = new Date(ds + "T00:00:00");
+                        const dow = (d.getDay() + 6) % 7;
+                        return <Fragment key={ds}>{renderDayCell(ds, d.getDate(), dow, { showWeekday: true })}</Fragment>;
+                      })}
+                    </div>
+                  </Card>
+                ) : (
                 <Card style={{ padding: 12 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginBottom: 4 }}>
                     {dayLabels.map(d => (
@@ -1779,118 +1930,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   {weeks.map((wk, wi) => (
                     <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginBottom: 4 }}>
                       {wk.map((day, di) => {
-                        if (day === null) return <div key={di} style={{ minHeight: "clamp(90px, 16vh, 220px)" }} />;
+                        if (day === null) return <div key={di} style={{ minHeight: cellHeight }} />;
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                        const dayTasks = tasksByDate[dateStr] || [];
-                        const dayJobs = jobsByDate[dateStr] || [];
-                        const dayPending = pendingByDate[dateStr] || [];
-                        const totalItems = dayTasks.length + dayJobs.length + dayPending.length;
-                        const today = new Date().toISOString().split("T")[0];
-                        const isToday = dateStr === today;
-                        const isWeekend = di >= 5;
-                        return (
-                          <div key={di} style={{
-                            minHeight: "clamp(90px, 16vh, 220px)", maxHeight: "clamp(90px, 16vh, 220px)",
-                            minWidth: 0, borderRadius: 8, padding: 8, position: "relative",
-                            display: "flex", flexDirection: "column", overflow: "hidden",
-                            background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
-                            border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
-                          }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexShrink: 0 }}>
-                              <span style={{
-                                fontFamily: "JetBrains Mono", fontSize: "clamp(12px, 1.1vw, 17px)", fontWeight: 700,
-                                color: isToday ? IPS_ACCENT : totalItems > 0 ? TEXT : TEXT_DIM,
-                                minWidth: 22, height: 24, padding: "0 6px", display: "flex", alignItems: "center", justifyContent: "center",
-                                borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
-                              }}>{day}</span>
-                              {totalItems > 0 && (
-                                <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32, marginRight: 4 }}>
-                              {dayJobs.map(j => {
-                                const isAK = j.port === "AK";
-                                const isBindingar = j.type === "bindingar";
-                                const isNoJob = j.type === "no_job";
-                                const jc = isNoJob ? IPS_DANGER : isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
-                                const badge = isNoJob ? "NO JOB" : isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
-                                return (
-                                <div key={j.id} onClick={() => {
-                                  if (isNoJob) {
-                                    if (window.confirm(`Remove "no job" for ${extractShipName(j.ship) || "—"}? The order-missing pill will reappear.`)) deleteJob(j.id);
-                                    return;
-                                  }
-                                  openEditJob(j);
-                                }} title={(() => {
-                                  if (isNoJob) return `No job for ${extractShipName(j.ship) || "—"} — click to remove`;
-                                  const typeLabel = (JOB_TYPES[j.type] || JOB_TYPES.provisions).label;
-                                  const shipName = extractShipName(j.ship) || "—";
-                                  const equip = fmtJobEquipment(j);
-                                  return `${typeLabel} for ${shipName}${equip ? ` · ${equip}` : ""} — click to edit`;
-                                })()} style={{
-                                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
-                                  background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
-                                  border: `1px solid ${jc}25`, borderRadius: 5, padding: "5px 8px",
-                                  borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
-                                }}>
-                                  <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
-                                  <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
-                                  {j.ship && (
-                                    <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
-                                      flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
-                                      color: jc, cursor: "pointer", padding: "0 6px", fontSize: "clamp(11px, 0.95vw, 14px)", fontWeight: 700,
-                                      lineHeight: 1.2, fontFamily: "JetBrains Mono",
-                                    }}>+</button>
-                                  )}
-                                </div>
-                                );
-                              })}
-                              {dayPending.map((p, pi) => (
-                                <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
-                                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
-                                  background: "rgba(239,68,68,0.06)",
-                                  border: `1px dashed ${IPS_DANGER}80`, borderRadius: 5, padding: "5px 8px",
-                                }}>
-                                  <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
-                                  <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
-                                </div>
-                              ))}
-                              {dayTasks.map(t => {
-                                const p = WS_PROJECTS[t.project] || WS_PROJECTS.general;
-                                const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
-                                return (
-                                  <div key={t.id} onClick={() => openEditTask(t)} style={{
-                                    display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
-                                    background: t.completed ? "rgba(255,255,255,0.02)" : `${p.color}0D`,
-                                    border: `1px solid ${p.color}25`, borderRadius: 4, padding: "3px 6px",
-                                    borderLeft: `3px solid ${p.color}`, opacity: t.completed ? 0.5 : 1,
-                                  }}>
-                                    <span style={{ width: 16, height: 16, borderRadius: 8, background: `${a.color}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "clamp(8px, 0.7vw, 10px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: a.color, flexShrink: 0 }}>{a.initials}</span>
-                                    <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: t.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, textDecoration: t.completed ? "line-through" : "none" }}>{t.title}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <button onClick={(e) => { e.stopPropagation(); openNewBindingarJobForDate(dateStr); }}
-                              title="Log Bindingar for this day"
-                              style={{
-                                position: "absolute", bottom: 4, right: 4,
-                                width: 28, height: 28, borderRadius: 5,
-                                background: `${JOB_TYPES.bindingar.color}25`,
-                                border: `1px solid ${JOB_TYPES.bindingar.color}70`,
-                                color: JOB_TYPES.bindingar.color,
-                                cursor: "pointer", padding: 0,
-                                fontSize: 12, fontWeight: 700, lineHeight: 1,
-                                fontFamily: "JetBrains Mono",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                zIndex: 2,
-                              }}>B+</button>
-                          </div>
-                        );
+                        return <Fragment key={di}>{renderDayCell(dateStr, day, di)}</Fragment>;
                       })}
                     </div>
                   ))}
                 </Card>
+                )}
               </>
             );
           })()}
