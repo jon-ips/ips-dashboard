@@ -1737,11 +1737,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         const isWeekend = di >= 5;
                         return (
                           <div key={di} style={{
-                            minHeight: "clamp(90px, 14vh, 180px)", borderRadius: 8, padding: 8, position: "relative",
+                            minHeight: "clamp(90px, 14vh, 180px)", maxHeight: "clamp(90px, 14vh, 180px)",
+                            borderRadius: 8, padding: 8, position: "relative",
+                            display: "flex", flexDirection: "column",
                             background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                             border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
                           }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexShrink: 0 }}>
                               <span style={{
                                 fontFamily: "JetBrains Mono", fontSize: "clamp(12px, 1.1vw, 17px)", fontWeight: 700,
                                 color: isToday ? IPS_ACCENT : totalItems > 0 ? TEXT : TEXT_DIM,
@@ -1752,8 +1754,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              {dayJobs.slice(0, 2).map(j => {
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto" }}>
+                              {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
                                 const jc = isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
@@ -1777,7 +1779,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 </div>
                                 );
                               })}
-                              {dayPending.slice(0, Math.max(0, 4 - dayJobs.slice(0, 2).length)).map((p, pi) => (
+                              {dayPending.map((p, pi) => (
                                 <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
                                   display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
                                   background: "rgba(245,158,11,0.06)",
@@ -1787,7 +1789,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}</span>
                                 </div>
                               ))}
-                              {dayTasks.slice(0, Math.max(1, 4 - dayJobs.length - dayPending.length)).map(t => {
+                              {dayTasks.map(t => {
                                 const p = WS_PROJECTS[t.project] || WS_PROJECTS.general;
                                 const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
                                 return (
@@ -1802,7 +1804,6 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   </div>
                                 );
                               })}
-                              {totalItems > 4 && <div style={{ fontSize: "clamp(9px, 0.8vw, 12px)", color: TEXT_DIM, textAlign: "center" }}>+{totalItems - 4} more</div>}
                             </div>
                           </div>
                         );
