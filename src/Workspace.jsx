@@ -1664,13 +1664,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <Card style={{ padding: 12 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
                     {dayLabels.map(d => (
-                      <div key={d} style={{ textAlign: "center", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "6px 0" }}>{d}</div>
+                      <div key={d} style={{ textAlign: "center", fontSize: "clamp(10px, 0.9vw, 13px)", textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "6px 0" }}>{d}</div>
                     ))}
                   </div>
                   {weeks.map((wk, wi) => (
                     <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
                       {wk.map((day, di) => {
-                        if (day === null) return <div key={di} style={{ minHeight: 90 }} />;
+                        if (day === null) return <div key={di} style={{ minHeight: "clamp(90px, 14vh, 180px)" }} />;
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                         const dayTasks = tasksByDate[dateStr] || [];
                         const dayJobs = jobsByDate[dateStr] || [];
@@ -1680,19 +1680,19 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         const isWeekend = di >= 5;
                         return (
                           <div key={di} style={{
-                            minHeight: 90, borderRadius: 8, padding: 6, position: "relative",
+                            minHeight: "clamp(90px, 14vh, 180px)", borderRadius: 8, padding: 8, position: "relative",
                             background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                             border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                               <span style={{
-                                fontFamily: "JetBrains Mono", fontSize: 12, fontWeight: 700,
+                                fontFamily: "JetBrains Mono", fontSize: "clamp(12px, 1.1vw, 17px)", fontWeight: 700,
                                 color: isToday ? IPS_ACCENT : totalItems > 0 ? TEXT : TEXT_DIM,
-                                width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
+                                minWidth: 22, height: 24, padding: "0 6px", display: "flex", alignItems: "center", justifyContent: "center",
                                 borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
                               }}>{day}</span>
                               {totalItems > 0 && (
-                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 9, fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
+                                <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1703,13 +1703,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 const badge = isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
                                 return (
                                 <div key={j.id} onClick={() => openEditJob(j)} style={{
-                                  display: "flex", alignItems: "center", gap: 3, cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
                                   background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
-                                  border: `1px solid ${jc}25`, borderRadius: 4, padding: "2px 5px",
+                                  border: `1px solid ${jc}25`, borderRadius: 4, padding: "3px 6px",
                                   borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
                                 }}>
-                                  <span style={{ fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
-                                  <span style={{ fontSize: 9, color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}</span>
+                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}</span>
                                 </div>
                                 );
                               })}
@@ -1718,17 +1718,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
                                 return (
                                   <div key={t.id} onClick={() => openEditTask(t)} style={{
-                                    display: "flex", alignItems: "center", gap: 3, cursor: "pointer",
+                                    display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
                                     background: t.completed ? "rgba(255,255,255,0.02)" : `${p.color}0D`,
-                                    border: `1px solid ${p.color}25`, borderRadius: 4, padding: "2px 5px",
+                                    border: `1px solid ${p.color}25`, borderRadius: 4, padding: "3px 6px",
                                     borderLeft: `3px solid ${p.color}`, opacity: t.completed ? 0.5 : 1,
                                   }}>
-                                    <span style={{ width: 14, height: 14, borderRadius: 7, background: `${a.color}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontFamily: "JetBrains Mono", fontWeight: 700, color: a.color, flexShrink: 0 }}>{a.initials}</span>
-                                    <span style={{ fontSize: 9, color: t.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, textDecoration: t.completed ? "line-through" : "none" }}>{t.title}</span>
+                                    <span style={{ width: 16, height: 16, borderRadius: 8, background: `${a.color}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "clamp(8px, 0.7vw, 10px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: a.color, flexShrink: 0 }}>{a.initials}</span>
+                                    <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: t.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, textDecoration: t.completed ? "line-through" : "none" }}>{t.title}</span>
                                   </div>
                                 );
                               })}
-                              {totalItems > 4 && <div style={{ fontSize: 9, color: TEXT_DIM, textAlign: "center" }}>+{totalItems - 4} more</div>}
+                              {totalItems > 4 && <div style={{ fontSize: "clamp(9px, 0.8vw, 12px)", color: TEXT_DIM, textAlign: "center" }}>+{totalItems - 4} more</div>}
                             </div>
                           </div>
                         );

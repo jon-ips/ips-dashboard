@@ -200,7 +200,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           </div>
         </div>
 
-        <div className="page-content" style={{ padding: "20px 28px", maxWidth: 1440 }}>
+        <div className="page-content" style={{ padding: "20px 28px", maxWidth: (activeModule === "workspace" && wsView === "calendar") ? "none" : 1440 }}>
 
         {/* MODULE RENDERING */}
         {activeModule === "market" && (
