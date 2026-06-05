@@ -95,6 +95,7 @@ export function computeAutoPONumber({ ship, date, port, type }) {
   const shipName = extractShipName(ship);
   const cruiseLine = getCruiseLineForShip(ship, date);
   const isSDK = cruiseLine && SDK_LINES.some(l => l.toLowerCase() === cruiseLine.toLowerCase());
+  const isViking = cruiseLine && cruiseLine.toLowerCase() === "viking";
 
   let base = "";
   if (isSDK) {
@@ -106,7 +107,16 @@ export function computeAutoPONumber({ ship, date, port, type }) {
     base = `${d}${m}`;
   }
 
+  // Viking direct-contract prefix: "O" + first two letters of the ship's
+  // name after "Viking " + "REY" — e.g. "Viking Mars" → "OMAREY".
+  let prefix = "";
+  if (isViking && !isSDK) {
+    const afterViking = shipName.replace(/^Viking\s+/i, "").trim();
+    const first2 = afterViking.slice(0, 2).toUpperCase();
+    if (first2.length === 2) prefix = `O${first2}REY `;
+  }
+
   const code = SERVICE_CODES[type] || "";
   const akuSuffix = port === "AK" ? "AKU" : "";
-  return [base, code, akuSuffix].filter(Boolean).join(" ");
+  return prefix + [base, code, akuSuffix].filter(Boolean).join(" ");
 }
