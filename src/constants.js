@@ -495,6 +495,10 @@ export const JOB_TYPES = {
   // Bindingar (mooring/tying): REY-only, no hour logging. Billed monthly
   // in bulk to Faxaflóahafnir at a flat rate per resource per job.
   bindingar:      { label: "Bindingar",      color: "#14B8A6", reyOnly: true, noHours: true, monthlyBilled: true },
+  // "No Job" marker — used when the user has confirmed there is no IPS
+  // work for this ship call. Renders dimmed-red on the calendar instead of
+  // the pending ORDER pill. Not pickable from the type buttons.
+  no_job:         { label: "No Job",         color: "#EF4444", marker: true },
 };
 
 // Service codes used in the Payday invoice "Tilvísun" (reference) field,

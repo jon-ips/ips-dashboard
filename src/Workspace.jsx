@@ -370,6 +370,45 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setPoAutoFilled(true);
   }, []);
 
+  // "Confirm no job" — saves a marker so the ship's pending ORDER pill is
+  // replaced with a dimmed-red "NO JOB" pill instead. Used when there's
+  // really nothing to do for a port call.
+  const confirmNoJob = useCallback(async () => {
+    if (!jobForm.date || !jobForm.ship) return;
+    const port = jobForm.port || "REY";
+    const localRow = {
+      id: generateId(),
+      port,
+      type: "no_job",
+      date: jobForm.date,
+      ship: jobForm.ship,
+      po_number: "",
+      notes: jobForm.notes || "",
+      shifts: [],
+      completed: true,
+      createdAt: new Date().toISOString(),
+    };
+    if (SUPABASE_CONFIGURED) {
+      let data = null, error = null;
+      try {
+        ({ data, error } = await supabase.from("jobs").insert({
+          port, type: "no_job", date: jobForm.date, ship: jobForm.ship,
+          notes: jobForm.notes || null, shifts: [], completed: true,
+        }));
+      } catch (e) { error = e; }
+      if (error) { console.error("Failed to confirm no job:", error); recordSyncError("create", error); }
+      if (data && data[0]) {
+        saveJobs([...jobs, rowToJob(data[0])]);
+      } else {
+        if (!error) recordSyncError("create", "Supabase returned no row");
+        saveJobs([...jobs, localRow]);
+      }
+    } else {
+      saveJobs([...jobs, localRow]);
+    }
+    setJobModal(null);
+  }, [jobForm, jobs, saveJobs, recordSyncError]);
+
   const openEditJob = useCallback((job) => {
     const type = job.type || "provisions";
     // Backward compat: old jobs have startTime/equipment at top level
@@ -1020,9 +1059,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   </div>
                 </div>); })()}
 
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
-                  <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
-                  <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: (JOB_TYPES[jobForm.type] || JOB_TYPES.provisions).color, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 24 }}>
+                  {jobModal === "new" && jobForm.ship && jobForm.date && jobForm.type !== "bindingar" ? (
+                    <button onClick={confirmNoJob} style={{ padding: "10px 16px", borderRadius: 8, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: `1px solid ${IPS_DANGER}50`, color: IPS_DANGER, fontSize: 13, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Confirm no job</button>
+                  ) : <div />}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                    <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: (JOB_TYPES[jobForm.type] || JOB_TYPES.provisions).color, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1219,7 +1263,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               }}>
                 <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 12, textAlign: "center" }}>{jobsCollapsed ? "▶" : "▼"}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: TEXT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Jobs</span>
-                <span style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed && j.type !== "bindingar").length} active</span>
+                <span style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed && j.type !== "bindingar" && j.type !== "no_job").length} active</span>
               </button>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
             </div>
@@ -1231,7 +1275,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </Card>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[...jobs].filter(j => j.type !== "bindingar").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
+                {[...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || "")).map(job => {
                   const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
                   return (
                   <Card key={job.id} style={{ padding: "12px 16px", borderLeft: `4px solid ${jt.color}` }}>
@@ -1767,10 +1811,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
-                                const jc = isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
-                                const badge = isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
+                                const isNoJob = j.type === "no_job";
+                                const jc = isNoJob ? IPS_DANGER : isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
+                                const badge = isNoJob ? "NO JOB" : isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
                                 return (
-                                <div key={j.id} onClick={() => openEditJob(j)} title={(() => {
+                                <div key={j.id} onClick={() => {
+                                  if (isNoJob) {
+                                    if (window.confirm(`Remove "no job" for ${extractShipName(j.ship) || "—"}? The order-missing pill will reappear.`)) deleteJob(j.id);
+                                    return;
+                                  }
+                                  openEditJob(j);
+                                }} title={(() => {
+                                  if (isNoJob) return `No job for ${extractShipName(j.ship) || "—"} — click to remove`;
                                   const typeLabel = (JOB_TYPES[j.type] || JOB_TYPES.provisions).label;
                                   const shipName = extractShipName(j.ship) || "—";
                                   const equip = fmtJobEquipment(j);
