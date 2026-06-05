@@ -103,7 +103,7 @@ export function computeAutoPONumber({ ship, date, port, type }) {
   }
   if (!base) {
     const [, m, d] = date.split("-");
-    base = `${d}.${m}`;
+    base = `${d}${m}`;
   }
 
   const code = SERVICE_CODES[type] || "";
