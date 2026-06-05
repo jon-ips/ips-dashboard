@@ -1796,10 +1796,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               {dayPending.map((p, pi) => (
                                 <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
                                   display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
-                                  background: "rgba(245,158,11,0.06)",
-                                  border: `1px dashed ${IPS_WARN}80`, borderRadius: 4, padding: "3px 6px",
+                                  background: "rgba(239,68,68,0.06)",
+                                  border: `1px dashed ${IPS_DANGER}80`, borderRadius: 4, padding: "3px 6px",
                                 }}>
-                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_WARN, flexShrink: 0 }}>ORDER</span>
+                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
                                   <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
                                 </div>
                               ))}
