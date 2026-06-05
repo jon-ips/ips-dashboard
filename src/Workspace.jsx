@@ -1653,13 +1653,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               }
             });
 
-            // Build pending-order map for SDK + directly-contracted ships
-            // whose port call has no logged job yet. One pill per day of the
-            // visit's date range; if ANY job exists for the ship within the
-            // range, no pills for that visit.
-            const ordersableLines = new Set([...SDK_LINES, ...DIRECT_CONTRACT_LINES]);
+            // Build pending-order map. Rules:
+            //   - Reykjavík: SDK lines OR directly-contracted lines.
+            //   - Akureyri: SDK lines only (direct contracts don't cover AK work).
+            //   - Bindingar jobs do NOT count as ordering the ship — Bindingar
+            //     is mooring (a service to the port), not to the ship — so a
+            //     ship with only a Bindingar job logged still shows as pending.
+            const sdkSet = new Set(SDK_LINES);
+            const directSet = new Set(DIRECT_CONTRACT_LINES);
             const jobDatesByShip = new Map();
             jobs.forEach(j => {
+              if (j.type === "bindingar") return;
               const sn = extractShipName(j.ship);
               if (!sn || !j.date) return;
               if (!jobDatesByShip.has(sn)) jobDatesByShip.set(sn, new Set());
@@ -1669,7 +1673,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             const monthEnd = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
             const pendingByDate = {};
             SHIPS.forEach(s => {
-              if (!ordersableLines.has(s.line)) return;
+              const isAK = s.port === "AK";
+              const orderable = isAK ? sdkSet.has(s.line) : (sdkSet.has(s.line) || directSet.has(s.line));
+              if (!orderable) return;
               const start = s.date;
               const end = s.endDate || s.date;
               if (end < monthStart || start > monthEnd) return; // visit not in this month
