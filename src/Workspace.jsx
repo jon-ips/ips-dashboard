@@ -1763,7 +1763,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 40 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 32, paddingRight: 32 }}>
                               {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
@@ -1823,12 +1823,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               title="Log Bindingar for this day"
                               style={{
                                 position: "absolute", bottom: 4, right: 4,
-                                width: 36, height: 36, borderRadius: 6,
+                                width: 28, height: 28, borderRadius: 5,
                                 background: `${JOB_TYPES.bindingar.color}25`,
                                 border: `1px solid ${JOB_TYPES.bindingar.color}70`,
                                 color: JOB_TYPES.bindingar.color,
                                 cursor: "pointer", padding: 0,
-                                fontSize: 14, fontWeight: 700, lineHeight: 1,
+                                fontSize: 12, fontWeight: 700, lineHeight: 1,
                                 fontFamily: "JetBrains Mono",
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 zIndex: 2,
