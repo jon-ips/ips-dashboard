@@ -1767,6 +1767,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 }}>
                                   <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
                                   <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}</span>
+                                  {j.ship && (
+                                    <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
+                                      flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
+                                      color: jc, cursor: "pointer", padding: "0 5px", fontSize: "clamp(10px, 0.9vw, 13px)", fontWeight: 700,
+                                      lineHeight: 1.2, fontFamily: "JetBrains Mono",
+                                    }}>+</button>
+                                  )}
                                 </div>
                                 );
                               })}
