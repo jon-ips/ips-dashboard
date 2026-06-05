@@ -1779,7 +1779,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   {weeks.map((wk, wi) => (
                     <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginBottom: 4 }}>
                       {wk.map((day, di) => {
-                        if (day === null) return <div key={di} style={{ minHeight: "clamp(90px, 14vh, 180px)" }} />;
+                        if (day === null) return <div key={di} style={{ minHeight: "clamp(90px, 16vh, 220px)" }} />;
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                         const dayTasks = tasksByDate[dateStr] || [];
                         const dayJobs = jobsByDate[dateStr] || [];
@@ -1790,7 +1790,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         const isWeekend = di >= 5;
                         return (
                           <div key={di} style={{
-                            minHeight: "clamp(90px, 14vh, 180px)", maxHeight: "clamp(90px, 14vh, 180px)",
+                            minHeight: "clamp(90px, 16vh, 220px)", maxHeight: "clamp(90px, 16vh, 220px)",
                             minWidth: 0, borderRadius: 8, padding: 8, position: "relative",
                             display: "flex", flexDirection: "column", overflow: "hidden",
                             background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
@@ -1807,7 +1807,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32, marginRight: 4 }}>
                               {dayJobs.map(j => {
                                 const isAK = j.port === "AK";
                                 const isBindingar = j.type === "bindingar";
@@ -1828,17 +1828,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   const equip = fmtJobEquipment(j);
                                   return `${typeLabel} for ${shipName}${equip ? ` · ${equip}` : ""} — click to edit`;
                                 })()} style={{
-                                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
                                   background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
-                                  border: `1px solid ${jc}25`, borderRadius: 4, padding: "3px 6px",
+                                  border: `1px solid ${jc}25`, borderRadius: 5, padding: "5px 8px",
                                   borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
                                 }}>
-                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
-                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
+                                  <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
                                   {j.ship && (
                                     <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
                                       flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
-                                      color: jc, cursor: "pointer", padding: "0 5px", fontSize: "clamp(10px, 0.9vw, 13px)", fontWeight: 700,
+                                      color: jc, cursor: "pointer", padding: "0 6px", fontSize: "clamp(11px, 0.95vw, 14px)", fontWeight: 700,
                                       lineHeight: 1.2, fontFamily: "JetBrains Mono",
                                     }}>+</button>
                                   )}
@@ -1847,12 +1847,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               })}
                               {dayPending.map((p, pi) => (
                                 <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
-                                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
                                   background: "rgba(239,68,68,0.06)",
-                                  border: `1px dashed ${IPS_DANGER}80`, borderRadius: 4, padding: "3px 6px",
+                                  border: `1px dashed ${IPS_DANGER}80`, borderRadius: 5, padding: "5px 8px",
                                 }}>
-                                  <span style={{ fontSize: "clamp(8px, 0.75vw, 11px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
-                                  <span style={{ fontSize: "clamp(9px, 0.85vw, 13px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
+                                  <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
+                                  <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
                                 </div>
                               ))}
                               {dayTasks.map(t => {
