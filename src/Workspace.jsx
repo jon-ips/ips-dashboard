@@ -1718,13 +1718,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   </div>
                 </Card>
                 <Card style={{ padding: 12 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginBottom: 4 }}>
                     {dayLabels.map(d => (
                       <div key={d} style={{ textAlign: "center", fontSize: "clamp(10px, 0.9vw, 13px)", textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", padding: "6px 0" }}>{d}</div>
                     ))}
                   </div>
                   {weeks.map((wk, wi) => (
-                    <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+                    <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginBottom: 4 }}>
                       {wk.map((day, di) => {
                         if (day === null) return <div key={di} style={{ minHeight: "clamp(90px, 14vh, 180px)" }} />;
                         const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -1738,8 +1738,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         return (
                           <div key={di} style={{
                             minHeight: "clamp(90px, 14vh, 180px)", maxHeight: "clamp(90px, 14vh, 180px)",
-                            borderRadius: 8, padding: 8, position: "relative",
-                            display: "flex", flexDirection: "column",
+                            minWidth: 0, borderRadius: 8, padding: 8, position: "relative",
+                            display: "flex", flexDirection: "column", overflow: "hidden",
                             background: isToday ? "rgba(87,181,200,0.06)" : totalItems >= 3 ? "rgba(245,158,11,0.04)" : isWeekend ? "rgba(255,255,255,0.008)" : "rgba(255,255,255,0.015)",
                             border: `1px solid ${isToday ? IPS_ACCENT + "50" : BORDER}`,
                           }}>
