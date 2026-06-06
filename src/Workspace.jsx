@@ -1938,22 +1938,35 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const renderCallCard = (call) => {
                 const isAK = call.port === "AK";
                 const slotsMissing = call.slots.some(s => !s.job && !s.noJob);
-                const slotsAllCovered = call.slots.length > 0 && call.slots.every(s => s.job || s.noJob);
-                const allComplete = slotsAllCovered && call.slots.every(s => s.noJob || s.job?.completed);
-                const leftColor = isAK ? PORTS.AK.color
-                  : slotsMissing ? IPS_DANGER
+                const slotsAllSettled = call.slots.length > 0 && !slotsMissing;
+                const allComplete = slotsAllSettled && call.slots.every(s => s.noJob || s.job?.completed);
+                const leftColor = slotsMissing ? IPS_DANGER
                   : allComplete ? IPS_SUCCESS
-                  : slotsAllCovered ? IPS_ACCENT
+                  : slotsAllSettled ? IPS_SUCCESS
+                  : isAK ? PORTS.AK.color
                   : IPS_WARN;
+                // Settled cards fade back — no action needed. Missing cards
+                // pop with a red wash + a dot next to the ship name so a
+                // glance is enough to spot what still needs attention.
+                const cardBg = slotsMissing ? "rgba(239,68,68,0.08)"
+                  : slotsAllSettled ? "rgba(34,197,94,0.04)"
+                  : "rgba(255,255,255,0.025)";
+                const cardBorder = slotsMissing ? `${IPS_DANGER}55`
+                  : slotsAllSettled ? `${IPS_SUCCESS}40`
+                  : BORDER;
+                const cardOpacity = slotsAllSettled && !slotsMissing ? 0.7 : 1;
                 return (
                   <div key={call.callId} style={{
-                    background: "rgba(255,255,255,0.025)",
-                    border: `1px solid ${BORDER}`,
+                    background: cardBg,
+                    border: `1px solid ${cardBorder}`,
                     borderLeft: `3px solid ${leftColor}`,
                     borderRadius: 5, padding: "4px 6px 5px 7px",
                     display: "flex", flexDirection: "column", gap: 3,
+                    opacity: cardOpacity,
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                      {slotsMissing && <span title="Missing order — needs attention" style={{ width: 7, height: 7, borderRadius: "50%", background: IPS_DANGER, flexShrink: 0, boxShadow: `0 0 0 2px ${IPS_DANGER}33` }} />}
+                      {slotsAllSettled && !slotsMissing && <span title="All services handled" style={{ fontSize: "clamp(10px, 0.9vw, 13px)", color: IPS_SUCCESS, fontWeight: 700, flexShrink: 0, lineHeight: 1 }}>✓</span>}
                       {isAK && <span style={{ fontSize: "clamp(8px, 0.7vw, 10px)", fontWeight: 700, color: PORTS.AK.color, background: `${PORTS.AK.color}22`, padding: "0 4px", borderRadius: 3, flexShrink: 0, fontFamily: "JetBrains Mono", lineHeight: 1.4 }}>AK</span>}
                       <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
                         {call.shipName}{call.berth ? <span style={{ color: TEXT_DIM, fontWeight: 500 }}> · {call.berth}</span> : null}
