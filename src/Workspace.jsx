@@ -248,6 +248,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
     completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
     invoiced: r.invoiced || false,
+    service: r.service || null,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
   });
 
@@ -365,10 +366,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setPoAutoFilled(true);
   }, []);
 
-  // Open the new-job form with date/ship/port pre-filled (used by the
-  // calendar's "ORDER missing" pills for contracted/SDK ships).
-  const openNewJobForShip = useCallback((shipName, dateStr, port) => {
-    setJobForm({ ...defaultJobForm, date: dateStr, ship: shipName, port: port || "REY", shifts: [emptyShift("provisions")] });
+  // Open the new-job form with date/ship/port pre-filled. Optional `type`
+  // is used by the calendar's missing-slot chips so the form opens already
+  // showing the right job type.
+  const openNewJobForShip = useCallback((shipName, dateStr, port, type) => {
+    const t = type || "provisions";
+    setJobForm({ ...defaultJobForm, type: t, date: dateStr, ship: shipName, port: port || "REY", shifts: [emptyShift(t)] });
     setTimePickerOpen(-1);
     setJobModal("new");
     setPoAutoFilled(true);
@@ -389,10 +392,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const confirmNoJob = useCallback(async () => {
     if (!jobForm.date || !jobForm.ship) return;
     const port = jobForm.port || "REY";
+    // The form's current type is the slot the user is opting out of.
+    // Provisions / Waste / Turnaround are the per-service slots; if the
+    // user is in another type we still set service so the slot model
+    // can read it consistently.
+    const service = jobForm.type || "provisions";
     const localRow = {
       id: generateId(),
       port,
       type: "no_job",
+      service,
       date: jobForm.date,
       ship: jobForm.ship,
       po_number: "",
@@ -405,7 +414,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       let data = null, error = null;
       try {
         ({ data, error } = await supabase.from("jobs").insert({
-          port, type: "no_job", date: jobForm.date, ship: jobForm.ship,
+          port, type: "no_job", service, date: jobForm.date, ship: jobForm.ship,
           notes: jobForm.notes || null, shifts: [], completed: true,
         }));
       } catch (e) { error = e; }
@@ -1745,33 +1754,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               }
             });
 
-            // Build jobs map by date
-            const jobsByDate = {};
+            // Bindingar pills render standalone (service to the port, not the
+            // ship), so we keep them in a separate map. Per the user filter,
+            // they may be hidden entirely.
+            const bindingarByDate = {};
             jobs.forEach(j => {
-              if (j.date) {
-                if (!showBindingarInCal && j.type === "bindingar") return;
-                if (!showAkureyriInCal && j.port === "AK") return;
-                if (!jobsByDate[j.date]) jobsByDate[j.date] = [];
-                jobsByDate[j.date].push(j);
-              }
+              if (j.type !== "bindingar" || !j.date) return;
+              if (!showBindingarInCal) return;
+              if (!bindingarByDate[j.date]) bindingarByDate[j.date] = [];
+              bindingarByDate[j.date].push(j);
             });
 
-            // Build pending-order map. Rules:
-            //   - Reykjavík: SDK lines OR directly-contracted lines.
-            //   - Akureyri: SDK lines only (direct contracts don't cover AK work).
-            //   - Bindingar jobs do NOT count as ordering the ship — Bindingar
-            //     is mooring (a service to the port), not to the ship — so a
-            //     ship with only a Bindingar job logged still shows as pending.
-            const sdkSet = new Set(SDK_LINES);
-            const directSet = new Set(DIRECT_CONTRACT_LINES);
-            const jobDatesByShip = new Map();
-            jobs.forEach(j => {
-              if (j.type === "bindingar") return;
-              const sn = extractShipName(j.ship);
-              if (!sn || !j.date) return;
-              if (!jobDatesByShip.has(sn)) jobDatesByShip.set(sn, new Set());
-              jobDatesByShip.get(sn).add(j.date);
-            });
             // Date range to render: full month, or the 5 days starting today.
             const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
             const todayStr = todayDate.toISOString().slice(0, 10);
@@ -1789,30 +1782,68 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               rangeStart = `${year}-${String(monthIdx + 1).padStart(2, "0")}-01`;
               rangeEnd = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
             }
-            const pendingByDate = {};
+
+            // Group jobs by ship name + port so we can attach them to the
+            // matching SHIPS call below.
+            const sdkSet = new Set(SDK_LINES);
+            const directSet = new Set(DIRECT_CONTRACT_LINES);
+            const jobsByShipPort = new Map();
+            jobs.forEach(j => {
+              if (j.type === "bindingar" || !j.date) return;
+              const sn = extractShipName(j.ship);
+              if (!sn) return;
+              const key = `${sn.toLowerCase()}__${j.port || "REY"}`;
+              if (!jobsByShipPort.has(key)) jobsByShipPort.set(key, []);
+              jobsByShipPort.get(key).push(j);
+            });
+
+            // Build a "call card" per (SHIPS row × day in its visit) that the
+            // cell will render. Each card carries the slot state for the
+            // call so the chip rendering stays trivial.
+            const callsByDate = {};
             SHIPS.forEach(s => {
               const isAK = s.port === "AK";
               if (!showAkureyriInCal && isAK) return;
               const orderable = isAK ? sdkSet.has(s.line) : (sdkSet.has(s.line) || directSet.has(s.line));
-              if (!orderable) return;
-              const start = s.date;
-              const end = s.endDate || s.date;
-              if (end < rangeStart || start > rangeEnd) return;
-              const shipJobDates = jobDatesByShip.get(s.ship);
-              let alreadyOrdered = false;
-              if (shipJobDates) {
-                for (const d of shipJobDates) {
-                  if (d >= start && d <= end) { alreadyOrdered = true; break; }
-                }
+              const callStart = s.date;
+              const callEnd = s.endDate || s.date;
+              if (callEnd < rangeStart || callStart > rangeEnd) return;
+              const sn = extractShipName(s.ship);
+              const key = `${sn.toLowerCase()}__${s.port || "REY"}`;
+              const allShipJobs = jobsByShipPort.get(key) || [];
+              const callJobs = allShipJobs.filter(j => j.date >= callStart && j.date <= callEnd);
+
+              const realJob = (t) => callJobs.find(j => j.type === t);
+              // wholeCallNoJob = legacy no_job entries without a service field;
+              // we treat them as opting the entire call out of every slot.
+              const wholeCallNoJob = callJobs.find(j => j.type === "no_job" && !j.service);
+              const noJobFor = (svc) => callJobs.find(j => j.type === "no_job" && (j.service === svc || (wholeCallNoJob && wholeCallNoJob.id === j.id)));
+
+              const slots = [];
+              if (orderable) {
+                slots.push({ type: "provisions", job: realJob("provisions"), noJob: noJobFor("provisions") });
+                slots.push({ type: "waste",      job: realJob("waste"),      noJob: noJobFor("waste") });
+                if (s.turnaround) slots.push({ type: "turnaround", job: realJob("turnaround"), noJob: noJobFor("turnaround") });
               }
-              if (alreadyOrdered) return;
-              const cursor = new Date(start + "T00:00:00");
-              const endDt = new Date(end + "T00:00:00");
+              const extras = callJobs.filter(j => j.type === "cherry_picker" || j.type === "special");
+
+              // Suppress cards that would be 100% empty — non-orderable
+              // ships with no logged jobs (e.g. Carnival when not SDK).
+              if (!orderable && extras.length === 0 && !wholeCallNoJob) return;
+
+              const cursor = new Date(callStart + "T00:00:00");
+              const endDt = new Date(callEnd + "T00:00:00");
               while (cursor <= endDt) {
                 const dateStr = cursor.toISOString().slice(0, 10);
                 if (dateStr >= rangeStart && dateStr <= rangeEnd) {
-                  if (!pendingByDate[dateStr]) pendingByDate[dateStr] = [];
-                  pendingByDate[dateStr].push({ ship: s.ship, port: s.port || "REY", line: s.line, berth: s.berth || "" });
+                  if (!callsByDate[dateStr]) callsByDate[dateStr] = [];
+                  callsByDate[dateStr].push({
+                    callId: `${sn}__${callStart}__${s.port || "REY"}`,
+                    ship: s.ship, shipName: sn, port: s.port || "REY", line: s.line,
+                    berth: s.berth || "", turnaround: !!s.turnaround,
+                    orderable, callStart, callEnd,
+                    slots, extras, wholeCallNoJob, callJobs,
+                  });
                 }
                 cursor.setDate(cursor.getDate() + 1);
               }
@@ -1830,17 +1861,120 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             const isNext5 = wsCalLayout === "next5";
             const cellHeight = isNext5 ? "clamp(320px, 60vh, 600px)" : "clamp(90px, 16vh, 220px)";
 
+            const SLOT_LABEL = { provisions: "P", waste: "W", turnaround: "T" };
+            const EXTRA_LABEL = { cherry_picker: "CP", special: "SPC" };
+
             // One day cell — reused for the month grid and the next-5 grid.
             // `dow` is 0=Mon..6=Sun for weekend tinting.
             const renderDayCell = (dateStr, dayNum, dow, opts = {}) => {
               const { showWeekday = false } = opts;
               const dayTasks = tasksByDate[dateStr] || [];
-              const dayJobs = jobsByDate[dateStr] || [];
-              const dayPending = pendingByDate[dateStr] || [];
-              const totalItems = dayTasks.length + dayJobs.length + dayPending.length;
+              const dayCalls = callsByDate[dateStr] || [];
+              const dayBindingar = bindingarByDate[dateStr] || [];
+              const totalItems = dayTasks.length + dayCalls.length + dayBindingar.length;
+              const missingSlotCount = dayCalls.reduce((acc, c) => acc + c.slots.filter(s => !s.job && !s.noJob).length, 0);
               const isToday = dateStr === todayStr;
               const isWeekend = dow >= 5;
               const wkLabel = showWeekday ? new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase() : null;
+
+              const renderSlotChip = (call, slot) => {
+                const t = slot.type;
+                const c = (JOB_TYPES[t] || JOB_TYPES.provisions).color;
+                const label = SLOT_LABEL[t] || t[0].toUpperCase();
+                if (slot.job) {
+                  const done = slot.job.completed;
+                  return (
+                    <button key={t} onClick={(e) => { e.stopPropagation(); openEditJob(slot.job); }}
+                      title={`${JOB_TYPES[t].label} ordered for ${call.shipName}${done ? " (completed)" : ""} — click to edit`}
+                      style={{
+                        flexShrink: 0, background: c, color: "#fff",
+                        border: `1px solid ${c}`, borderRadius: 4, padding: "1px 7px",
+                        fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                        cursor: "pointer", lineHeight: 1.4,
+                        opacity: done ? 0.55 : 1, textDecoration: done ? "line-through" : "none",
+                      }}>{label}</button>
+                  );
+                }
+                if (slot.noJob) {
+                  return (
+                    <button key={t} onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "no ${JOB_TYPES[t].label.toLowerCase()}" for ${call.shipName}? The missing-order chip will reappear.`)) deleteJob(slot.noJob.id); }}
+                      title={`No ${JOB_TYPES[t].label.toLowerCase()} for ${call.shipName} — click to remove`}
+                      style={{
+                        flexShrink: 0, background: "rgba(255,255,255,0.03)", color: TEXT_DIM,
+                        border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 7px",
+                        fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                        cursor: "pointer", lineHeight: 1.4, textDecoration: "line-through",
+                      }}>{label}</button>
+                  );
+                }
+                return (
+                  <button key={t} onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, t); }}
+                    title={`${JOB_TYPES[t].label} not ordered for ${call.shipName} — click to create`}
+                    style={{
+                      flexShrink: 0, background: "transparent", color: IPS_DANGER,
+                      border: `1px dashed ${IPS_DANGER}80`, borderRadius: 4, padding: "1px 7px",
+                      fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                      cursor: "pointer", lineHeight: 1.4,
+                    }}>{label}</button>
+                );
+              };
+
+              const renderExtraChip = (call, job) => {
+                const c = (JOB_TYPES[job.type] || JOB_TYPES.provisions).color;
+                const label = EXTRA_LABEL[job.type] || job.type.slice(0, 3).toUpperCase();
+                return (
+                  <button key={job.id} onClick={(e) => { e.stopPropagation(); openEditJob(job); }}
+                    title={`${JOB_TYPES[job.type].label} for ${call.shipName} — click to edit`}
+                    style={{
+                      flexShrink: 0, background: `${c}25`, color: c,
+                      border: `1px solid ${c}70`, borderRadius: 4, padding: "1px 7px",
+                      fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                      cursor: "pointer", lineHeight: 1.4,
+                      opacity: job.completed ? 0.55 : 1, textDecoration: job.completed ? "line-through" : "none",
+                    }}>{label}</button>
+                );
+              };
+
+              const renderCallCard = (call) => {
+                const isAK = call.port === "AK";
+                const slotsMissing = call.slots.some(s => !s.job && !s.noJob);
+                const slotsAllCovered = call.slots.length > 0 && call.slots.every(s => s.job || s.noJob);
+                const allComplete = slotsAllCovered && call.slots.every(s => s.noJob || s.job?.completed);
+                const leftColor = isAK ? PORTS.AK.color
+                  : slotsMissing ? IPS_DANGER
+                  : allComplete ? IPS_SUCCESS
+                  : slotsAllCovered ? IPS_ACCENT
+                  : IPS_WARN;
+                return (
+                  <div key={call.callId} style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: `1px solid ${BORDER}`,
+                    borderLeft: `3px solid ${leftColor}`,
+                    borderRadius: 5, padding: "4px 6px 5px 7px",
+                    display: "flex", flexDirection: "column", gap: 3,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                      {isAK && <span style={{ fontSize: "clamp(8px, 0.7vw, 10px)", fontWeight: 700, color: PORTS.AK.color, background: `${PORTS.AK.color}22`, padding: "0 4px", borderRadius: 3, flexShrink: 0, fontFamily: "JetBrains Mono", lineHeight: 1.4 }}>AK</span>}
+                      <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                        {call.shipName}{call.berth ? <span style={{ color: TEXT_DIM, fontWeight: 500 }}> · {call.berth}</span> : null}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                      {call.slots.map(s => renderSlotChip(call, s))}
+                      {call.extras.map(j => renderExtraChip(call, j))}
+                      <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "cherry_picker"); }}
+                        title="Add another order for this call (CP / Special / etc.)"
+                        style={{
+                          flexShrink: 0, background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
+                          border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 6px",
+                          fontSize: "clamp(10px, 0.85vw, 13px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                          cursor: "pointer", lineHeight: 1.4,
+                        }}>+</button>
+                    </div>
+                  </div>
+                );
+              };
+
               return (
                 <div style={{
                   minHeight: cellHeight, maxHeight: cellHeight,
@@ -1857,57 +1991,28 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       borderRadius: 5, background: isToday ? "rgba(87,181,200,0.15)" : "transparent",
                     }}>{wkLabel && <span style={{ fontSize: "clamp(10px, 0.85vw, 12px)", color: TEXT_DIM, fontWeight: 600 }}>{wkLabel}</span>}{dayNum}</span>
                     {totalItems > 0 && (
-                      <span style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: totalItems >= 3 ? IPS_WARN : TEXT_DIM, background: totalItems >= 3 ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
+                      <span title={missingSlotCount > 0 ? `${missingSlotCount} missing order${missingSlotCount > 1 ? "s" : ""}` : ""}
+                        style={{ fontFamily: "JetBrains Mono", fontSize: "clamp(9px, 0.85vw, 12px)", fontWeight: 600, color: missingSlotCount > 0 ? IPS_DANGER : TEXT_DIM, background: missingSlotCount > 0 ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 3 }}>{totalItems}</span>
                     )}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32, marginRight: 4 }}>
-                    {dayJobs.map(j => {
-                      const isAK = j.port === "AK";
-                      const isBindingar = j.type === "bindingar";
-                      const isNoJob = j.type === "no_job";
-                      const jc = isNoJob ? IPS_DANGER : isAK ? PORTS.AK.color : (JOB_TYPES[j.type] || JOB_TYPES.provisions).color;
-                      const badge = isNoJob ? "NO JOB" : isAK ? "AK" : isBindingar ? "BIND" : (JOB_TYPES[j.type] || JOB_TYPES.provisions).label.split(" ")[0].toUpperCase();
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 32, marginRight: 4 }}>
+                    {dayCalls.map(renderCallCard)}
+                    {dayBindingar.map(j => {
+                      const c = JOB_TYPES.bindingar.color;
                       return (
-                      <div key={j.id} onClick={() => {
-                        if (isNoJob) {
-                          if (window.confirm(`Remove "no job" for ${extractShipName(j.ship) || "—"}? The order-missing pill will reappear.`)) deleteJob(j.id);
-                          return;
-                        }
-                        openEditJob(j);
-                      }} title={(() => {
-                        if (isNoJob) return `No job for ${extractShipName(j.ship) || "—"} — click to remove`;
-                        const typeLabel = (JOB_TYPES[j.type] || JOB_TYPES.provisions).label;
-                        const shipName = extractShipName(j.ship) || "—";
-                        const equip = fmtJobEquipment(j);
-                        return `${typeLabel} for ${shipName}${equip ? ` · ${equip}` : ""} — click to edit`;
-                      })()} style={{
-                        display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
-                        background: j.completed ? "rgba(255,255,255,0.02)" : `${jc}0D`,
-                        border: `1px solid ${jc}25`, borderRadius: 5, padding: "5px 8px",
-                        borderLeft: `3px solid ${jc}`, opacity: j.completed ? 0.5 : 1,
-                      }}>
-                        <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: jc, flexShrink: 0 }}>{badge}</span>
-                        <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
-                        {j.ship && (
-                          <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(extractShipName(j.ship), j.date, j.port || "REY"); }} title={`Add another order for ${extractShipName(j.ship)}`} style={{
-                            flexShrink: 0, background: "rgba(255,255,255,0.06)", border: `1px solid ${jc}40`, borderRadius: 3,
-                            color: jc, cursor: "pointer", padding: "0 6px", fontSize: "clamp(11px, 0.95vw, 14px)", fontWeight: 700,
-                            lineHeight: 1.2, fontFamily: "JetBrains Mono",
-                          }}>+</button>
-                        )}
-                      </div>
+                        <div key={j.id} onClick={() => openEditJob(j)}
+                          title={`Bindingar for ${extractShipName(j.ship) || "—"} — click to edit`}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                            background: j.completed ? "rgba(255,255,255,0.02)" : `${c}0D`,
+                            border: `1px solid ${c}25`, borderRadius: 5, padding: "5px 8px",
+                            borderLeft: `3px solid ${c}`, opacity: j.completed ? 0.5 : 1,
+                          }}>
+                          <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: c, flexShrink: 0 }}>BIND</span>
+                          <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: j.completed ? TEXT_DIM : TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{getJobStartTime(j) ? getJobStartTime(j) + " " : ""}{j.ship || ""}{(() => { const b = getBerthForShip(j.ship, j.date); return b ? ` · ${b}` : ""; })()}</span>
+                        </div>
                       );
                     })}
-                    {dayPending.map((p, pi) => (
-                      <div key={`pending-${pi}`} onClick={() => openNewJobForShip(p.ship, dateStr, p.port)} title={`Order missing for ${p.ship} — click to create`} style={{
-                        display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
-                        background: "rgba(239,68,68,0.06)",
-                        border: `1px dashed ${IPS_DANGER}80`, borderRadius: 5, padding: "5px 8px",
-                      }}>
-                        <span style={{ fontSize: "clamp(9px, 0.8vw, 12px)", fontFamily: "JetBrains Mono", fontWeight: 700, color: IPS_DANGER, flexShrink: 0 }}>ORDER</span>
-                        <span style={{ fontSize: "clamp(10px, 0.95vw, 14px)", color: TEXT, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{p.ship}{p.berth ? ` · ${p.berth}` : ""}</span>
-                      </div>
-                    ))}
                     {dayTasks.map(t => {
                       const pr = WS_PROJECTS[t.project] || WS_PROJECTS.general;
                       const a = WS_TEAM[t.assignee] || WS_TEAM.jon;
