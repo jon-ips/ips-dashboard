@@ -8,6 +8,7 @@ import {
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM, OTHER_COLOR,
   SAMSKIP_COLOR, PROSPECT_GROUPS,
+  SDK_LINES, DIRECT_CONTRACT_LINES,
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
@@ -79,11 +80,17 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
     });
   }, []);
 
+  // "IPS calls" for the Market Intel visuals = every call worked through
+  // IPS, whether the line is directly contracted (Viking, HAL, Seabourn,
+  // Princess) or routed via SDK as our agent. Plus the manual "won" toggle
+  // for prospects in flight, and any row tagged contracted in the data.
+  const ipsLineSet = useMemo(() => new Set([...SDK_LINES, ...DIRECT_CONTRACT_LINES]), []);
   const isIPS = useCallback((ship) => {
     if (ship.status === "contracted") return true;
+    if (ipsLineSet.has(ship.line)) return true;
     if (wonLines.has(ship.line)) return true;
     return false;
-  }, [wonLines]);
+  }, [wonLines, ipsLineSet]);
 
   // Build sorted list of all non-contracted lines for the dropdown
   const allNonContractedLines = useMemo(() => {
