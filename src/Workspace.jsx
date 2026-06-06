@@ -66,6 +66,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
   const [bindingarCollapsed, setBindingarCollapsed] = useState(false);
+  const [showBindingarInCal, setShowBindingarInCal] = useState(true);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
   // until DB load completes; the Payday submitter surfaces a clear error
@@ -1747,6 +1748,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             const jobsByDate = {};
             jobs.forEach(j => {
               if (j.date) {
+                if (!showBindingarInCal && j.type === "bindingar") return;
                 if (!jobsByDate[j.date]) jobsByDate[j.date] = [];
                 jobsByDate[j.date].push(j);
               }
@@ -1970,6 +1972,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         color: isNext5 ? "#fff" : IPS_ACCENT, fontSize: 12, fontWeight: 600,
                         fontFamily: "'Satoshi', 'Inter', sans-serif",
                       }}>{isNext5 ? "Month View" : "Next 5 Days"}</button>
+                      <button
+                        onClick={() => setShowBindingarInCal(v => !v)}
+                        title={showBindingarInCal ? "Hide Bindingar pills from the calendar" : "Show Bindingar pills in the calendar"}
+                        style={{
+                          background: showBindingarInCal ? `${JOB_TYPES.bindingar.color}25` : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${showBindingarInCal ? JOB_TYPES.bindingar.color + "70" : BORDER}`,
+                          borderRadius: 6, padding: "6px 12px", cursor: "pointer",
+                          color: showBindingarInCal ? JOB_TYPES.bindingar.color : TEXT_DIM,
+                          fontSize: 12, fontWeight: 600,
+                          fontFamily: "'Satoshi', 'Inter', sans-serif",
+                          textDecoration: showBindingarInCal ? "none" : "line-through",
+                        }}>Bindingar</button>
                     </div>
                     <button onClick={nextMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>▶</button>
                   </div>
