@@ -11,7 +11,12 @@ import {
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
-export default function MarketIntel({ portCalls, activeView, projections = [] }) {
+export default function MarketIntel({ portCalls: allPortCalls, activeView, projections = [] }) {
+  // Market Intel is the Reykjavík market view. Drop AK calls here so every
+  // downstream stat (port total, monthly chart, line breakdown, …) is
+  // computed against Reykjavík calls only.
+  const portCalls = useMemo(() => allPortCalls.filter(s => s.port !== "AK"), [allPortCalls]);
+
   // ─── PROJECTION LOOKUP ────────────────────────────────────────────────────
   // Key: `${scope}|${name}|${callType}|${dayType}` → totalIsk
   const projectionIndex = useMemo(() => {

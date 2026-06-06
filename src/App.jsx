@@ -79,8 +79,11 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
     })();
   }, []);
 
-  // Use DB data if loaded, otherwise fall back to hardcoded SHIPS
-  const portCalls = dbPortCalls || SHIPS;
+  // The hardcoded SHIPS array is the authoritative call list — it has the
+  // full season with berths, turnaround flags, and port codes that the DB
+  // copy never caught up to. dbPortCalls is no longer consulted; if we
+  // restart DB ingestion, we'd want a merge here rather than the override.
+  const portCalls = SHIPS;
 
   // ─── NAVIGATION STATE ──────────────────────────────────────────────────────
   const [activeModule, setActiveModule] = useState("workspace");
