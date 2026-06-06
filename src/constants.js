@@ -472,7 +472,16 @@ export const SDK_LINES = ["Aida", "Ambassador", "Carnival UK", "Costa", "Cunard"
 export const DIRECT_CONTRACT_LINES = ["Viking", "Holland America", "Seabourn", "Princess"];
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
+// Cruise line groupings used by the Market Intel what-if dropdown and a few
+// rate-routing lookups. "ips" and "sdk" are real contracts; "samskip" is the
+// agent we don't have a direct line with — kept here so the dropdown can
+// model "what if Samskip lines moved to us?".
 export const PROSPECT_GROUPS = {
+  ips: {
+    label: "IPS Direct",
+    color: IPS_ACCENT,
+    lines: DIRECT_CONTRACT_LINES,
+  },
   sdk: {
     label: "SDK",
     color: SDK_COLOR,

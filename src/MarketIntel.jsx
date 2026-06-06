@@ -44,7 +44,12 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
   }, [projectionIndex]);
 
   // ─── MARKET INTEL STATE ───────────────────────────────────────────────────
-  const [wonLines, setWonLines] = useState(new Set());
+  // wonLines is the canonical "currently counted as IPS" set. We pre-load it
+  // with every line that is IPS by default (Direct contracts + SDK agent
+  // lines) so the dropdown can be used to toggle them OFF for what-if
+  // scenarios, in addition to toggling prospect groups (Samskip) ON.
+  const defaultIpsLines = useMemo(() => new Set([...DIRECT_CONTRACT_LINES, ...SDK_LINES]), []);
+  const [wonLines, setWonLines] = useState(() => new Set(defaultIpsLines));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [whatIfOpen, setWhatIfOpen] = useState(false);
   const [portCalFilter, setPortCalFilter] = useState(new Set());
@@ -80,33 +85,38 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
     });
   }, []);
 
-  // "IPS calls" for the Market Intel visuals = every call worked through
-  // IPS, whether the line is directly contracted (Viking, HAL, Seabourn,
-  // Princess) or routed via SDK as our agent. Plus the manual "won" toggle
-  // for prospects in flight, and any row tagged contracted in the data.
-  const ipsLineSet = useMemo(() => new Set([...SDK_LINES, ...DIRECT_CONTRACT_LINES]), []);
-  const isIPS = useCallback((ship) => {
-    if (ship.status === "contracted") return true;
-    if (ipsLineSet.has(ship.line)) return true;
-    if (wonLines.has(ship.line)) return true;
-    return false;
-  }, [wonLines, ipsLineSet]);
+  // wonLines is the single source of truth for "is this line IPS for the
+  // visuals". The dropdown initialises it with all SDK + Direct contract
+  // lines, so the user can toggle any of them off (lose a contract) or
+  // toggle prospect Samskip lines on (win a contract) and watch the
+  // numbers move.
+  const isIPS = useCallback((ship) => wonLines.has(ship.line), [wonLines]);
 
-  // Build sorted list of all non-contracted lines for the dropdown
-  const allNonContractedLines = useMemo(() => {
+  // Aggregate every line that appears in portCalls (REY only at this point)
+  // with its season totals. Used by the dropdown to label each row.
+  const linesInPort = useMemo(() => {
     const lines = {};
     portCalls.forEach((s) => {
-      if (s.status !== "contracted" && !lines[s.line]) {
-        lines[s.line] = { status: s.status, calls: 0, turnarounds: 0, pax: 0 };
-      }
-      if (lines[s.line]) {
-        lines[s.line].calls++;
-        lines[s.line].pax += s.pax;
-        if (s.turnaround) lines[s.line].turnarounds++;
-      }
+      if (!lines[s.line]) lines[s.line] = { calls: 0, turnarounds: 0, pax: 0 };
+      lines[s.line].calls++;
+      lines[s.line].pax += s.pax;
+      if (s.turnaround) lines[s.line].turnarounds++;
     });
-    return Object.entries(lines).sort((a, b) => a[0].localeCompare(b[0]));
+    return lines;
   }, [portCalls]);
+
+  // Lines that don't fall into any PROSPECT_GROUPS bucket (IPS / SDK /
+  // Samskip) — they render under the "Other" header in the dropdown.
+  const groupedLineSet = useMemo(() => {
+    const s = new Set();
+    Object.values(PROSPECT_GROUPS).forEach(g => g.lines.forEach(l => s.add(l)));
+    return s;
+  }, []);
+  const otherLines = useMemo(() => {
+    return Object.entries(linesInPort)
+      .filter(([line]) => !groupedLineSet.has(line))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [linesInPort, groupedLineSet]);
 
   const isOvernight = (s) => s.endDate !== null;
 
@@ -264,7 +274,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
           <div style={{ display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
             {/* Left: dropdown */}
             <div style={{ flex: "1 1 400px", minWidth: 300 }}>
-              <div style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 10 }}>Select cruise lines to model as IPS contracts</div>
+              <div style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 10 }}>Toggle which cruise lines count as IPS in the visuals. Pre-loaded with current IPS Direct + SDK contracts.</div>
 
               {/* Dropdown trigger */}
               <div style={{ position: "relative" }}>
@@ -275,7 +285,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                   fontFamily: "'Satoshi', 'Inter', sans-serif", fontSize: 13,
                 }}>
                   <span style={{ color: wonLines.size > 0 ? TEXT : TEXT_DIM }}>
-                    {wonLines.size === 0 ? "Select cruise lines to add..." : `${wonLines.size} line${wonLines.size > 1 ? "s" : ""} added to IPS portfolio`}
+                    {wonLines.size === 0 ? "Pick cruise lines to count as IPS…" : `${wonLines.size} line${wonLines.size > 1 ? "s" : ""} counted as IPS`}
                   </span>
                   <span style={{ color: TEXT_DIM, fontSize: 18, transform: dropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
                 </button>
@@ -285,65 +295,78 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                   <div style={{
                     position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
                     background: SURFACE, border: `1px solid ${SAMSKIP_COLOR}`, borderRadius: 8,
-                    maxHeight: 320, overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                    maxHeight: 420, overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
                   }}>
-                    {/* Prospect Groups */}
-                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
-                      Prospect Groups
-                    </div>
                     {Object.entries(PROSPECT_GROUPS).map(([key, group]) => {
-                      const groupLinesInPort = group.lines.filter((l) => allNonContractedLines.some(([nl]) => nl === l));
-                      const allChecked = groupLinesInPort.length > 0 && groupLinesInPort.every((l) => wonLines.has(l));
+                      const groupLinesInPort = group.lines.filter((l) => !!linesInPort[l]);
+                      if (groupLinesInPort.length === 0) return null;
+                      const allChecked = groupLinesInPort.every((l) => wonLines.has(l));
                       const someChecked = groupLinesInPort.some((l) => wonLines.has(l));
-                      const totalCalls = groupLinesInPort.reduce((sum, l) => {
-                        const found = allNonContractedLines.find(([nl]) => nl === l);
-                        return sum + (found ? found[1].calls : 0);
-                      }, 0);
-                      const totalTurnarounds = groupLinesInPort.reduce((sum, l) => {
-                        const found = allNonContractedLines.find(([nl]) => nl === l);
-                        return sum + (found ? found[1].turnarounds : 0);
-                      }, 0);
+                      const totalCalls = groupLinesInPort.reduce((sum, l) => sum + (linesInPort[l]?.calls || 0), 0);
+                      const totalTurnarounds = groupLinesInPort.reduce((sum, l) => sum + (linesInPort[l]?.turnarounds || 0), 0);
                       return (
-                        <button key={key} onClick={() => toggleGroup(key)} style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                          background: allChecked ? "rgba(249,115,22,0.1)" : someChecked ? "rgba(249,115,22,0.05)" : "transparent",
-                          borderLeft: `3px solid ${allChecked ? group.color : someChecked ? "rgba(249,115,22,0.4)" : "transparent"}`,
-                        }}>
-                          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${allChecked ? group.color : someChecked ? "rgba(249,115,22,0.6)" : BORDER}`, background: allChecked ? group.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
-                            {allChecked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                            {someChecked && !allChecked && <span style={{ color: group.color, fontSize: 12, fontWeight: 700 }}>–</span>}
-                          </div>
-                          <span style={{ color: allChecked || someChecked ? TEXT : TEXT_DIM, fontWeight: 600, fontSize: 13, flex: 1, textAlign: "left" }}>{group.label}</span>
-                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{groupLinesInPort.length} lines · {totalCalls} calls · {totalTurnarounds}(T)</span>
-                        </button>
+                        <div key={key}>
+                          {/* Group header — clickable to bulk-toggle */}
+                          <button onClick={() => toggleGroup(key)} style={{
+                            width: "100%", display: "flex", alignItems: "center", gap: 10,
+                            padding: "10px 12px 8px", border: "none", cursor: "pointer", transition: "all 0.15s",
+                            background: allChecked ? `${group.color}18` : someChecked ? `${group.color}0C` : "rgba(255,255,255,0.02)",
+                            borderTop: `1px solid ${BORDER}`,
+                          }}>
+                            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${allChecked ? group.color : someChecked ? group.color + "AA" : BORDER}`, background: allChecked ? group.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              {allChecked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
+                              {someChecked && !allChecked && <span style={{ color: group.color, fontSize: 14, fontWeight: 700, lineHeight: 1 }}>–</span>}
+                            </div>
+                            <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: group.color, fontFamily: "JetBrains Mono", fontWeight: 700, flex: 1, textAlign: "left" }}>{group.label}</span>
+                            <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{groupLinesInPort.length} lines · {totalCalls} calls · {totalTurnarounds}(T)</span>
+                          </button>
+                          {/* Individual lines in this group */}
+                          {groupLinesInPort.sort((a, b) => a.localeCompare(b)).map((line) => {
+                            const data = linesInPort[line];
+                            const checked = wonLines.has(line);
+                            return (
+                              <button key={line} onClick={() => toggleLine(line)} style={{
+                                width: "100%", display: "flex", alignItems: "center", gap: 10,
+                                padding: "6px 12px 6px 28px", border: "none", cursor: "pointer", transition: "all 0.15s",
+                                background: checked ? `${group.color}10` : "transparent",
+                                borderLeft: `3px solid ${checked ? group.color : "transparent"}`,
+                              }}>
+                                <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${checked ? group.color : BORDER}`, background: checked ? group.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                  {checked && <span style={{ color: "#fff", fontSize: 10, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                                </div>
+                                <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 12.5, flex: 1, textAlign: "left" }}>{line}</span>
+                                <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       );
                     })}
-                    {/* Other lines section */}
-                    <div style={{ padding: "8px 12px 4px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: OTHER_COLOR, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, borderTop: `1px solid ${BORDER}` }}>
-                      Other Lines in Port
-                    </div>
-                    {allNonContractedLines.map(([line, data]) => {
-                      const checked = wonLines.has(line);
-                      const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
-                      return (
-                        <button key={line} onClick={() => toggleLine(line)} style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 12px", border: "none", cursor: "pointer", transition: "all 0.15s",
-                          background: checked ? "rgba(87,181,200,0.08)" : "transparent",
-                          borderLeft: `3px solid ${checked ? IPS_ACCENT : "transparent"}`,
-                        }}>
-                          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? IPS_ACCENT : BORDER}`, background: checked ? IPS_ACCENT : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
-                            {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                          </div>
-                          <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 13, flex: 1, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}>
-                            {line}
-                            {inGroup && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "rgba(249,115,22,0.15)", color: SAMSKIP_COLOR, fontFamily: "JetBrains Mono", fontWeight: 600, letterSpacing: 0.5 }}>{inGroup.label}</span>}
-                          </span>
-                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
-                        </button>
-                      );
-                    })}
+                    {/* Other lines (not in any group) */}
+                    {otherLines.length > 0 && (<>
+                      <div style={{ padding: "10px 12px 8px", background: "rgba(255,255,255,0.02)", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 18, height: 18, flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: OTHER_COLOR, fontFamily: "JetBrains Mono", fontWeight: 700, flex: 1 }}>Other</span>
+                        <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{otherLines.length} lines</span>
+                      </div>
+                      {otherLines.map(([line, data]) => {
+                        const checked = wonLines.has(line);
+                        return (
+                          <button key={line} onClick={() => toggleLine(line)} style={{
+                            width: "100%", display: "flex", alignItems: "center", gap: 10,
+                            padding: "6px 12px 6px 28px", border: "none", cursor: "pointer", transition: "all 0.15s",
+                            background: checked ? "rgba(87,181,200,0.08)" : "transparent",
+                            borderLeft: `3px solid ${checked ? IPS_ACCENT : "transparent"}`,
+                          }}>
+                            <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${checked ? IPS_ACCENT : BORDER}`, background: checked ? IPS_ACCENT : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              {checked && <span style={{ color: "#fff", fontSize: 10, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                            </div>
+                            <span style={{ color: checked ? TEXT : TEXT_DIM, fontWeight: 500, fontSize: 12.5, flex: 1, textAlign: "left" }}>{line}</span>
+                            <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: TEXT_DIM }}>{data.calls} calls · {data.turnarounds}(T)</span>
+                          </button>
+                        );
+                      })}
+                    </>)}
                   </div>
                 )}
               </div>
@@ -351,13 +374,13 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
               {/* Selected chips */}
               {wonLines.size > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                  {[...wonLines].map((line) => {
-                    const inGroup = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
-                    const chipColor = inGroup ? SAMSKIP_COLOR : IPS_ACCENT;
+                  {[...wonLines].sort().map((line) => {
+                    const group = Object.values(PROSPECT_GROUPS).find((g) => g.lines.includes(line));
+                    const chipColor = group ? group.color : IPS_ACCENT;
                     return (
                       <button key={line} onClick={() => toggleLine(line)} style={{
                         display: "flex", alignItems: "center", gap: 6,
-                        background: inGroup ? "rgba(249,115,22,0.15)" : "rgba(87,181,200,0.1)",
+                        background: `${chipColor}15`,
                         border: `1px solid ${chipColor}`,
                         borderRadius: 6, padding: "4px 10px", cursor: "pointer", transition: "all 0.15s",
                       }}>
@@ -366,6 +389,11 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                       </button>
                     );
                   })}
+                  <button onClick={() => setWonLines(new Set(defaultIpsLines))} style={{
+                    background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`,
+                    borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: TEXT_DIM, fontSize: 11,
+                    fontFamily: "JetBrains Mono",
+                  }} title="Reset to current IPS portfolio (SDK + Direct contracts)">Reset</button>
                   <button onClick={() => setWonLines(new Set())} style={{
                     background: "rgba(239,68,68,0.1)", border: `1px solid rgba(239,68,68,0.3)`,
                     borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 11,
