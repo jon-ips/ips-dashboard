@@ -67,6 +67,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
   const [bindingarCollapsed, setBindingarCollapsed] = useState(false);
   const [showBindingarInCal, setShowBindingarInCal] = useState(true);
+  const [showAkureyriInCal, setShowAkureyriInCal] = useState(true);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
   // used to map job → Payday customer and pre-fill payment terms. Empty
   // until DB load completes; the Payday submitter surfaces a clear error
@@ -1749,6 +1750,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             jobs.forEach(j => {
               if (j.date) {
                 if (!showBindingarInCal && j.type === "bindingar") return;
+                if (!showAkureyriInCal && j.port === "AK") return;
                 if (!jobsByDate[j.date]) jobsByDate[j.date] = [];
                 jobsByDate[j.date].push(j);
               }
@@ -1790,6 +1792,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             const pendingByDate = {};
             SHIPS.forEach(s => {
               const isAK = s.port === "AK";
+              if (!showAkureyriInCal && isAK) return;
               const orderable = isAK ? sdkSet.has(s.line) : (sdkSet.has(s.line) || directSet.has(s.line));
               if (!orderable) return;
               const start = s.date;
@@ -1972,6 +1975,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         color: isNext5 ? "#fff" : IPS_ACCENT, fontSize: 12, fontWeight: 600,
                         fontFamily: "'Satoshi', 'Inter', sans-serif",
                       }}>{isNext5 ? "Month View" : "Next 5 Days"}</button>
+                      <span style={{ width: 1, height: 22, background: BORDER, margin: "0 6px" }} />
+                      <span style={{ fontSize: 10, color: TEXT_DIM, fontFamily: "JetBrains Mono", textTransform: "uppercase", letterSpacing: 1, marginRight: 2 }}>Show</span>
                       <button
                         onClick={() => setShowBindingarInCal(v => !v)}
                         title={showBindingarInCal ? "Hide Bindingar pills from the calendar" : "Show Bindingar pills in the calendar"}
@@ -1984,6 +1989,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           fontFamily: "'Satoshi', 'Inter', sans-serif",
                           textDecoration: showBindingarInCal ? "none" : "line-through",
                         }}>Bindingar</button>
+                      <button
+                        onClick={() => setShowAkureyriInCal(v => !v)}
+                        title={showAkureyriInCal ? "Hide Akureyri jobs and orders from the calendar" : "Show Akureyri jobs and orders in the calendar"}
+                        style={{
+                          background: showAkureyriInCal ? `${PORTS.AK.color}25` : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${showAkureyriInCal ? PORTS.AK.color + "70" : BORDER}`,
+                          borderRadius: 6, padding: "6px 12px", cursor: "pointer",
+                          color: showAkureyriInCal ? PORTS.AK.color : TEXT_DIM,
+                          fontSize: 12, fontWeight: 600,
+                          fontFamily: "'Satoshi', 'Inter', sans-serif",
+                          textDecoration: showAkureyriInCal ? "none" : "line-through",
+                        }}>Akureyri</button>
                     </div>
                     <button onClick={nextMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>▶</button>
                   </div>
