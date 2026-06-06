@@ -464,7 +464,7 @@ export function getCruiseLineForShip(shipStr, dateIso) {
   );
   return entry?.line || "";
 }
-export const SDK_LINES = ["Aida", "Ambassador", "Carnival UK", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
+export const SDK_LINES = ["Aida", "Ambassador", "Carnival", "Costa", "Cunard", "Hapag-Lloyd", "P&O", "Phoenix Reisen", "TUI"];
 
 // Cruise lines IPS has a direct contract with (no SDK/Samskip agent in between).
 // Used together with SDK_LINES to drive the calendar's "ORDER missing" pills:
@@ -490,7 +490,7 @@ export const PROSPECT_GROUPS = {
   samskip: {
     label: "Samskip",
     color: SAMSKIP_COLOR,
-    lines: ["Oceania", "Norwegian Cruise Line", "Regent", "Carnival", "Peace Boat", "Virgin"],
+    lines: ["Oceania", "Norwegian Cruise Line", "Regent", "Peace Boat", "Virgin"],
   },
 };
 
