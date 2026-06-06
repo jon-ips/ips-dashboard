@@ -389,14 +389,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   // "Confirm no job" — saves a marker so the ship's pending ORDER pill is
   // replaced with a dimmed-red "NO JOB" pill instead. Used when there's
   // really nothing to do for a port call.
-  const confirmNoJob = useCallback(async () => {
+  // `mode` = "service" stores a per-service marker (uses jobForm.type as
+  // service); "call" stores a legacy whole-call no_job that suppresses
+  // every slot — used from the "+" form where no specific slot makes sense.
+  const confirmNoJob = useCallback(async (mode = "service") => {
     if (!jobForm.date || !jobForm.ship) return;
     const port = jobForm.port || "REY";
-    // The form's current type is the slot the user is opting out of.
-    // Provisions / Waste / Turnaround are the per-service slots; if the
-    // user is in another type we still set service so the slot model
-    // can read it consistently.
-    const service = jobForm.type || "provisions";
+    const service = mode === "call" ? null : (jobForm.type || "provisions");
     const localRow = {
       id: generateId(),
       port,
@@ -413,10 +412,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (SUPABASE_CONFIGURED) {
       let data = null, error = null;
       try {
-        ({ data, error } = await supabase.from("jobs").insert({
-          port, type: "no_job", service, date: jobForm.date, ship: jobForm.ship,
-          notes: jobForm.notes || null, shifts: [], completed: true,
-        }));
+        const insertPayload = { port, type: "no_job", date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes || null, shifts: [], completed: true };
+        if (service) insertPayload.service = service;
+        ({ data, error } = await supabase.from("jobs").insert(insertPayload));
       } catch (e) { error = e; }
       if (error) { console.error("Failed to confirm no job:", error); recordSyncError("create", error); }
       if (data && data[0]) {
@@ -1082,9 +1080,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>); })()}
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 24 }}>
-                  {jobModal === "new" && jobForm.ship && jobForm.date && jobForm.type !== "bindingar" ? (
-                    <button onClick={confirmNoJob} style={{ padding: "10px 16px", borderRadius: 8, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: `1px solid ${IPS_DANGER}50`, color: IPS_DANGER, fontSize: 13, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Confirm no job</button>
-                  ) : <div />}
+                  {(() => {
+                    if (jobModal !== "new" || !jobForm.ship || !jobForm.date || jobForm.type === "bindingar") return <div />;
+                    // P/W/T forms confirm "no <service>" for the slot; CP /
+                    // Special / anything else use the whole-call shortcut so
+                    // users don't have to click each slot one by one.
+                    const isSlotType = jobForm.type === "provisions" || jobForm.type === "waste" || jobForm.type === "turnaround";
+                    const label = isSlotType
+                      ? `Confirm no ${(JOB_TYPES[jobForm.type] || JOB_TYPES.provisions).label.toLowerCase()}`
+                      : "Confirm no job for call";
+                    return (
+                      <button onClick={() => confirmNoJob(isSlotType ? "service" : "call")}
+                        title={isSlotType ? "Mark this one service as not needed for the call" : "Mark every slot as not needed — covers the whole call in one click"}
+                        style={{ padding: "10px 16px", borderRadius: 8, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: `1px solid ${IPS_DANGER}50`, color: IPS_DANGER, fontSize: 13, fontWeight: 500, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{label}</button>
+                    );
+                  })()}
                   <div style={{ display: "flex", gap: 10 }}>
                     <button onClick={() => setJobModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
                     <button onClick={saveJobForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: (JOB_TYPES[jobForm.type] || JOB_TYPES.provisions).color, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{jobModal === "new" ? "Create Job" : "Save Changes"}</button>
