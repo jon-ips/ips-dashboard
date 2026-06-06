@@ -285,8 +285,34 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       // silently-failed write isn't shadowed by an empty/partial DB response.
       const dbIds = new Set(dbJobs.map(j => j.id));
       const unsynced = [...localJobs, ...localDeleted].filter(j => j && j.id && !dbIds.has(j.id));
-      setJobs([...dbJobs.filter(j => !j.deletedAt), ...unsynced.filter(j => !j.deletedAt)]);
-      setDeletedJobs([...dbJobs.filter(j => j.deletedAt), ...unsynced.filter(j => j.deletedAt)]);
+
+      // Local deletes are authoritative: if the user deleted a job locally
+      // but the soft-delete .update() never landed in Supabase, dbJobs comes
+      // back showing the row as active and the deletion silently unwinds.
+      // Trust the local deletedAt and queue a retry on the DB side.
+      const localDeletedById = new Map(localDeleted.map(j => [j.id, j]));
+      const reconciledDbJobs = dbJobs.map(j => {
+        const localD = localDeletedById.get(j.id);
+        if (localD && !j.deletedAt) {
+          return { ...j, deletedAt: localD.deletedAt || new Date().toISOString() };
+        }
+        return j;
+      });
+      // Background-retry the soft-delete for any rows we just reconciled.
+      if (SUPABASE_CONFIGURED) {
+        const needsRetry = reconciledDbJobs.filter(j => {
+          const dbCopy = dbJobs.find(d => d.id === j.id);
+          return j.deletedAt && dbCopy && !dbCopy.deletedAt;
+        });
+        for (const j of needsRetry) {
+          supabase.from("jobs").update({ deleted_at: j.deletedAt }).eq("id", j.id).then(({ error }) => {
+            if (error) console.warn("Soft-delete retry failed:", error);
+          });
+        }
+      }
+
+      setJobs([...reconciledDbJobs.filter(j => !j.deletedAt), ...unsynced.filter(j => !j.deletedAt)]);
+      setDeletedJobs([...reconciledDbJobs.filter(j => j.deletedAt), ...unsynced.filter(j => j.deletedAt)]);
       setJobsLoaded(true);
 
       // Background: push unsynced rows up so coworkers see them too.
@@ -580,14 +606,25 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setCompleteModal(null);
   }, [completeModal, completeHours, jobs, saveJobs]);
 
-  const deleteJob = useCallback((id) => {
+  const deleteJob = useCallback(async (id) => {
     const job = jobs.find(j => j.id === id);
     if (!job) return;
     const now = new Date().toISOString();
     saveJobs(jobs.filter(j => j.id !== id));
     saveDeletedJobs([{ ...job, deletedAt: now }, ...deletedJobs]);
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ deleted_at: now }).eq("id", id).then(() => {});
-  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
+    if (SUPABASE_CONFIGURED) {
+      try {
+        const { error } = await supabase.from("jobs").update({ deleted_at: now }).eq("id", id);
+        if (error) {
+          console.error("Soft-delete failed in Supabase:", error);
+          recordSyncError("delete", error);
+        }
+      } catch (e) {
+        console.error("Soft-delete threw:", e);
+        recordSyncError("delete", e);
+      }
+    }
+  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs, recordSyncError]);
 
   const restoreJob = useCallback((id) => {
     const job = deletedJobs.find(j => j.id === id);
