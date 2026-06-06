@@ -1944,6 +1944,25 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     <button onClick={prevMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>◀</button>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ fontSize: 16, fontWeight: 700 }}>{isNext5 ? "Next 5 Days" : `${monthName} ${year}`}</div>
+                      {(() => {
+                        const now = new Date();
+                        const onCurrent = !isNext5 && wsCalMonth === now.getMonth() && wsCalYear === now.getFullYear();
+                        return (
+                          <button
+                            onClick={() => { setWsCalLayout("month"); setWsCalMonth(now.getMonth()); setWsCalYear(now.getFullYear()); }}
+                            disabled={onCurrent}
+                            title={onCurrent ? "Already on this month" : "Jump to today"}
+                            style={{
+                              background: "rgba(255,255,255,0.03)",
+                              border: `1px solid ${BORDER}`,
+                              borderRadius: 6, padding: "6px 12px",
+                              cursor: onCurrent ? "default" : "pointer",
+                              color: onCurrent ? TEXT_DIM : TEXT, fontSize: 12, fontWeight: 600,
+                              fontFamily: "'Satoshi', 'Inter', sans-serif",
+                              opacity: onCurrent ? 0.4 : 1,
+                            }}>Today</button>
+                        );
+                      })()}
                       <button onClick={() => setWsCalLayout(l => l === "next5" ? "month" : "next5")} style={{
                         background: isNext5 ? IPS_ACCENT : "rgba(87,181,200,0.1)",
                         border: `1px solid ${IPS_ACCENT}${isNext5 ? "" : "60"}`,
