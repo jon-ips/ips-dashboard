@@ -71,7 +71,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
-  const [bindingarCollapsed, setBindingarCollapsed] = useState(false);
+  const [bindingarCollapsed, setBindingarCollapsed] = useState(true);
   const [showBindingarInCal, setShowBindingarInCal] = useState(true);
   const [showAkureyriInCal, setShowAkureyriInCal] = useState(true);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
