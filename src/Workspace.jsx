@@ -690,7 +690,24 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const typeEquip = JOB_EQUIPMENT_BY_TYPE[type] || JOB_EQUIPMENT_BY_TYPE.provisions;
     return Object.entries(eq).filter(([, qty]) => qty > 0).map(([k, qty]) => `${qty}× ${typeEquip[k]?.label || k}`).join(", ");
   };
-  const fmtJobEquipment = (job) => fmtEquipment(getJobEquipment(job), job.type);
+  // Card summary. Summing a resource across shifts reads as headcount
+  // ("12× Porter" for 5/2/5), so when shifts carry different quantities of
+  // the same resource show the per-shift breakdown instead. Single-shift
+  // jobs and resources with equal quantities keep the plain "n×" form.
+  const fmtJobEquipment = (job) => {
+    const shifts = job.shifts;
+    if (!shifts || shifts.length < 2) return fmtEquipment(getJobEquipment(job), job.type);
+    const typeEquip = JOB_EQUIPMENT_BY_TYPE[job.type] || JOB_EQUIPMENT_BY_TYPE.provisions;
+    const keys = [...new Set(shifts.flatMap(s => Object.entries(s.equipment || {}).filter(([, q]) => q > 0).map(([k]) => k)))];
+    return keys.map(k => {
+      const perShift = shifts.map(s => s.equipment?.[k] || 0);
+      const present = perShift.filter(q => q > 0);
+      const label = typeEquip[k]?.label || k;
+      if (present.length > 1 && new Set(present).size > 1) return `${perShift.join("/")}× ${label}`;
+      if (present.length > 1) return `${present[0]}× ${label} (×${present.length} shifts)`;
+      return `${present[0]}× ${label}`;
+    }).join(", ");
+  };
 
   const openNewTask = useCallback(() => {
     setWsTaskForm({ title: "", description: "", assignee: "jon", project: "operations", priority: "medium", dueDate: "" });
