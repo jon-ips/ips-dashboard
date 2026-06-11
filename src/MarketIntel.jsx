@@ -12,7 +12,7 @@ import {
 } from "./constants.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
-export default function MarketIntel({ portCalls: allPortCalls, activeView, projections = [] }) {
+export default function MarketIntel({ portCalls: allPortCalls, activeView, projections = [], year = 2026 }) {
   // Market Intel is the Reykjavík market view. Drop AK calls here so every
   // downstream stat (port total, monthly chart, line breakdown, …) is
   // computed against Reykjavík calls only.
@@ -588,7 +588,6 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
             });
           };
 
-          const year = 2026;
           const monthIdx = calMonth - 1;
           const firstDay = new Date(year, monthIdx, 1);
           const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
@@ -617,7 +616,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                   {/* Left: month tabs + filter dropdown */}
                   <div style={{ flex: "1 1 400px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <SL>Season Calendar — {monthNames[calMonth]} 2026</SL>
+                      <SL>Season Calendar — {monthNames[calMonth]} {year}</SL>
                       <div style={{ display: "flex", gap: 4 }}>
                         {MONTH_NUMS.map((m, i) => (
                           <button key={m} onClick={() => setCalMonth(m)} style={{
@@ -1071,7 +1070,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
             {stats.monthly.map((m) => (
               <Card key={m.month} onClick={() => setSelectedMonth(selectedMonth === m.month ? null : m.month)} style={{ cursor: "pointer", border: selectedMonth === m.month ? `1px solid ${IPS_ACCENT}` : `1px solid ${BORDER}`, background: selectedMonth === m.month ? "rgba(87,181,200,0.05)" : SURFACE }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>{m.month} 2026</div>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>{m.month} {year}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {[{ v: m.ipsCalls, l: "IPS Calls", c: IPS_ACCENT }, { v: m.pallets, l: "Pallets", c: IPS_WARN }, { v: m.crew, l: "Peak Crew", c: IPS_SUCCESS }, { v: m.luggage, l: "Luggage", c: SAMSKIP_COLOR }].map((x, i) => (
                     <div key={i}><div style={{ fontSize: 20, fontWeight: 700, fontFamily: "JetBrains Mono", color: x.c }}>{x.v}</div><div style={{ fontSize: 10, color: TEXT_DIM }}>{x.l}</div></div>
@@ -1082,7 +1081,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
           </div>
           {selectedMonth && (
             <Card style={{ marginBottom: 20 }}>
-              <SL>{selectedMonth} 2026 — IPS Ship Schedule</SL>
+              <SL>{selectedMonth} {year} — IPS Ship Schedule</SL>
               <div>
                 <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                   <span>Dates</span><span>Line</span><span>Ship</span><span style={{ textAlign: "right" }}>Pax</span><span style={{ textAlign: "center" }}>Type</span><span style={{ textAlign: "center" }}>O/N</span><span style={{ textAlign: "center" }}>Tier</span><span style={{ textAlign: "right" }}>Pallets</span>
@@ -1114,7 +1113,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
           const gridCols = "1.3fr 80px 45px 45px 45px 45px 60px 60px 60px 90px 60px";
           return (
           <Card>
-            <SL>Cruise Line Intelligence — Reykjavík 2026 · {portCalls.length} Port Calls</SL>
+            <SL>Cruise Line Intelligence — Reykjavík {year} · {portCalls.length} Port Calls</SL>
             <div>
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "8px 12px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                 <span>Line</span><span>Status</span><span style={{ textAlign: "right" }}>Calls</span><span style={{ textAlign: "right" }}>(T)</span><span style={{ textAlign: "right" }}>Trn</span><span style={{ textAlign: "right" }}>O/N</span><span style={{ textAlign: "right" }}>Tiered</span><span style={{ textAlign: "right" }}>Call%</span><span style={{ textAlign: "right" }}>Tier%</span><span style={{ textAlign: "right" }}>Rev ISK</span><span style={{ textAlign: "right" }}>Missing</span>

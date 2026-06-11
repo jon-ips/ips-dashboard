@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase, SUPABASE_CONFIGURED } from "./supabase.js";
 import {
   SHIPS, IPS_BLUE, IPS_ACCENT, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM,
 } from "./constants.js";
+import { SHIPS_2027 } from "./ships2027.js";
 import {
   IconChart, IconClipboard, IconLogout, IconMenu, IconX, IconFinance,
 } from "./shared.jsx";
@@ -84,6 +85,16 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
   // copy never caught up to. dbPortCalls is no longer consulted; if we
   // restart DB ingestion, we'd want a merge here rather than the override.
   const portCalls = SHIPS;
+
+  // Market Intel year toggle. 2026 stays the default everywhere; only the
+  // Market Intel module switches datasets. Workspace + CFO keep reading the
+  // 2026 SHIPS array. 2027 rows may carry pax: null (undisclosed charter) —
+  // Market Intel sums pax arithmetically, so normalize null to 0 here.
+  const [marketYear, setMarketYear] = useState(2026);
+  const marketCalls = useMemo(
+    () => marketYear === 2027 ? SHIPS_2027.map(s => s.pax == null ? { ...s, pax: 0 } : s) : SHIPS,
+    [marketYear]
+  );
 
   // ─── NAVIGATION STATE ──────────────────────────────────────────────────────
   const [activeModule, setActiveModule] = useState("workspace");
@@ -199,15 +210,28 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           <button onClick={() => setSidebarOpen(true)} className="mobile-hamburger" style={{ display: "none", background: "none", border: "none", color: TEXT, cursor: "pointer", padding: 4, marginTop: 2 }}><IconMenu /></button>
           <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{activeModule === "market" ? "MARKET INTELLIGENCE" : activeModule === "cfo" ? "CFO Workspace" : "Workspace"}</h1>
-          <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · 2026 Season · ${portCalls.length} port calls` : activeModule === "cfo" ? "Financial Management & Analysis" : "Task & Project Management"}</div>
+          <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · ${marketYear} Season · ${marketCalls.length} port calls` : activeModule === "cfo" ? "Financial Management & Analysis" : "Task & Project Management"}</div>
           </div>
+          {activeModule === "market" && (
+            <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignSelf: "center" }}>
+              {[2026, 2027].map(y => (
+                <button key={y} onClick={() => setMarketYear(y)} style={{
+                  padding: "6px 14px", borderRadius: 8, cursor: "pointer",
+                  background: marketYear === y ? "rgba(87,181,200,0.15)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${marketYear === y ? IPS_ACCENT : BORDER}`,
+                  color: marketYear === y ? IPS_ACCENT : TEXT_DIM,
+                  fontSize: 13, fontWeight: 700, fontFamily: "JetBrains Mono",
+                }}>{y}</button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="page-content" style={{ padding: "20px 28px", maxWidth: (activeModule === "workspace" && wsView === "calendar") ? "none" : 1440 }}>
 
         {/* MODULE RENDERING */}
         {activeModule === "market" && (
-          <MarketIntel portCalls={portCalls} activeView={activeView} projections={projections} />
+          <MarketIntel portCalls={marketCalls} activeView={activeView} projections={projections} year={marketYear} />
         )}
 
         {activeModule === "workspace" && (
