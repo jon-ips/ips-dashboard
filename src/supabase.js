@@ -46,8 +46,10 @@ function createQueryBuilder(table) {
     const url = buildUrl();
     const headers = { ...supabaseHeaders };
 
-    // For insert/update, ask Supabase to return the resulting rows
-    if (state.method === "POST" || state.method === "PATCH") {
+    // For insert/update/delete, ask Supabase to return the affected rows so
+    // callers can detect silent zero-row matches (RLS, missing id) — a PATCH
+    // or DELETE that touches nothing returns [] instead of looking successful.
+    if (state.method === "POST" || state.method === "PATCH" || state.method === "DELETE") {
       headers["Prefer"] = "return=representation";
     }
 

@@ -16,6 +16,12 @@ import { computeAutoPONumber } from "./sdkCallNumbers.js";
 import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
+// Offline-created ids come from generateId() (base36, no hyphens); Supabase
+// ids are uuids (always hyphenated). Lets us tell "create that never reached
+// the DB" apart from "row someone permanently deleted in the DB" — re-insert
+// the former, drop the latter instead of resurrecting it.
+const isLocalId = (id) => typeof id === "string" && id.length > 0 && !id.includes("-");
+
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
   const [wsTasks, setWsTasks] = useState([]);
@@ -85,6 +91,34 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   // Pre-compute Viking Mars's final 2026 call date. Used by vatRules to grant
   // 0% VAT to that one call (voyage ends in a foreign port).
   const lastVikingMarsDate = useMemo(() => findLastVikingMarsDate(SHIPS), []);
+
+  const recordSyncError = useCallback((context, err) => {
+    let detail = "";
+    if (err) {
+      if (typeof err === "string") detail = err;
+      else if (err.message) detail = err.message;
+      else if (err.code || err.details || err.hint) detail = [err.code, err.message, err.details, err.hint].filter(Boolean).join(" — ");
+      else { try { detail = JSON.stringify(err); } catch { detail = String(err); } }
+    }
+    setJobSyncError({ context, detail: detail || "Unknown error", at: new Date().toISOString() });
+  }, []);
+
+  // Awaits a Supabase write and verifies it actually touched rows. The REST
+  // wrapper returns error:null even when a PATCH/DELETE matched nothing (RLS,
+  // stale id), which used to make failed writes look successful — the root
+  // cause of deleted jobs reappearing on the other user's device. Returns true
+  // only when at least one row was affected.
+  const verifyRows = useCallback(async (builderPromise, context) => {
+    try {
+      const { data, error } = await builderPromise;
+      if (error) { recordSyncError(context, error); return false; }
+      if (Array.isArray(data) && data.length === 0) {
+        recordSyncError(context, "No rows matched — the change did not reach the database");
+        return false;
+      }
+      return true;
+    } catch (e) { recordSyncError(context, e); return false; }
+  }, [recordSyncError]);
 
   // ─── INVOICE FLOW ────────────────────────────────────────────────────────
   // Two stages, because Payday's public API only creates *finalized*
@@ -159,8 +193,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       try { localStorage.setItem("ws:jobs", JSON.stringify(updated)); } catch {}
       return updated;
     });
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ invoiced: true }).eq("id", job.id).then(() => {});
-  }, [invoicePreview, lastVikingMarsDate]);
+    if (SUPABASE_CONFIGURED && !isLocalId(job.id)) verifyRows(supabase.from("jobs").update({ invoiced: true }).eq("id", job.id), "invoice-flag");
+  }, [invoicePreview, lastVikingMarsDate, verifyRows]);
 
   const startInvoice = useCallback((job) => {
     // Akureyri has its own rate sheet, regardless of cruise line.
@@ -170,17 +204,6 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (key) openPreview(job, key);
     else setRateSheetPicker(job);
   }, [openPreview]);
-
-  const recordSyncError = useCallback((context, err) => {
-    let detail = "";
-    if (err) {
-      if (typeof err === "string") detail = err;
-      else if (err.message) detail = err.message;
-      else if (err.code || err.details || err.hint) detail = [err.code, err.message, err.details, err.hint].filter(Boolean).join(" — ");
-      else { try { detail = JSON.stringify(err); } catch { detail = String(err); } }
-    }
-    setJobSyncError({ context, detail: detail || "Unknown error", at: new Date().toISOString() });
-  }, []);
 
   // ─── WORKSPACE STORAGE (Supabase with localStorage fallback) ───────────────
   const loadTasksFromDb = useCallback(async () => {
@@ -281,10 +304,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         return;
       }
 
-      // Merge DB rows with any local rows that never reached Supabase, so a
-      // silently-failed write isn't shadowed by an empty/partial DB response.
+      // Merge DB rows with local rows that never reached Supabase, so a
+      // silently-failed create isn't shadowed by the DB response. Only rows we
+      // KNOW are local creates qualify: tagged pendingSync at create time, or
+      // carrying a local-format id (backward compat with rows created before
+      // tagging existed). A uuid-id row absent from the DB means someone
+      // permanently deleted it there — drop it. Re-inserting those stale
+      // localStorage copies was how deleted jobs kept resurrecting.
       const dbIds = new Set(dbJobs.map(j => j.id));
-      const unsynced = [...localJobs, ...localDeleted].filter(j => j && j.id && !dbIds.has(j.id));
+      const unsynced = [...localJobs, ...localDeleted].filter(
+        j => j && j.id && !dbIds.has(j.id) && (j.pendingSync || isLocalId(j.id))
+      );
 
       // Local deletes are authoritative: if the user deleted a job locally
       // but the soft-delete .update() never landed in Supabase, dbJobs comes
@@ -299,20 +329,28 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         return j;
       });
       // Background-retry the soft-delete for any rows we just reconciled.
+      // verifyRows surfaces both hard errors AND zero-row matches (RLS) in
+      // the sync banner — a retry that touches nothing is a failure, not a
+      // success, or the delete never converges and the job reappears for
+      // the other user.
       if (SUPABASE_CONFIGURED) {
         const needsRetry = reconciledDbJobs.filter(j => {
           const dbCopy = dbJobs.find(d => d.id === j.id);
           return j.deletedAt && dbCopy && !dbCopy.deletedAt;
         });
         for (const j of needsRetry) {
-          supabase.from("jobs").update({ deleted_at: j.deletedAt }).eq("id", j.id).then(({ error }) => {
-            if (error) console.warn("Soft-delete retry failed:", error);
-          });
+          verifyRows(supabase.from("jobs").update({ deleted_at: j.deletedAt }).eq("id", j.id), "delete-retry");
         }
       }
 
-      setJobs([...reconciledDbJobs.filter(j => !j.deletedAt), ...unsynced.filter(j => !j.deletedAt)]);
-      setDeletedJobs([...reconciledDbJobs.filter(j => j.deletedAt), ...unsynced.filter(j => j.deletedAt)]);
+      const mergedActive = [...reconciledDbJobs.filter(j => !j.deletedAt), ...unsynced.filter(j => !j.deletedAt)];
+      const mergedDeleted = [...reconciledDbJobs.filter(j => j.deletedAt), ...unsynced.filter(j => j.deletedAt)];
+      setJobs(mergedActive);
+      setDeletedJobs(mergedDeleted);
+      // Persist the cleaned merge so stale copies of DB-deleted rows are
+      // purged from localStorage instead of being re-evaluated every load.
+      try { localStorage.setItem("ws:jobs", JSON.stringify(mergedActive)); } catch {}
+      try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(mergedDeleted)); } catch {}
       setJobsLoaded(true);
 
       // Background: push unsynced rows up so coworkers see them too.
@@ -323,12 +361,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
           const { data, error } = await supabase.from("jobs").insert({
             port: j.port || "REY",
             type: j.type || "provisions",
+            service: j.service || null,
             date: j.date,
             ship: j.ship || null,
             po_number: j.po_number || null,
             notes: j.notes || null,
             shifts: j.shifts || [],
             completed: !!j.completed,
+            invoiced: !!j.invoiced,
             hours_worked: j.hoursWorked || null,
             deleted_at: j.deletedAt || null,
           });
@@ -349,7 +389,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         } catch (e) { console.warn("Failed to sync local job:", e); }
       }
     })();
-  }, [loadJobsFromDb, recordSyncError]);
+  }, [loadJobsFromDb, recordSyncError, verifyRows]);
 
   const saveJobs = useCallback((j) => {
     setJobs(j);
@@ -434,6 +474,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       shifts: [],
       completed: true,
       createdAt: new Date().toISOString(),
+      pendingSync: true, // not in Supabase yet — merge-on-load re-inserts it
     };
     if (SUPABASE_CONFIGURED) {
       let data = null, error = null;
@@ -501,7 +542,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (jobModal === "new") {
       const insertPayload = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
       if (isBindingar) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
-      const localBase = { id: generateId(), port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts, completed: !!completed, createdAt: new Date().toISOString() };
+      const localBase = { id: generateId(), port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts, completed: !!completed, createdAt: new Date().toISOString(), pendingSync: true };
       if (isBindingar) localBase.hoursWorked = hoursWorked;
       if (SUPABASE_CONFIGURED) {
         let data = null, error = null;
@@ -522,14 +563,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       const updatePatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts };
       if (isBindingar) { updatePatch.completed = true; updatePatch.hoursWorked = hoursWorked; }
       saveJobs(jobs.map(j => j.id === jobModal ? { ...j, ...updatePatch } : j));
-      if (SUPABASE_CONFIGURED) {
+      // Local-id rows aren't in the DB yet — merge-on-load re-inserts them
+      // with their current (edited) state, so a PATCH would just no-op.
+      if (SUPABASE_CONFIGURED && !isLocalId(jobModal)) {
         const dbPatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
         if (isBindingar) { dbPatch.completed = true; dbPatch.hours_worked = hoursWorked; }
-        supabase.from("jobs").update(dbPatch).eq("id", jobModal).then(() => {});
+        verifyRows(supabase.from("jobs").update(dbPatch).eq("id", jobModal), "edit");
       }
     }
     setJobModal(null);
-  }, [jobForm, jobModal, jobs, saveJobs, recordSyncError]);
+  }, [jobForm, jobModal, jobs, saveJobs, recordSyncError, verifyRows]);
 
   // Get all equipment merged across shifts (for completion + display)
   const getJobEquipment = (job) => {
@@ -550,7 +593,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (!job) return;
     if (job.completed) {
       saveJobs(jobs.map(j => j.id === id ? { ...j, completed: false, hoursWorked: undefined } : j));
-      if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: false, hours_worked: null }).eq("id", id).then(() => {});
+      if (SUPABASE_CONFIGURED && !isLocalId(id)) verifyRows(supabase.from("jobs").update({ completed: false, hours_worked: null }).eq("id", id), "complete");
     } else {
       const shifts = job.shifts || [{ startTime: job.startTime || "", equipment: job.equipment || {} }];
       const cpEquip = JOB_EQUIPMENT_BY_TYPE[job.type] || {};
@@ -564,7 +607,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       setCompleteAllHours("");
       setCompleteModal(job);
     }
-  }, [jobs, saveJobs]);
+  }, [jobs, saveJobs, verifyRows]);
 
   const applyAllHours = useCallback((val) => {
     setCompleteAllHours(val);
@@ -602,9 +645,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || (isDaysKey(k) ? 1 : 4) }))])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", completeModal.id).then(() => {});
+    if (SUPABASE_CONFIGURED && !isLocalId(completeModal.id)) verifyRows(supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", completeModal.id), "complete");
     setCompleteModal(null);
-  }, [completeModal, completeHours, jobs, saveJobs]);
+  }, [completeModal, completeHours, jobs, saveJobs, verifyRows]);
 
   const deleteJob = useCallback(async (id) => {
     const job = jobs.find(j => j.id === id);
@@ -612,19 +655,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const now = new Date().toISOString();
     saveJobs(jobs.filter(j => j.id !== id));
     saveDeletedJobs([{ ...job, deletedAt: now }, ...deletedJobs]);
-    if (SUPABASE_CONFIGURED) {
-      try {
-        const { error } = await supabase.from("jobs").update({ deleted_at: now }).eq("id", id);
-        if (error) {
-          console.error("Soft-delete failed in Supabase:", error);
-          recordSyncError("delete", error);
-        }
-      } catch (e) {
-        console.error("Soft-delete threw:", e);
-        recordSyncError("delete", e);
-      }
+    // verifyRows also catches the zero-row PATCH (RLS / stale id) that used
+    // to pass silently and leave the row active in the DB for the other user.
+    // Local-id rows were never inserted — merge-on-load carries deletedAt up.
+    if (SUPABASE_CONFIGURED && !isLocalId(id)) {
+      await verifyRows(supabase.from("jobs").update({ deleted_at: now }).eq("id", id), "delete");
     }
-  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs, recordSyncError]);
+  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs, verifyRows]);
 
   const restoreJob = useCallback((id) => {
     const job = deletedJobs.find(j => j.id === id);
@@ -632,13 +669,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const { deletedAt, ...restored } = job;
     saveJobs([...jobs, restored]);
     saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").update({ deleted_at: null }).eq("id", id).then(() => {});
-  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs]);
+    if (SUPABASE_CONFIGURED && !isLocalId(id)) verifyRows(supabase.from("jobs").update({ deleted_at: null }).eq("id", id), "restore");
+  }, [jobs, saveJobs, deletedJobs, saveDeletedJobs, verifyRows]);
 
   const permanentDeleteJob = useCallback((id) => {
     saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
-    if (SUPABASE_CONFIGURED) supabase.from("jobs").delete().eq("id", id).then(() => {});
-  }, [deletedJobs, saveDeletedJobs]);
+    if (SUPABASE_CONFIGURED && !isLocalId(id)) verifyRows(supabase.from("jobs").delete().eq("id", id), "permanent-delete");
+  }, [deletedJobs, saveDeletedJobs, verifyRows]);
 
   const shipsOnDate = useMemo(() => {
     if (!jobForm.date) return [];
@@ -1424,6 +1461,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         )}
                       </div>
                       <div style={{ display: "flex", gap: 4, position: "relative", zIndex: 2 }}>
+                        {job.pendingSync && (
+                          <span title="Saved on this device only — will sync to the shared database on next load" style={{ alignSelf: "center", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 6, padding: "3px 8px", color: IPS_WARN, fontSize: 10, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", whiteSpace: "nowrap" }}>not synced</span>
+                        )}
                         {job.completed && job.hoursWorked && !job.invoiced && (() => {
                           // Block when prerequisites are missing — show the reason as a tooltip.
                           const missing = [];
