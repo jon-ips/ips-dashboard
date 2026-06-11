@@ -1384,6 +1384,46 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const activeJobs = realJobs.filter(j => !j.completed);
               const completedJobs = realJobs.filter(j => j.completed && !j.invoiced);
               const invoicedJobs = realJobs.filter(j => j.invoiced);
+
+              // Group jobs by ship CALL (the schedule entry whose date window
+              // covers the job, same port) — not just ship name, so two calls
+              // of the same ship stay separate. Jobs with no matching schedule
+              // entry group by ship+date instead.
+              const findCall = (job) => {
+                const name = extractShipName(job.ship);
+                if (!name || !job.date) return null;
+                return SHIPS.find(s =>
+                  s.ship === name &&
+                  (s.port || "REY") === (job.port || "REY") &&
+                  job.date >= s.date && job.date <= (s.endDate || s.date)
+                ) || null;
+              };
+              const groupByCall = (list) => {
+                const map = new Map();
+                for (const job of list) {
+                  const call = findCall(job);
+                  const name = extractShipName(job.ship);
+                  const key = `${job.port || "REY"}|${name || "no-ship"}|${call ? call.date : (job.date || "")}`;
+                  if (!map.has(key)) map.set(key, {
+                    key,
+                    ship: name || "No ship",
+                    port: job.port || "REY",
+                    anchor: call ? call.date : (job.date || ""),
+                    end: (call && call.endDate) || null,
+                    jobs: [],
+                  });
+                  map.get(key).jobs.push(job);
+                }
+                return [...map.values()];
+              };
+              const todayIso = new Date().toISOString().slice(0, 10);
+              const daysFromToday = (iso) => Math.abs((new Date(iso) - new Date(todayIso)) / 86400000);
+              const ascByAnchor = (a, b) => a.anchor.localeCompare(b.anchor) || a.ship.localeCompare(b.ship);
+              // Active: calls nearest today first; Completed: oldest first;
+              // Invoiced: newest first.
+              const activeGroups = groupByCall(activeJobs).sort((a, b) => daysFromToday(a.anchor) - daysFromToday(b.anchor) || ascByAnchor(a, b));
+              const completedGroups = groupByCall(completedJobs).sort(ascByAnchor);
+              const invoicedGroups = groupByCall(invoicedJobs).sort((a, b) => ascByAnchor(b, a));
               const sectionHeader = (label, count, collapsed, onToggle, color) => (
                 <button onClick={onToggle} style={{
                   background: "none", border: "none", cursor: "pointer", padding: "8px 0",
@@ -1495,16 +1535,29 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   </Card>
                 );
               };
+              const renderGroup = (g) => (
+                <div key={g.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 2px 0", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: IPS_ACCENT, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{g.ship}</span>
+                    {g.port === "AK" && <span style={{ fontSize: 10, fontWeight: 700, color: IPS_BLUE, background: `${IPS_BLUE}15`, padding: "1px 6px", borderRadius: 4, fontFamily: "JetBrains Mono" }}>AK</span>}
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: TEXT_DIM }}>
+                      {fmtDate(g.anchor)}{g.end && g.end !== g.anchor ? ` – ${fmtDate(g.end)}` : ""}
+                    </span>
+                    <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>· {g.jobs.length} job{g.jobs.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  {g.jobs.map(renderJobCard)}
+                </div>
+              );
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {activeJobs.map(renderJobCard)}
+                    {activeGroups.map(renderGroup)}
                   </div>
                   {completedJobs.length > 0 && (<>
                     {sectionHeader("Completed", completedJobs.length, jobsCompletedCollapsed, () => setJobsCompletedCollapsed(c => !c), IPS_SUCCESS)}
                     {!jobsCompletedCollapsed && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {completedJobs.map(renderJobCard)}
+                        {completedGroups.map(renderGroup)}
                       </div>
                     )}
                   </>)}
@@ -1512,7 +1565,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     {sectionHeader("Invoiced", invoicedJobs.length, jobsInvoicedCollapsed, () => setJobsInvoicedCollapsed(c => !c), IPS_ACCENT)}
                     {!jobsInvoicedCollapsed && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {invoicedJobs.map(renderJobCard)}
+                        {invoicedGroups.map(renderGroup)}
                       </div>
                     )}
                   </>)}
