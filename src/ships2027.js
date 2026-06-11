@@ -153,7 +153,8 @@ export const SHIPS_2027 = [
   { date: "2027-08-19", endDate: null, line: "Windstar Cruises", ship: "Star Pride", turnaround: true, pax: 212, status: "other", berth: "Miðbakki" },
   { date: "2027-08-20", endDate: "2027-08-21", line: "Celebrity Cruises", ship: "Celebrity Silhouette", turnaround: true, pax: 2886, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2027-08-20", endDate: null, line: "Ambassador Cruise Line", ship: "Ambition", turnaround: false, pax: 1196, status: "other", berth: "Skarfabakki" },
-  { date: "2027-08-20", endDate: "2027-08-21", line: "ResidenSea", ship: "The World", turnaround: false, pax: 699, status: "other", port: "AK", berth: "Aðalhafnargarður" },
+  // The World also calls Akranes (Aðalhafnargarður, Faxaflóahafnir) 20-21 Aug
+  // before this REY call — not serviced by IPS, intentionally not tracked.
   { date: "2027-08-21", endDate: "2027-08-22", line: "Oceania Cruises", ship: "Vista", turnaround: true, pax: 1200, status: "other", berth: "Skarfabakki" },
   { date: "2027-08-21", endDate: null, line: "Crystal Cruises", ship: "Crystal Symphony", turnaround: true, pax: 960, status: "other", berth: "Korngarður" },
   { date: "2027-08-21", endDate: "2027-08-22", line: "ResidenSea", ship: "The World", turnaround: false, pax: 699, status: "other", berth: "Korngarður" },
