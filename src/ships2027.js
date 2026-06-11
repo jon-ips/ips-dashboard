@@ -9,6 +9,18 @@ import { SHIPS } from "./constants.js";
 export const SHIPS_2027 = [
   // ─── APRIL ──────────────────────────────────────────────────────────────────
   { date: "2027-04-08", endDate: "2027-04-09", line: "AIDA Cruises", ship: "AIDAsol", turnaround: false, pax: 2194, status: "other", berth: "Skarfabakki" },
+  // ─── MAY ────────────────────────────────────────────────────────────────────
+  { date: "2027-05-11", endDate: "2027-05-12", line: "Fred. Olsen Cruise Lines", ship: "Bolette", turnaround: false, pax: 1380, status: "other", berth: "Skarfabakki" },
+  { date: "2027-05-13", endDate: "2027-05-15", line: "Ponant", ship: "Le Commandant Charcot", turnaround: true, pax: 250, status: "other", berth: "VÖR Cruise Terminal" },
+  { date: "2027-05-19", endDate: null, line: "HX (Hurtigruten Expeditions)", ship: "Fridtjof Nansen", turnaround: true, pax: 530, status: "other", berth: "Miðbakki" },
+  { date: "2027-05-20", endDate: "2027-05-21", line: "MSC Cruises", ship: "MSC Preziosa", turnaround: false, pax: 3502, status: "other", berth: "VÖR Cruise Terminal" },
+  { date: "2027-05-20", endDate: "2027-05-21", line: "AIDA Cruises", ship: "AIDAsol", turnaround: false, pax: 2194, status: "other", berth: "Skarfabakki" },
+  { date: "2027-05-24", endDate: null, line: "Carnival Cruise Line", ship: "Carnival Sunshine", turnaround: false, pax: 3006, status: "other", berth: "Skarfabakki" },
+  { date: "2027-05-24", endDate: "2027-05-25", line: "Ponant", ship: "Le Commandant Charcot", turnaround: true, pax: 250, status: "other", berth: "VÖR Cruise Terminal" },
+  { date: "2027-05-26", endDate: null, line: "HX (Hurtigruten Expeditions)", ship: "Fridtjof Nansen", turnaround: true, pax: 530, status: "other", berth: "Miðbakki" },
+  { date: "2027-05-27", endDate: "2027-05-29", line: "TUI Cruises", ship: "Mein Schiff 3", turnaround: false, pax: 2506, status: "other", berth: "Skarfabakki" },
+  { date: "2027-05-29", endDate: null, line: "Holland America Line", ship: "Zuiderdam", turnaround: true, pax: 2272, status: "other", berth: "VÖR Cruise Terminal" },
+  { date: "2027-05-31", endDate: null, line: "Swan Hellenic", ship: "SH Vega", turnaround: true, pax: 152, status: "other", berth: "Miðbakki" },
 ];
 
 export const SHIPS_BY_YEAR = {
