@@ -213,7 +213,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{activeModule === "market" ? `Reykjavík · ${marketYear} Season · ${marketCalls.length} port calls` : activeModule === "cfo" ? "Financial Management & Analysis" : "Task & Project Management"}</div>
           </div>
           {activeModule === "market" && (
-            <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignSelf: "center" }}>
+            <div style={{ marginLeft: 8, display: "flex", gap: 4, alignSelf: "center" }}>
               {[2026, 2027].map(y => (
                 <button key={y} onClick={() => setMarketYear(y)} style={{
                   padding: "6px 14px", borderRadius: 8, cursor: "pointer",
@@ -227,7 +227,7 @@ export default function IPSDashboard({ accessLevel = "team", onLogout }) {
           )}
         </div>
 
-        <div className="page-content" style={{ padding: "20px 28px", maxWidth: (activeModule === "workspace" && wsView === "calendar") ? "none" : 1440 }}>
+        <div className="page-content" style={{ padding: "20px 28px", maxWidth: (activeModule === "market" || (activeModule === "workspace" && wsView === "calendar")) ? "none" : 1440 }}>
 
         {/* MODULE RENDERING */}
         {activeModule === "market" && (
