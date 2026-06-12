@@ -574,7 +574,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
               const total = lineValSort === "calls" ? stats.totalCalls : stats.totalTieredW;
               const entries = Object.entries(stats.lineBreakdown).map(([line, b]) => {
                 const rawVal = lineValSort === "calls" ? b.calls : b.tieredW;
-                return { line, rawVal, share: total > 0 ? (rawVal / total) * 100 : 0 };
+                return { line, rawVal, calls: b.calls, turnarounds: b.turnarounds, share: total > 0 ? (rawVal / total) * 100 : 0 };
               }).sort((a, b) => b.share - a.share);
               const maxShare = Math.max(1, ...entries.map(e => e.share));
               const cols = "minmax(130px, 240px) 1fr 110px";
@@ -589,9 +589,14 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                     {entries.map((e, i) => {
                       const ips = wonLines.has(e.line);
                       return (
-                        <div key={e.line} style={{ display: "grid", gridTemplateColumns: cols, gap: 10, padding: "7px 12px", alignItems: "center", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
-                          <div style={{ fontSize: 12, fontWeight: ips ? 700 : 400, color: ips ? IPS_ACCENT : TEXT, display: "flex", alignItems: "center", gap: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {ips && <span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_ACCENT, flexShrink: 0 }} />}{e.line}
+                        <div key={e.line} style={{ display: "grid", gridTemplateColumns: cols, gap: 10, padding: "9px 12px", alignItems: "center", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
+                          <div style={{ overflow: "hidden" }}>
+                            <div style={{ fontSize: 15, fontWeight: ips ? 700 : 500, color: ips ? IPS_ACCENT : TEXT, display: "flex", alignItems: "center", gap: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>
+                              {ips && <span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_ACCENT, flexShrink: 0 }} />}{e.line}
+                            </div>
+                            <div style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginTop: 2, whiteSpace: "nowrap" }}>
+                              {e.calls} call{e.calls !== 1 ? "s" : ""} · {e.turnarounds} T
+                            </div>
                           </div>
                           <div style={{ height: 12, background: "rgba(255,255,255,0.04)", borderRadius: 3, overflow: "hidden" }}>
                             <div style={{ width: `${(e.share / maxShare) * 100}%`, height: "100%", background: IPS_ACCENT, borderRadius: 3, opacity: ips ? 1 : 0.45, transition: "width 0.3s" }} />
