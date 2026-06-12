@@ -8,8 +8,9 @@ import {
   IPS_BLUE, IPS_ACCENT, IPS_ACCENT2, IPS_WARN, IPS_DANGER, IPS_SUCCESS,
   SURFACE, BORDER, TEXT, TEXT_DIM, OTHER_COLOR,
   SAMSKIP_COLOR, PROSPECT_GROUPS,
-  SDK_LINES, DIRECT_CONTRACT_LINES,
+  SDK_LINES, DIRECT_CONTRACT_LINES, SHIPS,
 } from "./constants.js";
+import { SHIPS_2027 } from "./ships2027.js";
 import { Card, SL, CTip, PieCard, FilterPill, fmtDate, fmtDateRange } from "./shared.jsx";
 
 export default function MarketIntel({ portCalls: allPortCalls, activeView, projections = [], year = 2026 }) {
@@ -60,6 +61,27 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
   const [calDropOpen, setCalDropOpen] = useState(false);
   const [showNonTurnaround, setShowNonTurnaround] = useState(false);
   const [activePaxBrackets, setActivePaxBrackets] = useState(new Set(["small", "medium", "large", "mega"]));
+  const [lineValSort, setLineValSort] = useState("calls"); // "calls" | "tiered"
+
+  // Per-line season totals for BOTH years — independent of the header year
+  // toggle and of what-if scenarios, so the year-over-year comparison stays
+  // stable. 2027 charter rows may carry pax: null → treat as 0 pax.
+  const lineYearValue = useMemo(() => {
+    const compute = (calls) => {
+      const byLine = {};
+      let totalCalls = 0, totalTieredW = 0;
+      calls.filter(s => s.port !== "AK").forEach(s0 => {
+        const s = s0.pax == null ? { ...s0, pax: 0 } : s0;
+        const tw = getTieredWeight(s);
+        if (!byLine[s.line]) byLine[s.line] = { calls: 0, tieredW: 0 };
+        byLine[s.line].calls++;
+        byLine[s.line].tieredW += tw;
+        totalCalls++; totalTieredW += tw;
+      });
+      return { byLine, totalCalls, totalTieredW };
+    };
+    return { y26: compute(SHIPS), y27: compute(SHIPS_2027) };
+  }, []);
 
   // ─── COMPUTED DATA ────────────────────────────────────────────────────────
   const toggleLine = useCallback((line) => {
@@ -549,6 +571,88 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
             <Card><SL>Monthly Call Volume</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsCalls" name="IPS" fill={IPS_ACCENT} radius={[4, 4, 0, 0]} /><Bar dataKey="otherCalls" name="Other" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
             <Card><SL>Monthly Tiered Weighted Points</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsTieredW" name="IPS Tiered" fill={IPS_SUCCESS} radius={[4, 4, 0, 0]} /><Bar dataKey="otherTieredW" name="Other Tiered" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
           </div>
+
+          {/* Cruise Line Value by Year */}
+          <Card>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <SL>Cruise Line Value — 2026 vs 2027</SL>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[["calls", "Call Share"], ["tiered", "Weighted Share"]].map(([key, label]) => (
+                  <button key={key} onClick={() => setLineValSort(key)} style={{
+                    background: lineValSort === key ? "rgba(87,181,200,0.15)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${lineValSort === key ? IPS_ACCENT : BORDER}`,
+                    borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                    color: lineValSort === key ? IPS_ACCENT : TEXT_DIM, fontSize: 10, fontWeight: 600,
+                    fontFamily: "JetBrains Mono", transition: "all 0.15s",
+                  }}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: TEXT_DIM, marginTop: -6, marginBottom: 12 }}>
+              Each line's share of the Reykjavík season · {lineValSort === "calls" ? "by call count" : "by tiered weighted points"} · sorted by {year} · Δ = 2027 vs 2026 share
+            </div>
+            {(() => {
+              const { y26, y27 } = lineYearValue;
+              const share = (yr, line) => {
+                const e = yr.byLine[line];
+                if (!e) return 0;
+                return lineValSort === "calls"
+                  ? (yr.totalCalls > 0 ? (e.calls / yr.totalCalls) * 100 : 0)
+                  : (yr.totalTieredW > 0 ? (e.tieredW / yr.totalTieredW) * 100 : 0);
+              };
+              const raw = (yr, line) => {
+                const e = yr.byLine[line];
+                return e ? (lineValSort === "calls" ? e.calls : e.tieredW) : 0;
+              };
+              const allLines = [...new Set([...Object.keys(y26.byLine), ...Object.keys(y27.byLine)])];
+              const active = year === 2027 ? y27 : y26;
+              const inactive = year === 2027 ? y26 : y27;
+              const sorted = allLines.sort((a, b) =>
+                (share(active, b) - share(active, a)) || (share(inactive, b) - share(inactive, a))
+              );
+              const maxShare = Math.max(1, ...allLines.map(l => Math.max(share(y26, l), share(y27, l))));
+              const cols = "minmax(130px, 220px) 1fr 1fr 60px";
+              const barCell = (val, rawVal, color, ips) => (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, height: 12, background: "rgba(255,255,255,0.04)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${(val / maxShare) * 100}%`, height: "100%", background: color, borderRadius: 3, opacity: ips ? 1 : 0.45, transition: "width 0.3s" }} />
+                  </div>
+                  <div style={{ width: 100, fontSize: 11, fontFamily: "JetBrains Mono", color: val > 0 ? TEXT : TEXT_DIM, textAlign: "right", whiteSpace: "nowrap" }}>
+                    {val > 0 ? <>{val.toFixed(1)}%<span style={{ color: TEXT_DIM }}> · {rawVal}</span></> : "—"}
+                  </div>
+                </div>
+              );
+              return (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: cols, gap: 10, padding: "6px 12px", fontSize: 9, textTransform: "uppercase", letterSpacing: 1.5, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}`, color: TEXT_DIM }}>
+                    <div>Cruise Line</div>
+                    <div style={{ color: year === 2026 ? IPS_ACCENT : TEXT_DIM }}>2026 {lineValSort === "calls" ? "· calls" : "· pts"}</div>
+                    <div style={{ color: year === 2027 ? IPS_WARN : TEXT_DIM }}>2027 {lineValSort === "calls" ? "· calls" : "· pts"}</div>
+                    <div style={{ textAlign: "right" }}>Δ pp</div>
+                  </div>
+                  <div style={{ maxHeight: 460, overflowY: "auto" }}>
+                    {sorted.map((line, i) => {
+                      const s26 = share(y26, line), s27 = share(y27, line);
+                      const delta = s27 - s26;
+                      const ips = wonLines.has(line);
+                      return (
+                        <div key={line} style={{ display: "grid", gridTemplateColumns: cols, gap: 10, padding: "7px 12px", alignItems: "center", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
+                          <div style={{ fontSize: 12, fontWeight: ips ? 700 : 400, color: ips ? IPS_ACCENT : TEXT, display: "flex", alignItems: "center", gap: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {ips && <span style={{ width: 6, height: 6, borderRadius: "50%", background: IPS_ACCENT, flexShrink: 0 }} />}{line}
+                          </div>
+                          {barCell(s26, raw(y26, line), IPS_ACCENT, ips)}
+                          {barCell(s27, raw(y27, line), IPS_WARN, ips)}
+                          <div style={{ fontSize: 11, fontFamily: "JetBrains Mono", textAlign: "right", color: Math.abs(delta) < 0.05 ? TEXT_DIM : delta > 0 ? IPS_SUCCESS : IPS_DANGER }}>
+                            {Math.abs(delta) < 0.05 ? "—" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
+          </Card>
         </>)}
 
         {/* ═══ CALENDAR ═══ */}
