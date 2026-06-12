@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import {
   SIMPLE_TURNAROUND_WEIGHT, TRANSIT_WEIGHT, getTieredWeight, getTierLabel,
   MONTHS, MONTH_NUMS,
@@ -549,7 +549,6 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
             <Card><SL>Monthly Call Volume</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsCalls" name="IPS" fill={IPS_ACCENT} radius={[4, 4, 0, 0]} /><Bar dataKey="otherCalls" name="Other" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
             <Card><SL>Monthly Tiered Weighted Points</SL><ResponsiveContainer width="100%" height={220}><BarChart data={stats.monthly} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Bar dataKey="ipsTieredW" name="IPS Tiered" fill={IPS_SUCCESS} radius={[4, 4, 0, 0]} /><Bar dataKey="otherTieredW" name="Other Tiered" fill="#334155" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>
           </div>
-          <Card><SL>Projected IPS Operations Volume</SL><ResponsiveContainer width="100%" height={250}><LineChart data={stats.monthly}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="month" tick={{ fill: TEXT_DIM, fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: TEXT_DIM, fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip content={<CTip />} /><Legend wrapperStyle={{ fontSize: 12, color: TEXT_DIM }} /><Line type="monotone" dataKey="pallets" name="Pallets" stroke={IPS_ACCENT} strokeWidth={2.5} dot={{ r: 4, fill: IPS_ACCENT }} /><Line type="monotone" dataKey="luggage" name="Luggage" stroke={IPS_WARN} strokeWidth={2.5} dot={{ r: 4, fill: IPS_WARN }} /><Line type="monotone" dataKey="crew" name="Crew" stroke={IPS_SUCCESS} strokeWidth={2.5} dot={{ r: 4, fill: IPS_SUCCESS }} /></LineChart></ResponsiveContainer></Card>
         </>)}
 
         {/* ═══ CALENDAR ═══ */}
