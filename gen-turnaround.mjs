@@ -3,9 +3,9 @@ import { SHIPS, SDK_LINES, DIRECT_CONTRACT_LINES } from "./src/constants.js";
 // "IPS/SDK ships" = lines IPS services directly + lines via the SDK agent.
 const IPS_SDK = new Set([...DIRECT_CONTRACT_LINES, ...SDK_LINES]);
 
-// Summer 2026 window.
+// Summer 2026 window (incl. September).
 const SUMMER_START = "2026-06-01";
-const SUMMER_END = "2026-08-31";
+const SUMMER_END = "2026-09-30";
 
 const MS_DAY = 86400000;
 const addDays = (iso, n) => {
@@ -58,7 +58,7 @@ for (const r of rows) lineCount[r.line] = (lineCount[r.line] || 0) + 1;
 
 let out = "";
 out += "# IPS / SDK Turnaround Calendar — Summer 2026\n\n";
-out += "Turnaround days for ships IPS services directly or via SDK, June–August 2026.\n\n";
+out += "Turnaround days for ships IPS services directly or via SDK, June–September 2026.\n\n";
 out += "**Turnaround day rule:** 1 day in port = that day · 2 days = day one (arrival) · 3 days = day two (the middle day). In general, the turnaround day is the last full day before departure.\n\n";
 out += `**Total turnaround days:** ${rows.length}\n\n`;
 out += "---\n\n";

@@ -1,10 +1,10 @@
 # IPS / SDK Turnaround Calendar — Summer 2026
 
-Turnaround days for ships IPS services directly or via SDK, June–August 2026.
+Turnaround days for ships IPS services directly or via SDK, June–September 2026.
 
 **Turnaround day rule:** 1 day in port = that day · 2 days = day one (arrival) · 3 days = day two (the middle day). In general, the turnaround day is the last full day before departure.
 
-**Total turnaround days:** 25
+**Total turnaround days:** 26
 
 ---
 
@@ -48,6 +48,12 @@ Turnaround days for ships IPS services directly or via SDK, June–August 2026.
 | **Sun 23 Aug** | Rotterdam | Holland America | 2106 | Reykjavík · VÖR Cruise Terminal | 1 day |
 | **Mon 31 Aug** | Viking Mira | Viking | 990 | Reykjavík · VÖR Cruise Terminal | 3 days (30–01) |
 
+## Sep 2026
+
+| Turnaround day | Ship | Line | Pax | Port / Berth | In port |
+|---|---|---|---:|---|---|
+| **Thu 24 Sep** | Hanseatic Spirit | Hapag-Lloyd | 230 | Reykjavík · Miðbakki | 1 day |
+
 ---
 
 ### Count by line
@@ -55,6 +61,6 @@ Turnaround days for ships IPS services directly or via SDK, June–August 2026.
 - **Viking:** 16
 - **Seabourn:** 4
 - **Holland America:** 3
-- **Hapag-Lloyd:** 2
+- **Hapag-Lloyd:** 3
 
 _Generated from src/constants.js (SHIPS). IPS/SDK lines = Viking, Holland America, Seabourn, Princess, Aida, Ambassador, Carnival, Costa, Cunard, Hapag-Lloyd, P&O, Phoenix Reisen, TUI._
