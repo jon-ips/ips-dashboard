@@ -53,6 +53,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
   const [completeAllHours, setCompleteAllHours] = useState("");
+  const [completeAllHalf, setCompleteAllHalf] = useState(false);
   const [deletedJobs, setDeletedJobs] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
   const [jobSyncError, setJobSyncError] = useState(null);
@@ -601,10 +602,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       const hrs = shifts.map(s => ({
         startTime: s.startTime || "",
         nextDay: !!s.nextDay,
-        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: isDaysKey(k) ? "1" : "4" }]])),
+        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: isDaysKey(k) ? "1" : "4", half: false }]])),
       }));
       setCompleteHours(hrs);
       setCompleteAllHours("");
+      setCompleteAllHalf(false);
       setCompleteModal(job);
     }
   }, [jobs, saveJobs, verifyRows]);
@@ -624,13 +626,30 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     }
   }, [completeModal]);
 
+  // Half-hour is a rare opt-in, so it's a toggle rather than a permanent
+  // option in the (whole-number) hours input. Toggling "set all" flips the
+  // +½ flag on every hourly resource; per-resource toggles override it.
+  const applyAllHalf = useCallback((val) => {
+    setCompleteAllHalf(val);
+    if (completeModal) {
+      const cpEquip = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+      const isDaysKey = (k) => completeModal.type === "cherry_picker" && !!cpEquip[k]?.flatDay;
+      setCompleteHours(prev => prev.map(sh => ({
+        ...sh,
+        equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => (
+          isDaysKey(k) ? [k, groups] : [k, groups.map(g => ({ ...g, half: val }))]
+        ))),
+      })));
+    }
+  }, [completeModal]);
+
   const splitGroup = useCallback((shiftIdx, key, groupIdx, splitQty) => {
     setCompleteHours(prev => prev.map((sh, si) => {
       if (si !== shiftIdx) return sh;
       const groups = [...sh.equipment[key]];
       const g = groups[groupIdx];
       if (splitQty >= g.qty) return sh;
-      groups.splice(groupIdx, 1, { qty: g.qty - splitQty, hours: g.hours }, { qty: splitQty, hours: g.hours });
+      groups.splice(groupIdx, 1, { qty: g.qty - splitQty, hours: g.hours, half: g.half }, { qty: splitQty, hours: g.hours, half: g.half });
       return { ...sh, equipment: { ...sh.equipment, [key]: groups } };
     }));
   }, []);
@@ -642,7 +661,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const hoursWorked = completeHours.map(sh => ({
       startTime: sh.startTime,
       nextDay: !!sh.nextDay,
-      equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => ({ qty: g.qty, hours: parseInt(g.hours) || (isDaysKey(k) ? 1 : 4) }))])),
+      equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, groups]) => [k, groups.map(g => {
+        const base = parseInt(g.hours) || (isDaysKey(k) ? 1 : 4);
+        return { qty: g.qty, hours: isDaysKey(k) ? base : base + (g.half ? 0.5 : 0) };
+      })])),
     }));
     saveJobs(jobs.map(j => j.id === completeModal.id ? { ...j, completed: true, hoursWorked } : j));
     if (SUPABASE_CONFIGURED && !isLocalId(completeModal.id)) verifyRows(supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", completeModal.id), "complete");
@@ -1199,6 +1221,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
           {completeModal !== null && (() => {
             const cjt = JOB_TYPES[completeModal.type] || JOB_TYPES.provisions;
             const cEquipList = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+            const halfBtnStyle = (on) => ({
+              padding: "4px 8px", borderRadius: 6, cursor: "pointer", fontSize: 10, fontWeight: 700,
+              fontFamily: "JetBrains Mono", whiteSpace: "nowrap",
+              background: on ? IPS_ACCENT : "rgba(255,255,255,0.05)",
+              border: `1px solid ${on ? IPS_ACCENT : BORDER}`,
+              color: on ? "#0a1929" : TEXT_DIM,
+            });
             return (
             <div onClick={() => setCompleteModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div onClick={e => e.stopPropagation()} style={{ width: 440, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
@@ -1218,6 +1247,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     <span style={{ fontSize: 12, color: TEXT, fontWeight: 500, whiteSpace: "nowrap" }}>Set all to:</span>
                     <input type="number" min="4" step="1" value={completeAllHours} onChange={e => applyAllHours(e.target.value)} placeholder="4" style={{ ...inputStyle, width: 80, padding: "6px 10px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
                     <span style={{ fontSize: 11, color: TEXT_DIM }}>hours</span>
+                    <button onClick={() => applyAllHalf(!completeAllHalf)} title="Add half an hour to every resource" style={{ ...halfBtnStyle(completeAllHalf), marginLeft: "auto" }}>+½ h</button>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {completeHours.map((sh, si) => (
@@ -1238,6 +1268,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 <span style={{ fontSize: 12, color: TEXT, flex: 1, fontWeight: 500 }}>{g.qty}× {label}</span>
                                 <input type="number" min={minVal} step="1" value={g.hours} onChange={e => { const v = Math.max(minVal, parseInt(e.target.value) || minVal); setCompleteHours(prev => prev.map((s, i) => i !== si ? s : { ...s, equipment: { ...s.equipment, [k]: s.equipment[k].map((x, j) => j === gi ? { ...x, hours: String(v) } : x) } })); setCompleteAllHours(""); }} style={{ ...inputStyle, width: 70, padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono" }} />
                                 <span style={{ fontSize: 11, color: TEXT_DIM }}>{isDays ? "d" : "h"}</span>
+                                {!isDays && (
+                                  <button onClick={() => setCompleteHours(prev => prev.map((s, i) => i !== si ? s : { ...s, equipment: { ...s.equipment, [k]: s.equipment[k].map((x, j) => j === gi ? { ...x, half: !x.half } : x) } }))} title="Add half an hour to this resource" style={halfBtnStyle(g.half)}>+½</button>
+                                )}
                                 {g.qty > 1 && (
                                   <div style={{ position: "relative" }}>
                                     <select onChange={e => { const v = parseInt(e.target.value); if (v > 0) splitGroup(si, k, gi, v); e.target.value = ""; }} defaultValue="" style={{ padding: "4px 6px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "JetBrains Mono", background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, color: IPS_ACCENT, appearance: "auto", colorScheme: "dark" }}>
