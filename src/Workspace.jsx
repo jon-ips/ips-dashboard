@@ -34,6 +34,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [wsCalMonth, setWsCalMonth] = useState(new Date().getMonth());
   const [wsCalYear, setWsCalYear] = useState(new Date().getFullYear());
   const [wsCalLayout, setWsCalLayout] = useState("month"); // "month" | "next5"
+  const [next5Offset, setNext5Offset] = useState(0); // days the 5-day window is shifted from today
   const [wsExpandedTask, setWsExpandedTask] = useState(null);
   const [wsNewNote, setWsNewNote] = useState("");
   const [wsNoteAuthor, setWsNoteAuthor] = useState("jon");
@@ -1960,12 +1961,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             const todayStr = todayDate.toISOString().slice(0, 10);
             let rangeStart, rangeEnd, next5Dates = null;
             if (wsCalLayout === "next5") {
-              rangeStart = todayStr;
-              const re = new Date(todayDate); re.setDate(re.getDate() + 4);
+              const winStart = new Date(todayDate); winStart.setDate(winStart.getDate() + next5Offset);
+              rangeStart = winStart.toISOString().slice(0, 10);
+              const re = new Date(winStart); re.setDate(re.getDate() + 4);
               rangeEnd = re.toISOString().slice(0, 10);
               next5Dates = [];
               for (let i = 0; i < 5; i++) {
-                const dd = new Date(todayDate); dd.setDate(dd.getDate() + i);
+                const dd = new Date(winStart); dd.setDate(dd.getDate() + i);
                 next5Dates.push(dd.toISOString().slice(0, 10));
               }
             } else {
@@ -2049,6 +2051,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             };
 
             const isNext5 = wsCalLayout === "next5";
+            // In the 5-day view the arrows page the window by 5 days; the back
+            // arrow stops at today so the view never shows past days.
+            const prevDisabled = isNext5 && next5Offset === 0;
+            const goPrev = () => isNext5 ? setNext5Offset(o => Math.max(0, o - 5)) : prevMonth();
+            const goNext = () => isNext5 ? setNext5Offset(o => o + 5) : nextMonth();
             const cellHeight = isNext5 ? "clamp(320px, 60vh, 600px)" : "clamp(90px, 16vh, 220px)";
 
             const SLOT_LABEL = { provisions: "P", waste: "W", turnaround: "T" };
@@ -2254,17 +2261,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               <>
                 <Card style={{ marginBottom: 16, padding: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <button onClick={prevMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>◀</button>
+                    <button onClick={goPrev} disabled={prevDisabled} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: prevDisabled ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: prevDisabled ? 0.3 : 1 }}>◀</button>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ fontSize: 16, fontWeight: 700 }}>{isNext5 ? "Next 5 Days" : `${monthName} ${year}`}</div>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{isNext5 ? (next5Offset === 0 ? "Next 5 Days" : `${fmtDate(rangeStart)} – ${fmtDate(rangeEnd)}`) : `${monthName} ${year}`}</div>
                       {(() => {
                         const now = new Date();
-                        const onCurrent = !isNext5 && wsCalMonth === now.getMonth() && wsCalYear === now.getFullYear();
+                        const onCurrent = isNext5 ? next5Offset === 0 : (wsCalMonth === now.getMonth() && wsCalYear === now.getFullYear());
                         return (
                           <button
-                            onClick={() => { setWsCalLayout("month"); setWsCalMonth(now.getMonth()); setWsCalYear(now.getFullYear()); }}
+                            onClick={() => { if (isNext5) { setNext5Offset(0); } else { setWsCalMonth(now.getMonth()); setWsCalYear(now.getFullYear()); } }}
                             disabled={onCurrent}
-                            title={onCurrent ? "Already on this month" : "Jump to today"}
+                            title={onCurrent ? (isNext5 ? "Already showing today" : "Already on this month") : "Jump to today"}
                             style={{
                               background: "rgba(255,255,255,0.03)",
                               border: `1px solid ${BORDER}`,
@@ -2276,7 +2283,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             }}>Today</button>
                         );
                       })()}
-                      <button onClick={() => setWsCalLayout(l => l === "next5" ? "month" : "next5")} style={{
+                      <button onClick={() => { setWsCalLayout(l => l === "next5" ? "month" : "next5"); setNext5Offset(0); }} style={{
                         background: isNext5 ? IPS_ACCENT : "rgba(87,181,200,0.1)",
                         border: `1px solid ${IPS_ACCENT}${isNext5 ? "" : "60"}`,
                         borderRadius: 6, padding: "6px 12px", cursor: "pointer",
@@ -2310,7 +2317,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           textDecoration: showAkureyriInCal ? "none" : "line-through",
                         }}>Akureyri</button>
                     </div>
-                    <button onClick={nextMonth} disabled={isNext5} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: isNext5 ? "not-allowed" : "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono", opacity: isNext5 ? 0.3 : 1 }}>▶</button>
+                    <button onClick={goNext} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: TEXT_DIM, fontSize: 16, fontFamily: "JetBrains Mono" }}>▶</button>
                   </div>
                 </Card>
                 {isNext5 ? (
