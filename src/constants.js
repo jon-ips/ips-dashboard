@@ -569,6 +569,11 @@ export const JOB_EQUIPMENT_BY_TYPE = {
     luggage_van:          { label: "Luggage Van" },
     luggage_cage:         { label: "Luggage Cage", flatDay: true },
     porter:               { label: "Porter", human: true },
+    // Viking turnaround is invoiced as a flat fee per call (see rates.js
+    // turnaroundFlat). For Viking turnaround jobs the form logs this single
+    // service instead of itemised resources. `hidden` keeps it out of the
+    // normal resource grid; `flatService` suppresses hour display.
+    turnaround_service:   { label: "Turnaround Service", hidden: true, flatService: true },
   },
   cherry_picker: {
     // Four cherry-picker sizes, billed per-day. Rate is all-inclusive

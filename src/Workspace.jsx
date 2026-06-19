@@ -525,17 +525,27 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const saveJobForm = useCallback(async () => {
     if (!jobForm.date) return;
     const isBindingar = jobForm.type === "bindingar";
-    const cleanShifts = jobForm.shifts
+    // Viking turnaround bills a flat fee per call — collapse to a single
+    // "turnaround service" line and auto-complete (no resource itemisation).
+    const isVikingTurn = jobForm.type === "turnaround"
+      && (jobForm.port || "REY") !== "AK"
+      && resolveRateSheet(getCruiseLineForShip(jobForm.ship, jobForm.date)) === "viking";
+    let cleanShifts = jobForm.shifts
       .map(s => ({ startTime: s.startTime, nextDay: !!s.nextDay, equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0)) }))
       .filter(s => Object.keys(s.equipment).length > 0);
+    if (isVikingTurn) {
+      cleanShifts = [{ startTime: jobForm.shifts[0]?.startTime || "", nextDay: false, equipment: { turnaround_service: 1 } }];
+    }
     if (cleanShifts.length === 0) return;
 
-    // Bindingar jobs auto-complete on save with synthesized hoursWorked
-    // (hours: 0 placeholder per group; quantity carries the billing weight).
+    // Bindingar and Viking-turnaround jobs auto-complete on save with
+    // synthesized hoursWorked (hours: 0 placeholder; quantity / flat rate
+    // carries the billing weight).
+    const autoComplete = isBindingar || isVikingTurn;
     const port = isBindingar ? "REY" : (jobForm.port || "REY");
     const po_number = isBindingar ? null : (jobForm.po_number?.trim() || null);
-    const completed = isBindingar ? true : undefined;
-    const hoursWorked = isBindingar ? cleanShifts.map(sh => ({
+    const completed = autoComplete ? true : undefined;
+    const hoursWorked = autoComplete ? cleanShifts.map(sh => ({
       startTime: sh.startTime,
       nextDay: !!sh.nextDay,
       equipment: Object.fromEntries(Object.entries(sh.equipment).map(([k, qty]) => [k, [{ qty, hours: 0 }]])),
@@ -543,9 +553,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
     if (jobModal === "new") {
       const insertPayload = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
-      if (isBindingar) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
+      if (autoComplete) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
       const localBase = { id: generateId(), port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts, completed: !!completed, createdAt: new Date().toISOString(), pendingSync: true };
-      if (isBindingar) localBase.hoursWorked = hoursWorked;
+      if (autoComplete) localBase.hoursWorked = hoursWorked;
       if (SUPABASE_CONFIGURED) {
         let data = null, error = null;
         try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); }
@@ -563,13 +573,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       }
     } else {
       const updatePatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts };
-      if (isBindingar) { updatePatch.completed = true; updatePatch.hoursWorked = hoursWorked; }
+      if (autoComplete) { updatePatch.completed = true; updatePatch.hoursWorked = hoursWorked; }
       saveJobs(jobs.map(j => j.id === jobModal ? { ...j, ...updatePatch } : j));
       // Local-id rows aren't in the DB yet — merge-on-load re-inserts them
       // with their current (edited) state, so a PATCH would just no-op.
       if (SUPABASE_CONFIGURED && !isLocalId(jobModal)) {
         const dbPatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship || null, po_number, notes: jobForm.notes || null, shifts: cleanShifts };
-        if (isBindingar) { dbPatch.completed = true; dbPatch.hours_worked = hoursWorked; }
+        if (autoComplete) { dbPatch.completed = true; dbPatch.hours_worked = hoursWorked; }
         verifyRows(supabase.from("jobs").update(dbPatch).eq("id", jobModal), "edit");
       }
     }
@@ -979,7 +989,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
                 </div>
 
-                {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; const isBindingar = jobForm.type === "bindingar"; return (
+                {(() => { const jt = JOB_TYPES[jobForm.type] || JOB_TYPES.provisions; const equipList = JOB_EQUIPMENT_BY_TYPE[jobForm.type] || {}; const isBindingar = jobForm.type === "bindingar"; const isVikingTurn = jobForm.type === "turnaround" && (jobForm.port || "REY") !== "AK" && resolveRateSheet(getCruiseLineForShip(jobForm.ship, jobForm.date)) === "viking"; return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                   {!isBindingar && (
                   <div>
@@ -1103,8 +1113,20 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   </>)}
 
+                  {/* Viking turnaround: flat fee per call — log a single service, no itemisation. */}
+                  {isVikingTurn && (
+                    <div style={{ border: `1px solid ${jt.color}40`, borderRadius: 10, padding: 14, background: `${jt.color}0a` }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Service</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, background: `${jt.color}12`, border: `1px solid ${jt.color}`, borderRadius: 8, padding: "10px 12px" }}>
+                        <span style={{ fontSize: 13, flex: 1, color: TEXT, fontWeight: 600 }}>1× Turnaround Service</span>
+                        <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>flat fee / call</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 8, lineHeight: 1.5 }}>Viking turnaround is invoiced as a single flat fee per call — no per-resource hours needed. Saving logs the service and marks the job complete.</div>
+                    </div>
+                  )}
+
                   {/* ── SHIFTS (start time + equipment per shift) ── */}
-                  {!isBindingar && jobForm.shifts.map((shift, si) => (
+                  {!isBindingar && !isVikingTurn && jobForm.shifts.map((shift, si) => (
                     <div key={si} style={{ border: `1px solid ${jobForm.shifts.length > 1 ? jt.color + "40" : BORDER}`, borderRadius: 10, padding: 12, background: jobForm.shifts.length > 1 ? `${jt.color}06` : "transparent" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1143,7 +1165,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Equipment *</div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                        {Object.entries(equipList).filter(([, v]) => !v.auto).map(([k, v]) => {
+                        {Object.entries(equipList).filter(([, v]) => !v.auto && !v.hidden).map(([k, v]) => {
                           const qty = shift.equipment[k] || 0;
                           const opKey = v.autoOperator;
                           const opQty = opKey ? (shift.equipment[opKey] || 0) : null;
@@ -1169,7 +1191,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </div>
                     </div>
                   ))}
-                  {!isBindingar && (
+                  {!isBindingar && !isVikingTurn && (
                   <button onClick={() => setJobForm(f => ({ ...f, shifts: [...f.shifts, emptyShift(f.type)] }))} style={{
                     width: "100%", padding: "8px 0", borderRadius: 8, cursor: "pointer",
                     background: "rgba(255,255,255,0.03)", border: `1px dashed ${BORDER}`,
@@ -1508,14 +1530,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{fmtJobEquipment(job)}</div>
                         {job.completed && job.hoursWorked && (
                           <div style={{ fontSize: 11, color: IPS_SUCCESS, marginTop: 4, fontFamily: "JetBrains Mono" }}>
-                            {(() => { const unitFor = (k) => (job.type === "cherry_picker" && JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.flatDay) ? "d" : "h"; return Array.isArray(job.hoursWorked) ? (
+                            {(() => { const unitFor = (k) => (job.type === "cherry_picker" && JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.flatDay) ? "d" : "h"; const isFlat = (k) => !!JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.flatService; return Array.isArray(job.hoursWorked) ? (
                               // New per-shift format
                               job.hoursWorked.map((sh, si) => {
                                 const prefix = job.hoursWorked.length > 1 && sh.startTime ? `[${sh.startTime}] ` : "";
                                 const items = Object.entries(sh.equipment || {}).flatMap(([k, groups]) => {
                                   const label = JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k;
                                   const u = unitFor(k);
-                                  return groups.map(g => `${g.qty}× ${label}: ${g.hours}${u}`);
+                                  return groups.map(g => isFlat(k) ? `${g.qty}× ${label}` : `${g.qty}× ${label}: ${g.hours}${u}`);
                                 });
                                 return <div key={si}>{prefix}{items.join(" · ")}</div>;
                               })
@@ -1525,7 +1547,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                 const label = JOB_EQUIPMENT_BY_TYPE[job.type]?.[k]?.label || k;
                                 const u = unitFor(k);
                                 if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
-                                  return v.map(g => `${g.qty}× ${label}: ${g.hours}${u}`).join(" · ");
+                                  return v.map(g => isFlat(k) ? `${g.qty}× ${label}` : `${g.qty}× ${label}: ${g.hours}${u}`).join(" · ");
                                 }
                                 if (Array.isArray(v)) return v.map((h, i) => `${label}${v.length > 1 ? ` #${i+1}` : ""}: ${h}${u}`).join(" · ");
                                 return `${label}: ${v}${u}`;
