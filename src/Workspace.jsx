@@ -57,6 +57,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [qlEquip, setQlEquip] = useState({});        // { equipKey: qty }
   const [qlStart, setQlStart] = useState("");
   const [qlBindDate, setQlBindDate] = useState("");  // date for the standalone bindingar launcher
+  const [qlBindShip, setQlBindShip] = useState("");  // ship for the bindingar launcher (optional)
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
@@ -2529,17 +2530,28 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   Tap a service to log it: pick resources, confirm the time, done. (Viking turnaround is a flat fee — it completes on tap.) Add the PO later on desktop when invoicing.
                 </div>
 
-                {/* Bindingar (mooring) — standalone, pick a date then log */}
-                <Card style={{ padding: "12px 14px", marginBottom: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: JOB_TYPES.bindingar.color }}>Bindingar</span>
-                    <span style={{ fontSize: 12, color: TEXT_DIM }}>mooring · Reykjavík · flat</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input type="date" value={qlBindDate || todayStr} onChange={e => setQlBindDate(e.target.value)} style={{ ...inputStyle, flex: 1, colorScheme: "dark", fontSize: 15, padding: "10px 12px" }} />
-                    <button onClick={() => openQuickLog("", qlBindDate || todayStr, "REY", "bindingar")} style={{ minHeight: 44, padding: "0 18px", borderRadius: 10, cursor: "pointer", background: JOB_TYPES.bindingar.color, border: "none", color: "#06210f", fontSize: 14, fontWeight: 700 }}>Log →</button>
-                  </div>
-                </Card>
+                {/* Bindingar (mooring) — standalone: pick a date + ship in port, then log */}
+                {(() => {
+                  const bindDate = qlBindDate || todayStr;
+                  const bindShips = [...new Set(SHIPS.filter(s => (s.port || "REY") === "REY" && bindDate >= s.date && bindDate <= (s.endDate || s.date)).map(s => s.ship))];
+                  const selShip = bindShips.includes(qlBindShip) ? qlBindShip : "";
+                  return (
+                    <Card style={{ padding: "12px 14px", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: JOB_TYPES.bindingar.color }}>Bindingar</span>
+                        <span style={{ fontSize: 12, color: TEXT_DIM }}>mooring · Reykjavík · flat</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <input type="date" value={bindDate} onChange={e => setQlBindDate(e.target.value)} style={{ ...inputStyle, colorScheme: "dark", fontSize: 15, padding: "10px 12px" }} />
+                        <select value={selShip} onChange={e => setQlBindShip(e.target.value)} style={{ ...inputStyle, fontSize: 15, padding: "10px 12px", colorScheme: "dark", backgroundColor: "#112F45", cursor: "pointer" }}>
+                          <option value="" style={{ background: "#112F45", color: TEXT }}>{bindShips.length ? `— Ship (${bindShips.length} in port) —` : "— No ships in port (optional) —"}</option>
+                          {bindShips.map(s => <option key={s} value={s} style={{ background: "#112F45", color: TEXT }}>{s}</option>)}
+                        </select>
+                        <button onClick={() => openQuickLog(selShip, bindDate, "REY", "bindingar")} style={{ minHeight: 48, borderRadius: 10, cursor: "pointer", background: JOB_TYPES.bindingar.color, border: "none", color: "#06210f", fontSize: 15, fontWeight: 700 }}>Log bindingar →</button>
+                      </div>
+                    </Card>
+                  );
+                })()}
                 {calls.length === 0 && (
                   <Card><div style={{ textAlign: "center", color: TEXT_DIM, padding: 16 }}>No upcoming orderable ships in the next 14 days.</div></Card>
                 )}
