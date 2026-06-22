@@ -2343,7 +2343,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "provisions"); }}
                         title="Add a service to this day (Provisions / Waste / CP / Special…)"
                         style={{
-                          flexShrink: 0, background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
+                          flexShrink: 0, marginLeft: "auto", background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
                           border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 6px",
                           fontSize: "clamp(10px, 0.85vw, 13px)", fontWeight: 700, fontFamily: "JetBrains Mono",
                           cursor: "pointer", lineHeight: 1.4,
