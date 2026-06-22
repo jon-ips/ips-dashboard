@@ -139,7 +139,7 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
     description = [
       "Total amount in USD: $XX,XXX.XX",
       "USD/ISK rate: XXX,XX",
-      "Calculated on XX.XX.2026)",
+      "Calculated on XX.XX.2026",
       "",
       ship.toUpperCase(),
       berthLine,
