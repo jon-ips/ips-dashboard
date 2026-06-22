@@ -1099,8 +1099,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
           {/* JOB FORM MODAL */}
           {jobModal !== null && (
-            <div onClick={() => setJobModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+            <div onClick={() => setJobModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: 520, maxWidth: "calc(100vw - 24px)", maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{jobModal === "new" ? "New Job Order" : "Edit Job Order"}</div>
                   <button onClick={() => setJobModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
@@ -2613,15 +2613,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             const settled = booked || noJob;
                             return (
                               <button key={t}
-                                disabled={!!settled}
+                                disabled={!!noJob}
                                 onClick={() => {
+                                  if (booked) { openEditJob(booked); return; }
                                   const isVT = t === "turnaround" && call.port !== "AK" && resolveRateSheet(getCruiseLineForShip(call.sn, bookDate)) === "viking";
                                   if (isVT) quickCreateOrder(call.sn, bookDate, call.port, t);
                                   else openQuickLog(call.sn, bookDate, call.port, t);
                                 }}
                                 style={{
                                   flex: "1 1 30%", minWidth: 96, minHeight: 52, borderRadius: 10,
-                                  cursor: settled ? "default" : "pointer",
+                                  cursor: noJob ? "default" : "pointer",
                                   background: booked ? `${jt.color}22` : noJob ? "rgba(255,255,255,0.03)" : `${jt.color}14`,
                                   border: `1.5px solid ${booked ? jt.color : noJob ? BORDER : jt.color + "80"}`,
                                   color: booked ? jt.color : noJob ? TEXT_DIM : jt.color,
@@ -2630,7 +2631,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                                   opacity: noJob ? 0.6 : 1, textDecoration: noJob ? "line-through" : "none",
                                 }}>
                                 <span>{jt.label}</span>
-                                <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>{booked ? (booked.completed ? "✓ done" : "✓ booked") : noJob ? "no job" : "tap to log"}</span>
+                                <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>{booked ? (booked.completed ? "✓ done · edit" : "✓ booked · edit") : noJob ? "no job" : "tap to log"}</span>
                               </button>
                             );
                           })}
