@@ -51,6 +51,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const defaultJobForm = { port: "REY", type: "provisions", date: "", ship: "", po_number: "", notes: "", shifts: [emptyShift("provisions")] };
   const [jobForm, setJobForm] = useState(defaultJobForm);
   const [quickToast, setQuickToast] = useState(""); // transient confirmation in the Quick Log view
+  // Phone "log complete job" flow: pick resources → confirm time → save completed.
+  const [qlJob, setQlJob] = useState(null);          // { ship, date, port, type } | null
+  const [qlStep, setQlStep] = useState("resources"); // "resources" | "time"
+  const [qlEquip, setQlEquip] = useState({});        // { equipKey: qty }
+  const [qlStart, setQlStart] = useState("");
+  const [qlHours, setQlHours] = useState(4);
+  const [qlHalf, setQlHalf] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
@@ -488,6 +495,46 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const t = setTimeout(() => setQuickToast(""), 2600);
     return () => clearTimeout(t);
   }, [quickToast]);
+
+  // Open the phone complete-job flow for a service.
+  const openQuickLog = useCallback((ship, date, port, type) => {
+    setQlJob({ ship, date, port, type });
+    setQlStep("resources");
+    setQlEquip({});
+    setQlStart("");
+    setQlHours(4);
+    setQlHalf(false);
+  }, []);
+
+  // Step a resource quantity, auto-attaching its operator (forklift→operator etc).
+  const qlSetEquip = useCallback((key, newQty) => {
+    if (!qlJob) return;
+    const op = JOB_EQUIPMENT_BY_TYPE[qlJob.type]?.[key]?.autoOperator;
+    setQlEquip(prev => { const upd = { ...prev, [key]: newQty }; if (op) upd[op] = newQty; return upd; });
+  }, [qlJob]);
+
+  // Save the phone-logged job as completed, with resources + hours.
+  const quickCompleteJob = useCallback(async () => {
+    if (!qlJob) return;
+    const { ship, date, port, type } = qlJob;
+    const entries = Object.entries(qlEquip).filter(([, q]) => q > 0);
+    if (!entries.length) return;
+    const hours = (parseFloat(qlHours) || 0) + (qlHalf ? 0.5 : 0);
+    const shifts = [{ startTime: qlStart, nextDay: false, equipment: Object.fromEntries(entries) }];
+    const hoursWorked = [{ startTime: qlStart, nextDay: false, equipment: Object.fromEntries(entries.map(([k, q]) => [k, [{ qty: q, hours }]])) }];
+    const insertPayload = { port, type, date, ship, po_number: null, notes: null, shifts, completed: true, hours_worked: hoursWorked };
+    const localBase = { id: generateId(), port, type, date, ship, po_number: "", notes: "", shifts, completed: true, hoursWorked, createdAt: new Date().toISOString(), pendingSync: true };
+    if (SUPABASE_CONFIGURED) {
+      let data = null, error = null;
+      try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+      if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
+      else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
+    } else {
+      saveJobs([...jobs, localBase]);
+    }
+    setQuickToast(`✓ ${JOB_TYPES[type]?.label || type} completed — ${ship}`);
+    setQlJob(null);
+  }, [qlJob, qlEquip, qlHours, qlHalf, qlStart, jobs, saveJobs, recordSyncError]);
 
   // "Confirm no job" — saves a marker so the ship's pending ORDER pill is
   // replaced with a dimmed-red "NO JOB" pill instead. Used when there's
@@ -2474,7 +2521,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             return (
               <div style={{ maxWidth: 640, margin: "0 auto" }}>
                 <div style={{ fontSize: 13, color: TEXT_DIM, marginBottom: 14, lineHeight: 1.5 }}>
-                  Tap a service to log a pending order for that ship. Add resources, hours &amp; PO later on desktop. (Viking turnaround logs as a flat service and completes on tap.)
+                  Tap a service to log it: pick resources, confirm the time, done. (Viking turnaround is a flat fee — it completes on tap.) Add the PO later on desktop when invoicing.
                 </div>
                 {calls.length === 0 && (
                   <Card><div style={{ textAlign: "center", color: TEXT_DIM, padding: 16 }}>No upcoming orderable ships in the next 14 days.</div></Card>
@@ -2501,7 +2548,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                             return (
                               <button key={t}
                                 disabled={!!settled}
-                                onClick={() => quickCreateOrder(call.sn, bookDate, call.port, t)}
+                                onClick={() => {
+                                  const isVT = t === "turnaround" && call.port !== "AK" && resolveRateSheet(getCruiseLineForShip(call.sn, bookDate)) === "viking";
+                                  if (isVT) quickCreateOrder(call.sn, bookDate, call.port, t);
+                                  else openQuickLog(call.sn, bookDate, call.port, t);
+                                }}
                                 style={{
                                   flex: "1 1 30%", minWidth: 96, minHeight: 52, borderRadius: 10,
                                   cursor: settled ? "default" : "pointer",
@@ -2533,8 +2584,71 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     );
                   })}
                 </div>
+                {qlJob && (() => {
+                  const jt = JOB_TYPES[qlJob.type] || JOB_TYPES.provisions;
+                  const eqList = Object.entries(JOB_EQUIPMENT_BY_TYPE[qlJob.type] || {}).filter(([, v]) => !v.auto && !v.hidden);
+                  const anyPicked = Object.values(qlEquip).some(q => q > 0);
+                  const finalHours = (parseFloat(qlHours) || 0) + (qlHalf ? 0.5 : 0);
+                  const bigBtn = { width: 46, height: 46, borderRadius: 10, cursor: "pointer", background: "rgba(255,255,255,0.06)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: 22, fontWeight: 700, fontFamily: "JetBrains Mono", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
+                  return (
+                    <div onClick={() => setQlJob(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                      <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "92vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: "16px 16px 0 0", padding: 20, paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                          <div style={{ fontSize: 17, fontWeight: 700 }}>
+                            <span style={{ color: jt.color }}>{jt.label}</span> · {qlJob.ship}
+                          </div>
+                          <button onClick={() => setQlJob(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 24, cursor: "pointer", lineHeight: 1 }}>×</button>
+                        </div>
+                        <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 16 }}>
+                          {fmtDate(qlJob.date)} · {qlStep === "resources" ? "Step 1 — Resources" : "Step 2 — Time"}
+                        </div>
+
+                        {qlStep === "resources" ? (<>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {eqList.map(([k, v]) => {
+                              const qty = qlEquip[k] || 0;
+                              const opQty = v.autoOperator ? (qlEquip[v.autoOperator] || 0) : 0;
+                              return (
+                                <div key={k}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: qty > 0 ? `${jt.color}14` : "rgba(255,255,255,0.03)", border: `1px solid ${qty > 0 ? jt.color : BORDER}`, borderRadius: 12, padding: "8px 10px" }}>
+                                    <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: qty > 0 ? TEXT : TEXT_DIM }}>{v.label}</span>
+                                    <button onClick={() => qlSetEquip(k, Math.max(0, qty - 1))} style={bigBtn}>−</button>
+                                    <span style={{ width: 30, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: qty > 0 ? jt.color : TEXT_DIM }}>{qty}</span>
+                                    <button onClick={() => qlSetEquip(k, qty + 1)} style={bigBtn}>+</button>
+                                  </div>
+                                  {v.autoOperator && qty > 0 && (
+                                    <div style={{ fontSize: 11, color: jt.color, fontFamily: "JetBrains Mono", marginTop: 3, paddingLeft: 10, opacity: 0.85 }}>+ {opQty}× {JOB_EQUIPMENT_BY_TYPE[qlJob.type][v.autoOperator]?.label || "Operator"}</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                            <button onClick={() => setQlJob(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, cursor: "pointer", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 15, fontWeight: 600 }}>Cancel</button>
+                            <button onClick={() => setQlStep("time")} disabled={!anyPicked} style={{ flex: 2, padding: "14px 0", borderRadius: 12, cursor: anyPicked ? "pointer" : "not-allowed", background: anyPicked ? IPS_ACCENT : "rgba(87,181,200,0.3)", border: "none", color: "#06212a", fontSize: 15, fontWeight: 700 }}>Next: time →</button>
+                          </div>
+                        </>) : (<>
+                          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start time (optional)</div>
+                          <input type="time" value={qlStart} onChange={e => setQlStart(e.target.value)} style={{ ...inputStyle, width: "100%", fontSize: 18, padding: "12px 14px", colorScheme: "dark", marginBottom: 18 }} />
+                          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Hours worked (applies to all resources)</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 14, justifyContent: "center", marginBottom: 12 }}>
+                            <button onClick={() => setQlHours(h => Math.max(0.5, (parseFloat(h) || 0) - 1))} style={{ ...bigBtn, width: 54, height: 54, fontSize: 26 }}>−</button>
+                            <span style={{ minWidth: 70, textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 30, fontWeight: 700, color: jt.color }}>{finalHours}</span>
+                            <button onClick={() => setQlHours(h => (parseFloat(h) || 0) + 1)} style={{ ...bigBtn, width: 54, height: 54, fontSize: 26 }}>+</button>
+                          </div>
+                          <button onClick={() => setQlHalf(v => !v)} style={{ width: "100%", padding: "10px 0", borderRadius: 10, cursor: "pointer", marginBottom: 18, background: qlHalf ? jt.color : "rgba(255,255,255,0.04)", border: `1px solid ${qlHalf ? jt.color : BORDER}`, color: qlHalf ? "#06212a" : TEXT_DIM, fontSize: 14, fontWeight: 700, fontFamily: "JetBrains Mono" }}>+½ hour {qlHalf ? "✓" : ""}</button>
+                          <div style={{ display: "flex", gap: 10 }}>
+                            <button onClick={() => setQlStep("resources")} style={{ flex: 1, padding: "14px 0", borderRadius: 12, cursor: "pointer", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 15, fontWeight: 600 }}>← Back</button>
+                            <button onClick={quickCompleteJob} style={{ flex: 2, padding: "14px 0", borderRadius: 12, cursor: "pointer", background: IPS_SUCCESS, border: "none", color: "#06210f", fontSize: 15, fontWeight: 700 }}>Complete job</button>
+                          </div>
+                        </>)}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {quickToast && (
-                  <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 400, background: IPS_SUCCESS, color: "#06210f", padding: "10px 18px", borderRadius: 999, fontSize: 14, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,0.35)", fontFamily: "'Satoshi', 'Inter', sans-serif" }}>
+                  <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 600, background: IPS_SUCCESS, color: "#06210f", padding: "10px 18px", borderRadius: 999, fontSize: 14, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,0.35)", fontFamily: "'Satoshi', 'Inter', sans-serif" }}>
                     {quickToast}
                   </div>
                 )}
