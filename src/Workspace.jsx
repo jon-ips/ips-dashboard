@@ -50,6 +50,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const emptyShift = (type) => ({ startTime: "", nextDay: false, equipment: emptyEquip(type) });
   const defaultJobForm = { port: "REY", type: "provisions", date: "", ship: "", po_number: "", notes: "", shifts: [emptyShift("provisions")] };
   const [jobForm, setJobForm] = useState(defaultJobForm);
+  const [quickToast, setQuickToast] = useState(""); // transient confirmation in the Quick Log view
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
@@ -453,6 +454,40 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobModal("new");
     setPoAutoFilled(true);
   }, []);
+
+  // One-tap order creation for the phone Quick Log view. Creates a pending
+  // order with no resources/hours (filled in later on desktop). Viking
+  // turnaround is the exception — it's a flat fee, so it auto-completes.
+  const quickCreateOrder = useCallback(async (shipName, dateStr, port, type) => {
+    port = port || "REY";
+    const isVikingTurn = type === "turnaround" && port !== "AK"
+      && resolveRateSheet(getCruiseLineForShip(shipName, dateStr)) === "viking";
+    const shifts = isVikingTurn
+      ? [{ startTime: "", nextDay: false, equipment: { turnaround_service: 1 } }]
+      : [{ startTime: "", nextDay: false, equipment: {} }];
+    const hoursWorked = isVikingTurn
+      ? [{ startTime: "", nextDay: false, equipment: { turnaround_service: [{ qty: 1, hours: 0 }] } }]
+      : undefined;
+    const insertPayload = { port, type, date: dateStr, ship: shipName, po_number: null, notes: null, shifts };
+    if (isVikingTurn) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
+    const localBase = { id: generateId(), port, type, date: dateStr, ship: shipName, po_number: "", notes: "", shifts, completed: !!isVikingTurn, createdAt: new Date().toISOString(), pendingSync: true };
+    if (isVikingTurn) localBase.hoursWorked = hoursWorked;
+    if (SUPABASE_CONFIGURED) {
+      let data = null, error = null;
+      try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+      if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
+      else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
+    } else {
+      saveJobs([...jobs, localBase]);
+    }
+    setQuickToast(`✓ ${JOB_TYPES[type]?.label || type} logged — ${shipName}`);
+  }, [jobs, saveJobs, recordSyncError]);
+
+  useEffect(() => {
+    if (!quickToast) return;
+    const t = setTimeout(() => setQuickToast(""), 2600);
+    return () => clearTimeout(t);
+  }, [quickToast]);
 
   // "Confirm no job" — saves a marker so the ship's pending ORDER pill is
   // replaced with a dimmed-red "NO JOB" pill instead. Used when there's
@@ -2401,6 +2436,109 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </Card>
                 )}
               </>
+            );
+          })()}
+
+          {/* ═══ QUICK LOG (phone-friendly one-tap order logging) ═══ */}
+          {wsView === "quicklog" && (() => {
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const todayStr = today.toISOString().slice(0, 10);
+            const horizon = new Date(today); horizon.setDate(horizon.getDate() + 13);
+            const horizonStr = horizon.toISOString().slice(0, 10);
+            const sdkSet = new Set(SDK_LINES), directSet = new Set(DIRECT_CONTRACT_LINES);
+
+            const jobsByShipPort = new Map();
+            jobs.forEach(j => {
+              if (j.type === "bindingar" || !j.date) return;
+              const sn = extractShipName(j.ship); if (!sn) return;
+              const key = `${sn.toLowerCase()}__${j.port || "REY"}`;
+              if (!jobsByShipPort.has(key)) jobsByShipPort.set(key, []);
+              jobsByShipPort.get(key).push(j);
+            });
+
+            const calls = [];
+            SHIPS.forEach(s => {
+              const isAK = s.port === "AK";
+              const orderable = isAK ? sdkSet.has(s.line) : (sdkSet.has(s.line) || directSet.has(s.line));
+              if (!orderable) return;
+              const callStart = s.date, callEnd = s.endDate || s.date;
+              if (callEnd < todayStr || callStart > horizonStr) return;
+              const sn = extractShipName(s.ship);
+              const key = `${sn.toLowerCase()}__${s.port || "REY"}`;
+              const callJobs = (jobsByShipPort.get(key) || []).filter(j => j.date >= callStart && j.date <= callEnd);
+              const types = ["provisions", "waste", ...(s.turnaround ? ["turnaround"] : [])];
+              calls.push({ s, sn, port: s.port || "REY", isAK, callStart, callEnd, callJobs, types });
+            });
+            calls.sort((a, b) => a.callStart.localeCompare(b.callStart) || a.sn.localeCompare(b.sn));
+
+            return (
+              <div style={{ maxWidth: 640, margin: "0 auto" }}>
+                <div style={{ fontSize: 13, color: TEXT_DIM, marginBottom: 14, lineHeight: 1.5 }}>
+                  Tap a service to log a pending order for that ship. Add resources, hours &amp; PO later on desktop. (Viking turnaround logs as a flat service and completes on tap.)
+                </div>
+                {calls.length === 0 && (
+                  <Card><div style={{ textAlign: "center", color: TEXT_DIM, padding: 16 }}>No upcoming orderable ships in the next 14 days.</div></Card>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {calls.map(call => {
+                    const bookDate = call.callStart; // pending order anchors to the first day; adjust on desktop
+                    return (
+                      <Card key={`${call.sn}__${call.callStart}__${call.port}`} style={{ padding: "12px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                          {call.isAK && <span style={{ fontSize: 10, fontWeight: 700, color: PORTS.AK.color, background: `${PORTS.AK.color}22`, padding: "1px 6px", borderRadius: 4, fontFamily: "JetBrains Mono" }}>AK</span>}
+                          <span style={{ fontSize: 16, fontWeight: 700, color: TEXT }}>{call.sn}</span>
+                          <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>
+                            {fmtDate(call.callStart)}{call.callEnd !== call.callStart ? ` – ${fmtDate(call.callEnd)}` : ""}
+                          </span>
+                          {call.s.berth && <span style={{ fontSize: 12, color: TEXT_DIM }}>· {call.s.berth}</span>}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {call.types.map(t => {
+                            const jt = JOB_TYPES[t];
+                            const booked = call.callJobs.find(j => j.type === t);
+                            const noJob = call.callJobs.find(j => j.type === "no_job" && (j.service === t || !j.service));
+                            const settled = booked || noJob;
+                            return (
+                              <button key={t}
+                                disabled={!!settled}
+                                onClick={() => quickCreateOrder(call.sn, bookDate, call.port, t)}
+                                style={{
+                                  flex: "1 1 30%", minWidth: 96, minHeight: 52, borderRadius: 10,
+                                  cursor: settled ? "default" : "pointer",
+                                  background: booked ? `${jt.color}22` : noJob ? "rgba(255,255,255,0.03)" : `${jt.color}14`,
+                                  border: `1.5px solid ${booked ? jt.color : noJob ? BORDER : jt.color + "80"}`,
+                                  color: booked ? jt.color : noJob ? TEXT_DIM : jt.color,
+                                  fontSize: 14, fontWeight: 700, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                                  opacity: noJob ? 0.6 : 1, textDecoration: noJob ? "line-through" : "none",
+                                }}>
+                                <span>{jt.label}</span>
+                                <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>{booked ? (booked.completed ? "✓ done" : "✓ booked") : noJob ? "no job" : "tap to log"}</span>
+                              </button>
+                            );
+                          })}
+                          <button onClick={() => openNewJobForShip(call.sn, bookDate, call.port, "cherry_picker")}
+                            title="Add CP / Special / other order (opens full form)"
+                            style={{
+                              flex: "1 1 30%", minWidth: 96, minHeight: 52, borderRadius: 10, cursor: "pointer",
+                              background: "rgba(255,255,255,0.03)", border: `1.5px dashed ${BORDER}`, color: TEXT_DIM,
+                              fontSize: 14, fontWeight: 700, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                            }}>
+                            <span>+ Other</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>CP / Special</span>
+                          </button>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+                {quickToast && (
+                  <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 400, background: IPS_SUCCESS, color: "#06210f", padding: "10px 18px", borderRadius: 999, fontSize: 14, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,0.35)", fontFamily: "'Satoshi', 'Inter', sans-serif" }}>
+                    {quickToast}
+                  </div>
+                )}
+              </div>
             );
           })()}
 
