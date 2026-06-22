@@ -1607,11 +1607,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 return [...map.values()];
               };
               const todayIso = new Date().toISOString().slice(0, 10);
-              const daysFromToday = (iso) => Math.abs((new Date(iso) - new Date(todayIso)) / 86400000);
               const ascByAnchor = (a, b) => a.anchor.localeCompare(b.anchor) || a.ship.localeCompare(b.ship);
               // Active: calls nearest today first; Completed: oldest first;
               // Invoiced: newest first.
-              const activeGroups = groupByCall(activeJobs).sort((a, b) => daysFromToday(a.anchor) - daysFromToday(b.anchor) || ascByAnchor(a, b));
+              const activeGroups = groupByCall(activeJobs).sort(ascByAnchor);
               const completedGroups = groupByCall(completedJobs).sort(ascByAnchor);
               const invoicedGroups = groupByCall(invoicedJobs).sort((a, b) => ascByAnchor(b, a));
               const sectionHeader = (label, count, collapsed, onToggle, color) => (
