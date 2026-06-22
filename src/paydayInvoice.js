@@ -124,9 +124,34 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // the unknown field, so we use the documented name.
   const location = job.port === "AK" ? "Akureyri" : (job.berth || "").trim();
   const headerLine = [ship, location].filter(Boolean).join(" - ");
-  const description = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
-    .filter(part => part !== undefined)
-    .join("\n");
+
+  // Viking invoices use a bespoke notes block: a USD-conversion summary
+  // (left as XX placeholders for the user to fill in by hand, since the
+  // FX rate is looked up at send time) followed by the ship / berth /
+  // service-date / service block. Berth shortens "VÖR Cruise Terminal"
+  // to "VÖR"; everything is upper-cased to match the house style.
+  const isViking = (cruiseLine?.name || "").trim().toLowerCase() === "viking";
+  let description;
+  if (isViking) {
+    let berth = (job.berth || "").trim();
+    if (/vör/i.test(berth)) berth = "VÖR";
+    const berthLine = berth ? `${berth.toUpperCase()}, REYKJAVIK` : "REYKJAVIK";
+    description = [
+      "Total amount in USD: $XX,XXX.XX",
+      "USD/ISK rate: XXX,XX",
+      "Calculated on XX.XX.2026)",
+      "",
+      ship.toUpperCase(),
+      berthLine,
+      fmtDDMMYYYY(job.date),
+      "",
+      fullName.toUpperCase(),
+    ].join("\n");
+  } else {
+    description = [headerLine, fmtDDMMYYYY(job.date), "", fullName]
+      .filter(part => part !== undefined)
+      .join("\n");
+  }
 
   // generateInvoice emits rows with `amount`, `unitPriceIsk`, and
   // `_totalNum` (the full line total). The shape doesn't map 1:1 to
