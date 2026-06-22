@@ -56,6 +56,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [qlStep, setQlStep] = useState("resources"); // "resources" | "time"
   const [qlEquip, setQlEquip] = useState({});        // { equipKey: qty }
   const [qlStart, setQlStart] = useState("");
+  const [qlBindDate, setQlBindDate] = useState("");  // date for the standalone bindingar launcher
   const [timePickerOpen, setTimePickerOpen] = useState(-1); // -1 closed, or shift index
   const [completeModal, setCompleteModal] = useState(null); // null or job object
   const [completeHours, setCompleteHours] = useState([]); // [{ startTime, equipment: { key: [{ qty, hours }] } }]
@@ -516,9 +517,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const { ship, date, port, type } = qlJob;
     const entries = Object.entries(qlEquip).filter(([, q]) => q > 0);
     if (!entries.length) return;
+    const isBind = type === "bindingar";
+    const jobPort = isBind ? "REY" : port;
     const shifts = [{ startTime: qlStart, nextDay: false, equipment: Object.fromEntries(entries) }];
-    const insertPayload = { port, type, date, ship, po_number: null, notes: null, shifts };
-    const localBase = { id: generateId(), port, type, date, ship, po_number: "", notes: "", shifts, completed: false, createdAt: new Date().toISOString(), pendingSync: true };
+    // Bindingar is flat/monthly with no hours — it auto-completes on save
+    // (like the desktop bindingar flow). Other services log as pending.
+    const hoursWorked = isBind
+      ? [{ startTime: qlStart, nextDay: false, equipment: Object.fromEntries(entries.map(([k, q]) => [k, [{ qty: q, hours: 0 }]])) }]
+      : undefined;
+    const insertPayload = { port: jobPort, type, date, ship: ship || null, po_number: null, notes: null, shifts };
+    if (isBind) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
+    const localBase = { id: generateId(), port: jobPort, type, date, ship: ship || "", po_number: "", notes: "", shifts, completed: !!isBind, createdAt: new Date().toISOString(), pendingSync: true };
+    if (isBind) localBase.hoursWorked = hoursWorked;
     if (SUPABASE_CONFIGURED) {
       let data = null, error = null;
       try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
@@ -2518,6 +2528,18 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <div style={{ fontSize: 13, color: TEXT_DIM, marginBottom: 14, lineHeight: 1.5 }}>
                   Tap a service to log it: pick resources, confirm the time, done. (Viking turnaround is a flat fee — it completes on tap.) Add the PO later on desktop when invoicing.
                 </div>
+
+                {/* Bindingar (mooring) — standalone, pick a date then log */}
+                <Card style={{ padding: "12px 14px", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: JOB_TYPES.bindingar.color }}>Bindingar</span>
+                    <span style={{ fontSize: 12, color: TEXT_DIM }}>mooring · Reykjavík · flat</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="date" value={qlBindDate || todayStr} onChange={e => setQlBindDate(e.target.value)} style={{ ...inputStyle, flex: 1, colorScheme: "dark", fontSize: 15, padding: "10px 12px" }} />
+                    <button onClick={() => openQuickLog("", qlBindDate || todayStr, "REY", "bindingar")} style={{ minHeight: 44, padding: "0 18px", borderRadius: 10, cursor: "pointer", background: JOB_TYPES.bindingar.color, border: "none", color: "#06210f", fontSize: 14, fontWeight: 700 }}>Log →</button>
+                  </div>
+                </Card>
                 {calls.length === 0 && (
                   <Card><div style={{ textAlign: "center", color: TEXT_DIM, padding: 16 }}>No upcoming orderable ships in the next 14 days.</div></Card>
                 )}
@@ -2589,7 +2611,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "92vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: "16px 16px 0 0", padding: 20, paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                           <div style={{ fontSize: 17, fontWeight: 700 }}>
-                            <span style={{ color: jt.color }}>{jt.label}</span> · {qlJob.ship}
+                            <span style={{ color: jt.color }}>{jt.label}</span>{qlJob.ship ? ` · ${qlJob.ship}` : ""}
                           </div>
                           <button onClick={() => setQlJob(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 24, cursor: "pointer", lineHeight: 1 }}>×</button>
                         </div>
