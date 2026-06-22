@@ -2091,44 +2091,60 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const dayCalls = callsByDate[dateStr] || [];
               const dayBindingar = bindingarByDate[dateStr] || [];
               const totalItems = dayTasks.length + dayCalls.length + dayBindingar.length;
-              const missingSlotCount = dayCalls.reduce((acc, c) => acc + c.slots.filter(s => !s.job && !s.noJob).length, 0);
+              // A service slot counts as "missing" for the whole call until it's
+              // booked (or opted out) on ANY day of the stay. Booked chips then
+              // anchor to their own day instead of repeating across every date.
+              const slotTypesFor = (call) => call.orderable ? ["provisions", "waste", ...(call.turnaround ? ["turnaround"] : [])] : [];
+              const callMissingTypes = (call) => slotTypesFor(call).filter(t =>
+                !call.callJobs.some(j => j.type === t) &&
+                !call.callJobs.some(j => j.type === "no_job" && (j.service === t || !j.service))
+              );
+              const missingSlotCount = dayCalls.reduce((acc, c) => acc + callMissingTypes(c).length, 0);
               const isToday = dateStr === todayStr;
               const isWeekend = dow >= 5;
               const wkLabel = showWeekday ? new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase() : null;
 
-              const renderSlotChip = (call, slot) => {
-                const t = slot.type;
+              // A booked service — anchors to the day it was logged.
+              const renderBookedChip = (call, job) => {
+                const t = job.type;
                 const c = (JOB_TYPES[t] || JOB_TYPES.provisions).color;
                 const label = SLOT_LABEL[t] || t[0].toUpperCase();
-                if (slot.job) {
-                  const done = slot.job.completed;
-                  return (
-                    <button key={t} onClick={(e) => { e.stopPropagation(); openEditJob(slot.job); }}
-                      title={`${JOB_TYPES[t].label} ordered for ${call.shipName}${done ? " (completed)" : ""} — click to edit`}
-                      style={{
-                        flexShrink: 0, background: c, color: "#fff",
-                        border: `1px solid ${c}`, borderRadius: 4, padding: "1px 7px",
-                        fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
-                        cursor: "pointer", lineHeight: 1.4,
-                        opacity: done ? 0.55 : 1, textDecoration: done ? "line-through" : "none",
-                      }}>{label}</button>
-                  );
-                }
-                if (slot.noJob) {
-                  return (
-                    <button key={t} onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "no ${JOB_TYPES[t].label.toLowerCase()}" for ${call.shipName}? The missing-order chip will reappear.`)) deleteJob(slot.noJob.id); }}
-                      title={`No ${JOB_TYPES[t].label.toLowerCase()} for ${call.shipName} — click to remove`}
-                      style={{
-                        flexShrink: 0, background: "rgba(255,255,255,0.03)", color: TEXT_DIM,
-                        border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 7px",
-                        fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
-                        cursor: "pointer", lineHeight: 1.4, textDecoration: "line-through",
-                      }}>{label}</button>
-                  );
-                }
+                const done = job.completed;
+                return (
+                  <button key={job.id} onClick={(e) => { e.stopPropagation(); openEditJob(job); }}
+                    title={`${JOB_TYPES[t].label} ordered for ${call.shipName}${done ? " (completed)" : ""} — click to edit`}
+                    style={{
+                      flexShrink: 0, background: c, color: "#fff",
+                      border: `1px solid ${c}`, borderRadius: 4, padding: "1px 7px",
+                      fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                      cursor: "pointer", lineHeight: 1.4,
+                      opacity: done ? 0.55 : 1, textDecoration: done ? "line-through" : "none",
+                    }}>{label}</button>
+                );
+              };
+              // A "no job" marker — anchors to its own day.
+              const renderNoJobChip = (call, job) => {
+                const t = job.service;
+                const label = t ? (SLOT_LABEL[t] || t[0].toUpperCase()) : "—";
+                const name = t ? JOB_TYPES[t].label.toLowerCase() : "job";
+                return (
+                  <button key={job.id} onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "no ${name}" for ${call.shipName}? The missing-order chip will reappear.`)) deleteJob(job.id); }}
+                    title={`No ${name} for ${call.shipName} — click to remove`}
+                    style={{
+                      flexShrink: 0, background: "rgba(255,255,255,0.03)", color: TEXT_DIM,
+                      border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 7px",
+                      fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                      cursor: "pointer", lineHeight: 1.4, textDecoration: "line-through",
+                    }}>{label}</button>
+                );
+              };
+              // A still-unbooked service — shown on every day of the call until
+              // booked, so you can log it on whichever day suits.
+              const renderMissingChip = (call, t) => {
+                const label = SLOT_LABEL[t] || t[0].toUpperCase();
                 return (
                   <button key={t} onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, t); }}
-                    title={`${JOB_TYPES[t].label} not ordered for ${call.shipName} — click to create`}
+                    title={`${JOB_TYPES[t].label} not ordered for ${call.shipName} — click to create on ${dateStr}`}
                     style={{
                       flexShrink: 0, background: "transparent", color: IPS_DANGER,
                       border: `1px dashed ${IPS_DANGER}80`, borderRadius: 4, padding: "1px 7px",
@@ -2156,9 +2172,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
               const renderCallCard = (call) => {
                 const isAK = call.port === "AK";
-                const slotsMissing = call.slots.some(s => !s.job && !s.noJob);
-                const slotsAllSettled = call.slots.length > 0 && !slotsMissing;
-                const allComplete = slotsAllSettled && call.slots.every(s => s.noJob || s.job?.completed);
+                // Chips anchor to THIS day: booked services + no-job markers
+                // logged on dateStr; missing services repeat across all days.
+                const dayJobs = call.callJobs.filter(j => j.date === dateStr);
+                const slotTypeSet = new Set(slotTypesFor(call));
+                const dayBooked = dayJobs.filter(j => slotTypeSet.has(j.type));
+                const dayNoJobs = dayJobs.filter(j => j.type === "no_job");
+                const dayExtras = dayJobs.filter(j => j.type === "cherry_picker" || j.type === "special");
+                const missingTypes = callMissingTypes(call);
+                const slotsMissing = missingTypes.length > 0;
+                const slotsAllSettled = slotTypesFor(call).length > 0 && !slotsMissing;
+                const allComplete = slotsAllSettled && slotTypesFor(call).every(t => {
+                  if (call.callJobs.some(j => j.type === "no_job" && (j.service === t || !j.service))) return true;
+                  const jb = call.callJobs.find(j => j.type === t);
+                  return jb && jb.completed;
+                });
                 const leftColor = slotsMissing ? IPS_DANGER
                   : allComplete ? IPS_SUCCESS
                   : slotsAllSettled ? IPS_SUCCESS
@@ -2192,10 +2220,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       </span>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                      {call.slots.map(s => renderSlotChip(call, s))}
-                      {call.extras.map(j => renderExtraChip(call, j))}
-                      <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "cherry_picker"); }}
-                        title="Add another order for this call (CP / Special / etc.)"
+                      {dayBooked.map(j => renderBookedChip(call, j))}
+                      {dayNoJobs.map(j => renderNoJobChip(call, j))}
+                      {dayExtras.map(j => renderExtraChip(call, j))}
+                      {missingTypes.map(t => renderMissingChip(call, t))}
+                      <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "provisions"); }}
+                        title="Add a service to this day (Provisions / Waste / CP / Special…)"
                         style={{
                           flexShrink: 0, background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
                           border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 6px",
