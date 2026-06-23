@@ -1553,18 +1553,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <button onClick={() => setJobsCollapsed(c => !c)} style={{
-                background: "none", border: "none", cursor: "pointer", padding: 0,
-                display: "flex", alignItems: "center", gap: 10, color: TEXT,
-              }}>
-                <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 12, textAlign: "center" }}>{jobsCollapsed ? "▶" : "▼"}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: TEXT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Jobs</span>
-                <span style={{ fontSize: 13, color: TEXT_DIM }}>{jobs.filter(j => !j.completed && j.type !== "bindingar" && j.type !== "no_job").length} active</span>
-              </button>
+              <span style={{ fontSize: 14, fontWeight: 700, color: TEXT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Jobs</span>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
             </div>
 
-            {!jobsCollapsed && (jobs.length === 0 ? (
+            {(jobs.length === 0 ? (
               <Card style={{ textAlign: "center", padding: 40 }}>
                 <div style={{ fontSize: 14, color: TEXT_DIM, marginBottom: 12 }}>No job orders yet.</div>
                 <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Log your first job</button>
@@ -1737,27 +1730,27 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   {g.jobs.map(renderJobCard)}
                 </div>
               );
+              const emptyNote = (text) => <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>{text}</div>;
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {activeGroups.map(renderGroup)}
-                  </div>
-                  {completedJobs.length > 0 && (<>
-                    {sectionHeader("Completed", completedJobs.length, jobsCompletedCollapsed, () => setJobsCompletedCollapsed(c => !c), IPS_SUCCESS)}
-                    {!jobsCompletedCollapsed && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {completedGroups.map(renderGroup)}
-                      </div>
-                    )}
-                  </>)}
-                  {invoicedJobs.length > 0 && (<>
-                    {sectionHeader("Invoiced", invoicedJobs.length, jobsInvoicedCollapsed, () => setJobsInvoicedCollapsed(c => !c), IPS_ACCENT)}
-                    {!jobsInvoicedCollapsed && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {invoicedGroups.map(renderGroup)}
-                      </div>
-                    )}
-                  </>)}
+                  {sectionHeader("Active Jobs", activeJobs.length, jobsCollapsed, () => setJobsCollapsed(c => !c), IPS_WARN)}
+                  {!jobsCollapsed && (
+                    activeGroups.length
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{activeGroups.map(renderGroup)}</div>
+                      : emptyNote("No active jobs.")
+                  )}
+                  {sectionHeader("Completed", completedJobs.length, jobsCompletedCollapsed, () => setJobsCompletedCollapsed(c => !c), IPS_SUCCESS)}
+                  {!jobsCompletedCollapsed && (
+                    completedGroups.length
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{completedGroups.map(renderGroup)}</div>
+                      : emptyNote("No completed jobs.")
+                  )}
+                  {sectionHeader("Invoiced", invoicedJobs.length, jobsInvoicedCollapsed, () => setJobsInvoicedCollapsed(c => !c), IPS_ACCENT)}
+                  {!jobsInvoicedCollapsed && (
+                    invoicedGroups.length
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{invoicedGroups.map(renderGroup)}</div>
+                      : emptyNote("No invoiced jobs.")
+                  )}
                 </div>
               );
             })())}
