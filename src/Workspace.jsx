@@ -2328,7 +2328,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               // Agency applies to every Akureyri call (any line) from the
               // service start date on. One per call.
               const agencyJob = isAK ? callJobs.find(j => j.type === "agency") : null;
-              const agencyEligible = isAK && callStart >= AGENCY_START_DATE;
+              // Agency is only for SDK ships in Akureyri (orderable === SDK
+              // line), from the service start date on.
+              const agencyEligible = isAK && orderable && callStart >= AGENCY_START_DATE;
 
               // Suppress cards that would be 100% empty — non-orderable ships
               // with no logged jobs (e.g. Carnival when not SDK). AK calls are
@@ -2515,7 +2517,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       {dayNoJobs.map(j => renderNoJobChip(call, j))}
                       {dayExtras.map(j => renderExtraChip(call, j))}
                       {missingTypes.map(t => renderMissingChip(call, t))}
-                      {call.isAK && dateStr === call.callStart && call.callStart >= AGENCY_START_DATE && (() => {
+                      {call.isAK && call.orderable && dateStr === call.callStart && call.callStart >= AGENCY_START_DATE && (() => {
                         const ac = JOB_TYPES.agency.color;
                         const done = !!call.agencyJob;
                         return (
