@@ -2524,6 +2524,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                               border: done ? `1px solid ${ac}` : `1px dashed ${ac}90`, borderRadius: 4, padding: "1px 7px",
                               fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
                               cursor: "pointer", lineHeight: 1.4,
+                              opacity: done ? 0.55 : 1, textDecoration: done ? "line-through" : "none",
                             }}>A</button>
                         );
                       })()}
