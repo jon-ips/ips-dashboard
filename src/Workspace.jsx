@@ -1673,7 +1673,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <button onClick={() => setJobSyncError(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: IPS_ACCENT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Pier Operations</span>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
             </div>
@@ -1881,10 +1881,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const ajt = JOB_TYPES.agency;
               const completedAgency = jobs.filter(j => j.type === "agency" && j.completed && !j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
               const invoicedAgency = jobs.filter(j => j.type === "agency" && j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-              const agencyHeader = (label, count, collapsed, onToggle) => (
+              const agencyHeader = (label, count, collapsed, onToggle, color) => (
                 <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 0", display: "flex", alignItems: "center", gap: 8, color: TEXT }}>
                   <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: ajt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
                   <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{count}</span>
                 </button>
               );
@@ -1913,13 +1913,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               return (
                 <div style={{ marginTop: 32 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: ajt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5, marginBottom: 4 }}>Agency · Akureyri</div>
-                  {agencyHeader("Completed Agency Jobs", completedAgency.length, agencyCompletedCollapsed, () => setAgencyCompletedCollapsed(c => !c))}
+                  {agencyHeader("Completed Agency Jobs", completedAgency.length, agencyCompletedCollapsed, () => setAgencyCompletedCollapsed(c => !c), IPS_SUCCESS)}
                   {!agencyCompletedCollapsed && (
                     completedAgency.length
                       ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{completedAgency.map(j => renderAgencyCard(j, false))}</div>
                       : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No completed agency jobs.</div>
                   )}
-                  {agencyHeader("Invoiced Agency Jobs", invoicedAgency.length, agencyInvoicedCollapsed, () => setAgencyInvoicedCollapsed(c => !c))}
+                  {agencyHeader("Invoiced Agency Jobs", invoicedAgency.length, agencyInvoicedCollapsed, () => setAgencyInvoicedCollapsed(c => !c), IPS_ACCENT)}
                   {!agencyInvoicedCollapsed && (
                     invoicedAgency.length
                       ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{invoicedAgency.map(j => renderAgencyCard(j, true))}</div>
