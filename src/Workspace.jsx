@@ -6,7 +6,7 @@ import {
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
   JOB_TYPES, JOB_EQUIPMENT_BY_TYPE, PORTS,
   SDK_LINES, DIRECT_CONTRACT_LINES,
-  AGENCY_BASE_FEE, AGENCY_DELIVERY_FEE, AGENCY_BASE_LABEL, AGENCY_DELIVERY_LABEL,
+  AGENCY_BASE_FEE, AGENCY_DELIVERY_FEE, AGENCY_BASE_LABEL, AGENCY_DELIVERY_LABEL, AGENCY_START_DATE,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
@@ -2512,7 +2512,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       {dayNoJobs.map(j => renderNoJobChip(call, j))}
                       {dayExtras.map(j => renderExtraChip(call, j))}
                       {missingTypes.map(t => renderMissingChip(call, t))}
-                      {call.isAK && dateStr === call.callStart && (() => {
+                      {call.isAK && dateStr === call.callStart && call.callStart >= AGENCY_START_DATE && (() => {
                         const ac = JOB_TYPES.agency.color;
                         const done = !!call.agencyJob;
                         return (

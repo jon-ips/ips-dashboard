@@ -492,6 +492,8 @@ export const AGENCY_DELIVERY_FEE = 4000;   // optional delivery fee
 export const AGENCY_BASE_LABEL = "Agency Base Fee (AKU)";
 export const AGENCY_DELIVERY_LABEL = "Delivery Fee";
 export const AGENCY_BOARDING_AGENT = "Eysteinn";
+// Agency service started on this date — no "A" chip on earlier calls.
+export const AGENCY_START_DATE = "2026-06-19";
 
 // ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
 export const JOB_TYPES = {
