@@ -86,7 +86,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
   // Collapsable sections in the Jobs view.
-  const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [jobsCollapsed, setJobsCollapsed] = useState(true);
   const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
   const [agencyCompletedCollapsed, setAgencyCompletedCollapsed] = useState(true);
