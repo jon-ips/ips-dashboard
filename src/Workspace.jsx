@@ -2517,7 +2517,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                           <button key="agency" onClick={(e) => { e.stopPropagation(); openAgency({ ship: call.shipName, date: call.callStart, port: "AK", berth: call.berth, jobId: call.agencyJob?.id }); }}
                             title={done ? `Agency logged for ${call.shipName} — click to edit` : `Log agency for ${call.shipName}`}
                             style={{
-                              flexShrink: 0, background: done ? ac : "transparent",
+                              flexShrink: 0, marginLeft: "auto", background: done ? ac : "transparent",
                               color: done ? "#fff" : ac,
                               border: done ? `1px solid ${ac}` : `1px dashed ${ac}90`, borderRadius: 4, padding: "1px 7px",
                               fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
@@ -2528,7 +2528,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "provisions"); }}
                         title="Add a service to this day (Provisions / Waste / CP / Special…)"
                         style={{
-                          flexShrink: 0, marginLeft: "auto", background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
+                          flexShrink: 0, marginLeft: (call.isAK && dateStr === call.callStart) ? 0 : "auto", background: "rgba(255,255,255,0.04)", color: TEXT_DIM,
                           border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1px 6px",
                           fontSize: "clamp(10px, 0.85vw, 13px)", fontWeight: 700, fontFamily: "JetBrains Mono",
                           cursor: "pointer", lineHeight: 1.4,
