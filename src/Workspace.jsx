@@ -2325,13 +2325,16 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 if (s.turnaround) slots.push({ type: "turnaround", job: realJob("turnaround"), noJob: noJobFor("turnaround") });
               }
               const extras = callJobs.filter(j => j.type === "cherry_picker" || j.type === "special");
-              // Agency applies to every Akureyri call (any line). One per call.
+              // Agency applies to every Akureyri call (any line) from the
+              // service start date on. One per call.
               const agencyJob = isAK ? callJobs.find(j => j.type === "agency") : null;
+              const agencyEligible = isAK && callStart >= AGENCY_START_DATE;
 
-              // Suppress cards that would be 100% empty — non-orderable
-              // ships with no logged jobs (e.g. Carnival when not SDK).
-              // AK calls are always kept so the agency "A" chip can show.
-              if (!isAK && !orderable && extras.length === 0 && !wholeCallNoJob) return;
+              // Suppress cards that would be 100% empty — non-orderable ships
+              // with no logged jobs (e.g. Carnival when not SDK). AK calls are
+              // kept only when they'd carry an agency "A" (eligible by date or
+              // already logged), so pre-service AK calls don't clutter.
+              if (!orderable && extras.length === 0 && !wholeCallNoJob && !agencyEligible && !agencyJob) return;
 
               const cursor = new Date(callStart + "T00:00:00");
               const endDt = new Date(callEnd + "T00:00:00");
