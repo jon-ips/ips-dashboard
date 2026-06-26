@@ -6,9 +6,12 @@ import {
   WS_TEAM, WS_PROJECTS, WS_PRIORITIES, generateId,
   JOB_TYPES, JOB_EQUIPMENT_BY_TYPE, PORTS,
   SDK_LINES, DIRECT_CONTRACT_LINES,
+  AGENCY_BASE_FEE, AGENCY_DELIVERY_FEE, AGENCY_BASE_LABEL, AGENCY_DELIVERY_LABEL,
 } from "./constants.js";
 import { Card, SL, FilterPill, inputStyle, fmtDate } from "./shared.jsx";
 import generateInvoice from "./generateInvoice.js";
+import generateAgencyInvoice from "./generateAgencyInvoice.js";
+import { fmtISK } from "./rates.js";
 import generateBindingarInvoice, { MONTH_NAMES as BINDINGAR_MONTH_NAMES } from "./generateBindingarInvoice.js";
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip, getBerthForShip } from "./constants.js";
@@ -86,7 +89,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
+  const [agencyCompletedCollapsed, setAgencyCompletedCollapsed] = useState(true);
+  const [agencyInvoicedCollapsed, setAgencyInvoicedCollapsed] = useState(true);
   const [bindingarCollapsed, setBindingarCollapsed] = useState(true);
+  // Agency modal (Akureyri boarding-agent job): { ship, date, port, berth, jobId? } | null
+  const [agencyModal, setAgencyModal] = useState(null);
+  const [agencyDelivery, setAgencyDelivery] = useState(false);
+  const [agencyCustom, setAgencyCustom] = useState([]); // [{ label, isk }]
   const [showBindingarInCal, setShowBindingarInCal] = useState(true);
   const [showAkureyriInCal, setShowAkureyriInCal] = useState(true);
   // cruise_lines cache (id, name, payday_customer_id, payment_terms_days)
@@ -626,6 +635,64 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobModal(job.id);
     setPoAutoFilled(false);
   }, []);
+
+  // ─── AGENCY (Akureyri boarding agent) ──────────────────────────────────────
+  // Agency line items live in job.hoursWorked as { agency: [{label, isk}] }.
+  const agencyItemsOf = (job) => Array.isArray(job?.hoursWorked?.agency) ? job.hoursWorked.agency : [];
+
+  // Open the agency modal for a call. Pre-fills from an existing agency job
+  // (edit) or starts fresh with just the base fee implied.
+  const openAgency = useCallback((target) => {
+    const existing = target.jobId ? jobs.find(j => j.id === target.jobId) : null;
+    const items = existing ? agencyItemsOf(existing) : [];
+    setAgencyDelivery(items.some(it => it.label === AGENCY_DELIVERY_LABEL));
+    setAgencyCustom(items.filter(it => it.label !== AGENCY_BASE_LABEL && it.label !== AGENCY_DELIVERY_LABEL));
+    setAgencyModal(target);
+  }, [jobs]);
+
+  // Build the full line-item list for the current agency modal state.
+  const agencyBuildItems = useCallback(() => {
+    const items = [{ label: AGENCY_BASE_LABEL, isk: AGENCY_BASE_FEE }];
+    if (agencyDelivery) items.push({ label: AGENCY_DELIVERY_LABEL, isk: AGENCY_DELIVERY_FEE });
+    agencyCustom.forEach(it => {
+      const label = (it.label || "").trim();
+      const isk = Number(it.isk) || 0;
+      if (label) items.push({ label, isk });
+    });
+    return items;
+  }, [agencyDelivery, agencyCustom]);
+
+  // Create (or update) a completed agency job from the modal.
+  const confirmAgency = useCallback(async () => {
+    if (!agencyModal) return;
+    const { ship, date, berth, jobId } = agencyModal;
+    const items = agencyBuildItems();
+    const hoursWorked = { agency: items };
+    if (jobId) {
+      saveJobs(jobs.map(j => j.id === jobId ? { ...j, completed: true, hoursWorked } : j));
+      if (SUPABASE_CONFIGURED && !isLocalId(jobId)) verifyRows(supabase.from("jobs").update({ completed: true, hours_worked: hoursWorked }).eq("id", jobId), "agency-edit");
+    } else {
+      const insertPayload = { port: "AK", type: "agency", date, ship: ship || null, po_number: null, notes: berth || null, shifts: [], completed: true, hours_worked: hoursWorked };
+      const localBase = { id: generateId(), port: "AK", type: "agency", date, ship: ship || "", po_number: "", notes: berth || "", shifts: [], completed: true, hoursWorked, invoiced: false, createdAt: new Date().toISOString(), pendingSync: true };
+      if (SUPABASE_CONFIGURED) {
+        let data = null, error = null;
+        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+        if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
+        else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
+      } else {
+        saveJobs([...jobs, localBase]);
+      }
+    }
+    setAgencyModal(null);
+  }, [agencyModal, agencyBuildItems, jobs, saveJobs, recordSyncError, verifyRows]);
+
+  // Generate the agency PDF and mark the job invoiced.
+  const invoiceAgency = useCallback(async (job) => {
+    const res = await generateAgencyInvoice(job, agencyItemsOf(job));
+    if (!res) return;
+    saveJobs(jobs.map(j => j.id === job.id ? { ...j, invoiced: true } : j));
+    if (SUPABASE_CONFIGURED && !isLocalId(job.id)) verifyRows(supabase.from("jobs").update({ invoiced: true }).eq("id", job.id), "agency-invoice");
+  }, [jobs, saveJobs, verifyRows]);
 
   // Auto-fill PO Number — produces the full reference string (call number or
   // DD.MM, plus service code, plus " AKU" when applicable). The Payday
@@ -1439,6 +1506,60 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
             );
           })()}
 
+          {/* AGENCY MODAL (Akureyri boarding agent) */}
+          {agencyModal && (() => {
+            const ac = JOB_TYPES.agency.color;
+            const items = agencyBuildItems();
+            const total = items.reduce((a, it) => a + (Number(it.isk) || 0), 0);
+            return (
+              <div onClick={() => setAgencyModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+                <div onClick={e => e.stopPropagation()} style={{ width: 460, maxWidth: "calc(100vw - 24px)", maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}><span style={{ color: ac }}>Agency</span> · {agencyModal.ship || "—"}</div>
+                    <button onClick={() => setAgencyModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+                  </div>
+                  <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 16 }}>{fmtDate(agencyModal.date)}{agencyModal.berth ? ` · ${agencyModal.berth}` : ""} · Akureyri</div>
+
+                  {/* Base fee — always included */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: `${ac}14`, border: `1px solid ${ac}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: TEXT }}>{AGENCY_BASE_LABEL}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: ac }}>{fmtISK(AGENCY_BASE_FEE)}</span>
+                  </div>
+
+                  {/* Delivery fee — toggle */}
+                  <button onClick={() => setAgencyDelivery(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: agencyDelivery ? `${ac}14` : "rgba(255,255,255,0.03)", border: `1px solid ${agencyDelivery ? ac : BORDER}`, borderRadius: 8, padding: "10px 12px", marginBottom: 14, cursor: "pointer" }}>
+                    <span style={{ width: 20, height: 20, borderRadius: 5, border: `1px solid ${agencyDelivery ? ac : BORDER}`, background: agencyDelivery ? ac : "transparent", color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{agencyDelivery ? "✓" : ""}</span>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: TEXT, textAlign: "left" }}>{AGENCY_DELIVERY_LABEL}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: agencyDelivery ? ac : TEXT_DIM }}>{fmtISK(AGENCY_DELIVERY_FEE)}</span>
+                  </button>
+
+                  {/* Custom additional services */}
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Additional services</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                    {agencyCustom.map((it, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8 }}>
+                        <input value={it.label} onChange={e => setAgencyCustom(arr => arr.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="Service name" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                        <input type="number" value={it.isk} onChange={e => setAgencyCustom(arr => arr.map((x, j) => j === i ? { ...x, isk: e.target.value } : x))} placeholder="ISK" style={{ ...inputStyle, width: 110, padding: "8px 10px", fontFamily: "JetBrains Mono" }} />
+                        <button onClick={() => setAgencyCustom(arr => arr.filter((_, j) => j !== i))} style={{ background: "rgba(239,68,68,0.08)", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 6, padding: "0 10px", cursor: "pointer", color: IPS_DANGER, fontSize: 14 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setAgencyCustom(arr => [...arr, { label: "", isk: "" }])} style={{ width: "100%", padding: "8px 0", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px dashed ${BORDER}`, color: IPS_ACCENT, fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", marginBottom: 16 }}>+ Add custom service</button>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderTop: `2px solid ${BORDER}`, fontSize: 14, fontWeight: 700 }}>
+                    <span>Total</span>
+                    <span style={{ fontFamily: "JetBrains Mono", color: ac }}>{fmtISK(total)}</span>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                    <button onClick={() => setAgencyModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                    <button onClick={confirmAgency} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: IPS_SUCCESS, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{agencyModal.jobId ? "Save" : "Complete agency job"}</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* RATE SHEET PICKER MODAL */}
           {rateSheetPicker && (
             <div onClick={() => setRateSheetPicker(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1563,7 +1684,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Log your first job</button>
               </Card>
             ) : (() => {
-              const realJobs = [...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || ""));
+              const realJobs = [...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job" && j.type !== "agency").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || ""));
               const activeJobs = realJobs.filter(j => !j.completed);
               const completedJobs = realJobs.filter(j => j.completed && !j.invoiced);
               const invoicedJobs = realJobs.filter(j => j.invoiced);
@@ -1754,6 +1875,59 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>
               );
             })())}
+
+            {/* ═══ AGENCY SECTION (Akureyri boarding agent) ═══ */}
+            {(() => {
+              const ajt = JOB_TYPES.agency;
+              const completedAgency = jobs.filter(j => j.type === "agency" && j.completed && !j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+              const invoicedAgency = jobs.filter(j => j.type === "agency" && j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+              const agencyHeader = (label, count, collapsed, onToggle) => (
+                <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 0", display: "flex", alignItems: "center", gap: 8, color: TEXT }}>
+                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: ajt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
+                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{count}</span>
+                </button>
+              );
+              const renderAgencyCard = (job, invoiced) => {
+                const items = agencyItemsOf(job);
+                const total = items.reduce((a, it) => a + (Number(it.isk) || 0), 0);
+                return (
+                  <Card key={job.id} style={{ padding: "10px 14px", borderLeft: `4px solid ${ajt.color}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: ajt.color, background: `${ajt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono" }}>Agency</span>
+                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: TEXT }}>{fmtDate(job.date)}</span>
+                          {job.ship && <span style={{ fontSize: 12, fontWeight: 600, color: IPS_ACCENT, background: `${IPS_ACCENT}15`, padding: "1px 8px", borderRadius: 4 }}>{extractShipName(job.ship)}</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: TEXT_DIM }}>{items.map(it => `${it.label}: ${fmtISK(it.isk)}`).join(" · ")}</div>
+                        <div style={{ fontSize: 12, color: TEXT, fontWeight: 700, marginTop: 2, fontFamily: "JetBrains Mono" }}>Total: {fmtISK(total)}</div>
+                      </div>
+                      {!invoiced && <button onClick={() => openAgency({ ship: extractShipName(job.ship), date: job.date, port: "AK", berth: job.notes || getBerthForShip(job.ship, job.date) || "", jobId: job.id })} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Edit</button>}
+                      {!invoiced && <button onClick={() => invoiceAgency(job)} style={{ background: ajt.color, border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Invoice</button>}
+                      {invoiced && <button onClick={() => generateAgencyInvoice(job, agencyItemsOf(job))} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", color: TEXT_DIM, fontSize: 12, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Re-download PDF</button>}
+                    </div>
+                  </Card>
+                );
+              };
+              return (
+                <div style={{ marginTop: 32 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: ajt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5, marginBottom: 4 }}>Agency · Akureyri</div>
+                  {agencyHeader("Completed Agency Jobs", completedAgency.length, agencyCompletedCollapsed, () => setAgencyCompletedCollapsed(c => !c))}
+                  {!agencyCompletedCollapsed && (
+                    completedAgency.length
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{completedAgency.map(j => renderAgencyCard(j, false))}</div>
+                      : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No completed agency jobs.</div>
+                  )}
+                  {agencyHeader("Invoiced Agency Jobs", invoicedAgency.length, agencyInvoicedCollapsed, () => setAgencyInvoicedCollapsed(c => !c))}
+                  {!agencyInvoicedCollapsed && (
+                    invoicedAgency.length
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{invoicedAgency.map(j => renderAgencyCard(j, true))}</div>
+                      : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No invoiced agency jobs.</div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ═══ BINDINGAR SECTION ═══ */}
             {(() => {
@@ -2149,10 +2323,13 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 if (s.turnaround) slots.push({ type: "turnaround", job: realJob("turnaround"), noJob: noJobFor("turnaround") });
               }
               const extras = callJobs.filter(j => j.type === "cherry_picker" || j.type === "special");
+              // Agency applies to every Akureyri call (any line). One per call.
+              const agencyJob = isAK ? callJobs.find(j => j.type === "agency") : null;
 
               // Suppress cards that would be 100% empty — non-orderable
               // ships with no logged jobs (e.g. Carnival when not SDK).
-              if (!orderable && extras.length === 0 && !wholeCallNoJob) return;
+              // AK calls are always kept so the agency "A" chip can show.
+              if (!isAK && !orderable && extras.length === 0 && !wholeCallNoJob) return;
 
               const cursor = new Date(callStart + "T00:00:00");
               const endDt = new Date(callEnd + "T00:00:00");
@@ -2165,7 +2342,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     ship: s.ship, shipName: sn, port: s.port || "REY", line: s.line,
                     berth: s.berth || "", turnaround: !!s.turnaround,
                     orderable, callStart, callEnd,
-                    slots, extras, wholeCallNoJob, callJobs,
+                    slots, extras, wholeCallNoJob, callJobs, isAK, agencyJob,
                   });
                 }
                 cursor.setDate(cursor.getDate() + 1);
@@ -2333,6 +2510,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       {dayNoJobs.map(j => renderNoJobChip(call, j))}
                       {dayExtras.map(j => renderExtraChip(call, j))}
                       {missingTypes.map(t => renderMissingChip(call, t))}
+                      {call.isAK && dateStr === call.callStart && (() => {
+                        const ac = JOB_TYPES.agency.color;
+                        const done = !!call.agencyJob;
+                        return (
+                          <button key="agency" onClick={(e) => { e.stopPropagation(); openAgency({ ship: call.shipName, date: call.callStart, port: "AK", berth: call.berth, jobId: call.agencyJob?.id }); }}
+                            title={done ? `Agency logged for ${call.shipName} — click to edit` : `Log agency for ${call.shipName}`}
+                            style={{
+                              flexShrink: 0, background: done ? ac : "transparent",
+                              color: done ? "#fff" : ac,
+                              border: done ? `1px solid ${ac}` : `1px dashed ${ac}90`, borderRadius: 4, padding: "1px 7px",
+                              fontSize: "clamp(9px, 0.8vw, 12px)", fontWeight: 700, fontFamily: "JetBrains Mono",
+                              cursor: "pointer", lineHeight: 1.4,
+                            }}>A</button>
+                        );
+                      })()}
                       <button onClick={(e) => { e.stopPropagation(); openNewJobForShip(call.shipName, dateStr, call.port, "provisions"); }}
                         title="Add a service to this day (Provisions / Waste / CP / Special…)"
                         style={{

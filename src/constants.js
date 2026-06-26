@@ -484,6 +484,15 @@ export const PROSPECT_GROUPS = {
   },
 };
 
+// ─── AGENCY (Akureyri boarding agent) ────────────────────────────────────────
+// Billed to our boarding agent in Akureyri. Every call carries a flat base
+// fee; delivery + custom services are added per call in the agency modal.
+export const AGENCY_BASE_FEE = 60000;      // Agency Base Fee (AKU), flat per call
+export const AGENCY_DELIVERY_FEE = 4000;   // optional delivery fee
+export const AGENCY_BASE_LABEL = "Agency Base Fee (AKU)";
+export const AGENCY_DELIVERY_LABEL = "Delivery Fee";
+export const AGENCY_BOARDING_AGENT = "Eysteinn";
+
 // ─── JOB ORDER CONFIG ────────────────────────────────────────────────────────
 export const JOB_TYPES = {
   provisions:     { label: "Provisions",     color: "#22C55E" },
@@ -494,6 +503,10 @@ export const JOB_TYPES = {
   // Bindingar (mooring/tying): REY-only, no hour logging. Billed monthly
   // in bulk to Faxaflóahafnir at a flat rate per resource per job.
   bindingar:      { label: "Bindingar",      color: "#14B8A6", reyOnly: true, noHours: true, monthlyBilled: true },
+  // Agency (boarding agent, Akureyri only): flat Agency Base Fee per call
+  // plus optional delivery / custom line items. Not a resource job — logged
+  // and completed in one step via the agency modal, billed to the agent.
+  agency:         { label: "Agency", short: "A", color: "#EC4899", akuOnly: true, noHours: true },
   // "No Job" marker — used when the user has confirmed there is no IPS
   // work for this ship call. Renders dimmed-red on the calendar instead of
   // the pending ORDER pill. Not pickable from the type buttons.
