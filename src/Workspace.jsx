@@ -1674,7 +1674,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: TEXT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Jobs</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: IPS_ACCENT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Pier Operations</span>
               <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
             </div>
 
