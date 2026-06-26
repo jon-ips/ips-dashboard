@@ -110,6 +110,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [jobsCollapsed, setJobsCollapsed] = useState(true);
   const [jobsCompletedCollapsed, setJobsCompletedCollapsed] = useState(true);
   const [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] = useState(true);
+  const [akActiveCollapsed, setAkActiveCollapsed] = useState(true);
+  const [akCompletedCollapsed, setAkCompletedCollapsed] = useState(true);
+  const [akInvoicedCollapsed, setAkInvoicedCollapsed] = useState(true);
   const [agencyCompletedCollapsed, setAgencyCompletedCollapsed] = useState(true);
   const [agencyInvoicedCollapsed, setAgencyInvoicedCollapsed] = useState(true);
   const [bindingarCollapsed, setBindingarCollapsed] = useState(true);
@@ -1694,7 +1697,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <button onClick={() => setJobSyncError(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
               </div>
             )}
-            <GroupTitle label="Pier Operations" color={IPS_ACCENT} first right={
+            <GroupTitle label="Pier Operations · Reykjavík" color={IPS_ACCENT} first right={
               <button onClick={openNewJob} style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>+ New Job</button>
             } />
 
@@ -1705,9 +1708,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               </Card>
             ) : (() => {
               const realJobs = [...jobs].filter(j => j.type !== "bindingar" && j.type !== "no_job" && j.type !== "agency").sort((a, b) => (a.date || "").localeCompare(b.date || "") || (getJobStartTime(a) || "").localeCompare(getJobStartTime(b) || ""));
-              const activeJobs = realJobs.filter(j => !j.completed);
-              const completedJobs = realJobs.filter(j => j.completed && !j.invoiced);
-              const invoicedJobs = realJobs.filter(j => j.invoiced);
+              const reyJobs = realJobs.filter(j => (j.port || "REY") !== "AK");
+              const akJobs  = realJobs.filter(j => (j.port || "REY") === "AK");
 
               // Group jobs by ship CALL (the schedule entry whose date window
               // covers the job, same port) — not just ship name, so two calls
@@ -1740,13 +1742,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 }
                 return [...map.values()];
               };
-              const todayIso = new Date().toISOString().slice(0, 10);
               const ascByAnchor = (a, b) => a.anchor.localeCompare(b.anchor) || a.ship.localeCompare(b.ship);
-              // Active: calls nearest today first; Completed: oldest first;
-              // Invoiced: newest first.
-              const activeGroups = groupByCall(activeJobs).sort(ascByAnchor);
-              const completedGroups = groupByCall(completedJobs).sort(ascByAnchor);
-              const invoicedGroups = groupByCall(invoicedJobs).sort((a, b) => ascByAnchor(b, a));
+              // Same order rules per port: Active oldest-first, Completed
+              // oldest-first, Invoiced newest-first.
+              const mkSets = (list) => ({
+                active:    list.filter(j => !j.completed),
+                completed: list.filter(j => j.completed && !j.invoiced),
+                invoiced:  list.filter(j => j.invoiced),
+              });
+              const mkGroups = (s) => ({
+                active:    groupByCall(s.active).sort(ascByAnchor),
+                completed: groupByCall(s.completed).sort(ascByAnchor),
+                invoiced:  groupByCall(s.invoiced).sort((a, b) => ascByAnchor(b, a)),
+              });
+              const reySets = mkSets(reyJobs), akSets = mkSets(akJobs);
+              const reyGroups = mkGroups(reySets), akGroups = mkGroups(akSets);
               const renderJobCard = (job) => {
                 const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
                 return (
@@ -1862,27 +1872,25 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>
               );
               const emptyNote = (text) => <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>{text}</div>;
-              return (
+              const list = (groups, empty) => groups.length
+                ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{groups.map(renderGroup)}</div>
+                : emptyNote(empty);
+              const portBlock = (sets, groups, st) => (
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <SectionHeader label="Active Jobs" count={activeJobs.length} collapsed={jobsCollapsed} onToggle={() => setJobsCollapsed(c => !c)} color={IPS_WARN} />
-                  {!jobsCollapsed && (
-                    activeGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{activeGroups.map(renderGroup)}</div>
-                      : emptyNote("No active jobs.")
-                  )}
-                  <SectionHeader label="Completed" count={completedJobs.length} collapsed={jobsCompletedCollapsed} onToggle={() => setJobsCompletedCollapsed(c => !c)} color={IPS_SUCCESS} />
-                  {!jobsCompletedCollapsed && (
-                    completedGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{completedGroups.map(renderGroup)}</div>
-                      : emptyNote("No completed jobs.")
-                  )}
-                  <SectionHeader label="Invoiced" count={invoicedJobs.length} collapsed={jobsInvoicedCollapsed} onToggle={() => setJobsInvoicedCollapsed(c => !c)} color={IPS_ACCENT} />
-                  {!jobsInvoicedCollapsed && (
-                    invoicedGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{invoicedGroups.map(renderGroup)}</div>
-                      : emptyNote("No invoiced jobs.")
-                  )}
+                  <SectionHeader label="Active Jobs" count={sets.active.length} collapsed={st.active[0]} onToggle={() => st.active[1](c => !c)} color={IPS_WARN} />
+                  {!st.active[0] && list(groups.active, "No active jobs.")}
+                  <SectionHeader label="Completed" count={sets.completed.length} collapsed={st.completed[0]} onToggle={() => st.completed[1](c => !c)} color={IPS_SUCCESS} />
+                  {!st.completed[0] && list(groups.completed, "No completed jobs.")}
+                  <SectionHeader label="Invoiced" count={sets.invoiced.length} collapsed={st.invoiced[0]} onToggle={() => st.invoiced[1](c => !c)} color={IPS_ACCENT} />
+                  {!st.invoiced[0] && list(groups.invoiced, "No invoiced jobs.")}
                 </div>
+              );
+              return (
+                <>
+                  {portBlock(reySets, reyGroups, { active: [jobsCollapsed, setJobsCollapsed], completed: [jobsCompletedCollapsed, setJobsCompletedCollapsed], invoiced: [jobsInvoicedCollapsed, setJobsInvoicedCollapsed] })}
+                  <GroupTitle label="Pier Operations · Akureyri" color={IPS_ACCENT} />
+                  {portBlock(akSets, akGroups, { active: [akActiveCollapsed, setAkActiveCollapsed], completed: [akCompletedCollapsed, setAkCompletedCollapsed], invoiced: [akInvoicedCollapsed, setAkInvoicedCollapsed] })}
+                </>
               );
             })())}
 
