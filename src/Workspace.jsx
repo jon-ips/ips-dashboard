@@ -1795,7 +1795,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {[...bindingarJobs].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(job => (
+                      {[...bindingarJobs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(job => (
                         <Card key={job.id} style={{ padding: "10px 14px", borderLeft: `4px solid ${bjt.color}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div style={{ flex: 1 }}>
