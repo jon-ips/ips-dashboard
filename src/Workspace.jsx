@@ -25,6 +25,27 @@ import { findLastVikingMarsDate } from "./vatRules.js";
 // the former, drop the latter instead of resurrecting it.
 const isLocalId = (id) => typeof id === "string" && id.length > 0 && !id.includes("-");
 
+// ─── Shared Jobs-view section chrome ─────────────────────────────────────────
+// One group heading style and one collapsible sub-header style, reused by
+// Pier Operations / Agency / Bindingar so the whole view reads consistently.
+function GroupTitle({ label, color, right, first }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: first ? 0 : 30, marginBottom: 4, paddingBottom: 8, borderBottom: `1px solid ${BORDER}` }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color, letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{label}</span>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{right}</div>
+    </div>
+  );
+}
+function SectionHeader({ label, count, collapsed, onToggle, color }) {
+  return (
+    <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", padding: "9px 0 7px", display: "flex", alignItems: "center", gap: 8, color: TEXT, width: "100%", textAlign: "left" }}>
+      <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
+      <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", background: "rgba(255,255,255,0.05)", padding: "0 6px", borderRadius: 10, minWidth: 18, textAlign: "center" }}>{count}</span>
+    </button>
+  );
+}
+
 export default function Workspace({ wsView, activeModule, onDraftCountChange }) {
   // ─── WORKSPACE STATE ─────────────────────────────────────────────────────────
   const [wsTasks, setWsTasks] = useState([]);
@@ -1673,10 +1694,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 <button onClick={() => setJobSyncError(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: IPS_ACCENT, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Pier Operations</span>
-              <button onClick={openNewJob} style={{ padding: "8px 18px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>+ New Job</button>
-            </div>
+            <GroupTitle label="Pier Operations" color={IPS_ACCENT} first right={
+              <button onClick={openNewJob} style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>+ New Job</button>
+            } />
 
             {(jobs.length === 0 ? (
               <Card style={{ textAlign: "center", padding: 40 }}>
@@ -1727,16 +1747,6 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const activeGroups = groupByCall(activeJobs).sort(ascByAnchor);
               const completedGroups = groupByCall(completedJobs).sort(ascByAnchor);
               const invoicedGroups = groupByCall(invoicedJobs).sort((a, b) => ascByAnchor(b, a));
-              const sectionHeader = (label, count, collapsed, onToggle, color) => (
-                <button onClick={onToggle} style={{
-                  background: "none", border: "none", cursor: "pointer", padding: "8px 0",
-                  display: "flex", alignItems: "center", gap: 8, color: TEXT, marginTop: 4,
-                }}>
-                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
-                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{count}</span>
-                </button>
-              );
               const renderJobCard = (job) => {
                 const jt = JOB_TYPES[job.type] || JOB_TYPES.provisions;
                 return (
@@ -1853,23 +1863,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               );
               const emptyNote = (text) => <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>{text}</div>;
               return (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {sectionHeader("Active Jobs", activeJobs.length, jobsCollapsed, () => setJobsCollapsed(c => !c), IPS_WARN)}
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <SectionHeader label="Active Jobs" count={activeJobs.length} collapsed={jobsCollapsed} onToggle={() => setJobsCollapsed(c => !c)} color={IPS_WARN} />
                   {!jobsCollapsed && (
                     activeGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{activeGroups.map(renderGroup)}</div>
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{activeGroups.map(renderGroup)}</div>
                       : emptyNote("No active jobs.")
                   )}
-                  {sectionHeader("Completed", completedJobs.length, jobsCompletedCollapsed, () => setJobsCompletedCollapsed(c => !c), IPS_SUCCESS)}
+                  <SectionHeader label="Completed" count={completedJobs.length} collapsed={jobsCompletedCollapsed} onToggle={() => setJobsCompletedCollapsed(c => !c)} color={IPS_SUCCESS} />
                   {!jobsCompletedCollapsed && (
                     completedGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{completedGroups.map(renderGroup)}</div>
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{completedGroups.map(renderGroup)}</div>
                       : emptyNote("No completed jobs.")
                   )}
-                  {sectionHeader("Invoiced", invoicedJobs.length, jobsInvoicedCollapsed, () => setJobsInvoicedCollapsed(c => !c), IPS_ACCENT)}
+                  <SectionHeader label="Invoiced" count={invoicedJobs.length} collapsed={jobsInvoicedCollapsed} onToggle={() => setJobsInvoicedCollapsed(c => !c)} color={IPS_ACCENT} />
                   {!jobsInvoicedCollapsed && (
                     invoicedGroups.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{invoicedGroups.map(renderGroup)}</div>
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{invoicedGroups.map(renderGroup)}</div>
                       : emptyNote("No invoiced jobs.")
                   )}
                 </div>
@@ -1881,13 +1891,6 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const ajt = JOB_TYPES.agency;
               const completedAgency = jobs.filter(j => j.type === "agency" && j.completed && !j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
               const invoicedAgency = jobs.filter(j => j.type === "agency" && j.invoiced).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-              const agencyHeader = (label, count, collapsed, onToggle, color) => (
-                <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 0", display: "flex", alignItems: "center", gap: 8, color: TEXT }}>
-                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono", width: 10, textAlign: "center" }}>{collapsed ? "▶" : "▼"}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
-                  <span style={{ fontSize: 11, color: TEXT_DIM, fontFamily: "JetBrains Mono" }}>{count}</span>
-                </button>
-              );
               const renderAgencyCard = (job, invoiced) => {
                 const items = agencyItemsOf(job);
                 const total = items.reduce((a, it) => a + (Number(it.isk) || 0), 0);
@@ -1911,20 +1914,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 );
               };
               return (
-                <div style={{ marginTop: 32 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: ajt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5, marginBottom: 4 }}>Agency · Akureyri</div>
-                  {agencyHeader("Completed Agency Jobs", completedAgency.length, agencyCompletedCollapsed, () => setAgencyCompletedCollapsed(c => !c), IPS_SUCCESS)}
-                  {!agencyCompletedCollapsed && (
-                    completedAgency.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{completedAgency.map(j => renderAgencyCard(j, false))}</div>
-                      : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No completed agency jobs.</div>
-                  )}
-                  {agencyHeader("Invoiced Agency Jobs", invoicedAgency.length, agencyInvoicedCollapsed, () => setAgencyInvoicedCollapsed(c => !c), IPS_ACCENT)}
-                  {!agencyInvoicedCollapsed && (
-                    invoicedAgency.length
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{invoicedAgency.map(j => renderAgencyCard(j, true))}</div>
-                      : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No invoiced agency jobs.</div>
-                  )}
+                <div>
+                  <GroupTitle label="Agency · Akureyri" color={ajt.color} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <SectionHeader label="Completed Agency Jobs" count={completedAgency.length} collapsed={agencyCompletedCollapsed} onToggle={() => setAgencyCompletedCollapsed(c => !c)} color={IPS_SUCCESS} />
+                    {!agencyCompletedCollapsed && (
+                      completedAgency.length
+                        ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{completedAgency.map(j => renderAgencyCard(j, false))}</div>
+                        : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No completed agency jobs.</div>
+                    )}
+                    <SectionHeader label="Invoiced Agency Jobs" count={invoicedAgency.length} collapsed={agencyInvoicedCollapsed} onToggle={() => setAgencyInvoicedCollapsed(c => !c)} color={IPS_ACCENT} />
+                    {!agencyInvoicedCollapsed && (
+                      invoicedAgency.length
+                        ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>{invoicedAgency.map(j => renderAgencyCard(j, true))}</div>
+                        : <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No invoiced agency jobs.</div>
+                    )}
+                  </div>
                 </div>
               );
             })()}
@@ -1936,39 +1941,28 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const [bYear, bMonthNum] = bindingarMonth.split("-").map(Number);
               const monthLabel = `${BINDINGAR_MONTH_NAMES[bMonthNum - 1]} ${bYear}`;
               return (
-                <div style={{ marginTop: 32 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                    <button onClick={() => setBindingarCollapsed(c => !c)} style={{
-                      background: "none", border: "none", cursor: "pointer", padding: 0,
-                      display: "flex", alignItems: "center", gap: 10,
-                    }}>
-                      <span style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", display: "inline-block", width: 12, textAlign: "center" }}>{bindingarCollapsed ? "▶" : "▼"}</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: bjt.color, fontFamily: "'Satoshi', 'Inter', sans-serif", letterSpacing: 0.5 }}>Bindingar</span>
-                      <span style={{ fontSize: 12, color: TEXT_DIM }}>{bindingarJobs.length} job{bindingarJobs.length !== 1 ? "s" : ""}</span>
-                    </button>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <button onClick={openNewBindingarJob} style={{
-                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
-                        fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
-                      }}>+ New Bindingar</button>
-                      <select value={bindingarMonth} onChange={e => setBindingarMonth(e.target.value)} style={{ ...inputStyle, padding: "6px 10px", width: "auto", cursor: "pointer", colorScheme: "dark", backgroundColor: "#112F45" }}>
-                        {[5, 6, 7, 8, 9, 10].map(m => {
-                          const val = `2026-${String(m).padStart(2, "0")}`;
-                          return <option key={val} value={val} style={{ background: "#112F45", color: TEXT }}>{BINDINGAR_MONTH_NAMES[m - 1]} 2026</option>;
-                        })}
-                      </select>
-                      <button onClick={() => generateBindingarInvoice(bindingarJobs, bYear, bMonthNum - 1)} style={{
-                        padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: "rgba(20,184,166,0.12)", border: `1px solid ${bjt.color}`, color: bjt.color,
-                        fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
-                      }}>Generate {monthLabel} invoice</button>
-                    </div>
-                  </div>
+                <div>
+                  <GroupTitle label="Bindingar" color={bjt.color} right={<>
+                    <button onClick={openNewBindingarJob} style={{
+                      padding: "7px 14px", borderRadius: 8, cursor: "pointer", background: bjt.color, border: "none", color: "#fff",
+                      fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                    }}>+ New Bindingar</button>
+                    <select value={bindingarMonth} onChange={e => setBindingarMonth(e.target.value)} style={{ ...inputStyle, padding: "6px 10px", width: "auto", cursor: "pointer", colorScheme: "dark", backgroundColor: "#112F45" }}>
+                      {[5, 6, 7, 8, 9, 10].map(m => {
+                        const val = `2026-${String(m).padStart(2, "0")}`;
+                        return <option key={val} value={val} style={{ background: "#112F45", color: TEXT }}>{BINDINGAR_MONTH_NAMES[m - 1]} 2026</option>;
+                      })}
+                    </select>
+                    <button onClick={() => generateBindingarInvoice(bindingarJobs, bYear, bMonthNum - 1)} style={{
+                      padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: "rgba(20,184,166,0.12)", border: `1px solid ${bjt.color}`, color: bjt.color,
+                      fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
+                    }}>Generate {monthLabel} invoice</button>
+                  </>} />
+                  <SectionHeader label="Bindingar Jobs" count={bindingarJobs.length} collapsed={bindingarCollapsed} onToggle={() => setBindingarCollapsed(c => !c)} color={bjt.color} />
                   {!bindingarCollapsed && (bindingarJobs.length === 0 ? (
-                    <div style={{ padding: 20, textAlign: "center", fontSize: 13, color: TEXT_DIM, background: "rgba(255,255,255,0.02)", border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
-                      No Bindingar jobs yet.
-                    </div>
+                    <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No Bindingar jobs yet.</div>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
                       {[...bindingarJobs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(job => (
                         <Card key={job.id} style={{ padding: "10px 14px", borderLeft: `4px solid ${bjt.color}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
