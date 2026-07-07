@@ -1238,13 +1238,15 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   )}
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Date *</div>
-                    <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value, ship: "" }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
+                    <input type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer" }} />
                   </div>
                   <div>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Ship {shipsOnDate.length > 0 ? `(${shipsOnDate.length} in port)` : "(optional)"}</div>
                     {shipsOnDate.length > 0 ? (
                       <select value={jobForm.ship} onChange={e => setJobForm(f => ({ ...f, ship: e.target.value }))} style={{ ...inputStyle, colorScheme: "dark", width: "100%", cursor: "pointer", backgroundColor: "#112F45" }}>
                         <option value="" style={{ background: "#112F45", color: TEXT }}>— Select ship —</option>
+                        {/* Keep the current ship selectable even when it isn't in port on the picked date */}
+                        {jobForm.ship && !shipsOnDate.includes(jobForm.ship) && <option value={jobForm.ship} style={{ background: "#112F45", color: TEXT }}>{jobForm.ship} (not in port this day)</option>}
                         {shipsOnDate.map(s => <option key={s} value={s} style={{ background: "#112F45", color: TEXT }}>{s}</option>)}
                       </select>
                     ) : (
