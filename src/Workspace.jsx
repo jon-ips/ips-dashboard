@@ -1950,6 +1950,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
               const bjt = JOB_TYPES.bindingar;
               const [bYear, bMonthNum] = bindingarMonth.split("-").map(Number);
               const monthLabel = `${BINDINGAR_MONTH_NAMES[bMonthNum - 1]} ${bYear}`;
+              // The list shows only the selected month; the invoice generator
+              // gets the full set and does its own month filtering.
+              const monthJobs = bindingarJobs.filter(j => (j.date || "").startsWith(bindingarMonth));
               return (
                 <div>
                   <GroupTitle label="Bindingar" color={bjt.color} right={<>
@@ -1968,12 +1971,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
                     }}>Generate {monthLabel} invoice</button>
                   </>} />
-                  <SectionHeader label="Bindingar Jobs" count={bindingarJobs.length} collapsed={bindingarCollapsed} onToggle={() => setBindingarCollapsed(c => !c)} color={bjt.color} />
-                  {!bindingarCollapsed && (bindingarJobs.length === 0 ? (
-                    <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No Bindingar jobs yet.</div>
+                  <SectionHeader label={`Bindingar Jobs — ${monthLabel}`} count={monthJobs.length} collapsed={bindingarCollapsed} onToggle={() => setBindingarCollapsed(c => !c)} color={bjt.color} />
+                  {!bindingarCollapsed && (monthJobs.length === 0 ? (
+                    <div style={{ fontSize: 12, color: TEXT_DIM, padding: "2px 0 8px 20px" }}>No Bindingar jobs in {monthLabel}.</div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
-                      {[...bindingarJobs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(job => (
+                      {[...monthJobs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(job => (
                         <Card key={job.id} style={{ padding: "10px 14px", borderLeft: `4px solid ${bjt.color}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div style={{ flex: 1 }}>
