@@ -6,6 +6,8 @@
 //
 //   • Seabourn — always 0% (all calls international)
 //   • Holland America — always 0% (all calls international)
+//   • Princess Cruises — always 0% (same treatment as SBN/HAL: shares
+//                                   their rate sheet and payment terms)
 //   • Viking (any ship except Viking Mars) — always 0%
 //   • Viking Mars — 24% by default, EXCEPT the last call of the season,
 //                   which ends in a foreign port → 0%
@@ -15,7 +17,7 @@
 // lastVikingMarsDate (the MAX(port_calls.date) where ship_name = 'Viking Mars').
 // That keeps this helper pure and easy to test.
 
-const ZERO_RATE_LINES = new Set(["seabourn", "holland america"]);
+const ZERO_RATE_LINES = new Set(["seabourn", "holland america", "princess cruises"]);
 
 /**
  * @param {string} cruiseLineName  e.g. "Viking", "Seabourn", "TUI"
