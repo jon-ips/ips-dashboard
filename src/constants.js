@@ -73,13 +73,13 @@ export const SHIPS = [
   { date: "2026-06-21", endDate: "2026-06-23", line: "Viking", ship: "Viking Mars", turnaround: true, pax: 930, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-06-22", endDate: null, line: "P&O", ship: "Aurora", turnaround: false, pax: 1868, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-06-23", endDate: null, line: "Oceania", ship: "Vista", turnaround: false, pax: 1200, status: "other", port: "AK", berth: "Tangabryggja 11a" },
-  { date: "2026-06-23", endDate: null, line: "Princess", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", berth: "Skarfabakki" },
+  { date: "2026-06-23", endDate: null, line: "Princess Cruises", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", berth: "Skarfabakki" },
   { date: "2026-06-24", endDate: null, line: "Ponant", ship: "L'Austral", turnaround: false, pax: 264, status: "other", port: "AK", berth: "Torfunef" },
   { date: "2026-06-24", endDate: null, line: "TUI", ship: "Mein Schiff 2", turnaround: false, pax: 2894, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-06-24", endDate: null, line: "Viking", ship: "Viking Neptune", turnaround: false, pax: 930, status: "contracted", port: "AK", berth: "Oddeyrarbryggja 12" },
   { date: "2026-06-24", endDate: null, line: "National Geographic", ship: "National Geographic Explorer", turnaround: true, pax: 148, status: "other", berth: "Miðbakki" },
   { date: "2026-06-25", endDate: "2026-06-26", line: "Ponant", ship: "Le Bellot", turnaround: false, pax: null, status: "other", port: "AK", berth: "Torfunef" },
-  { date: "2026-06-25", endDate: null, line: "Princess", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Oddeyrarbryggja 12" },
+  { date: "2026-06-25", endDate: null, line: "Princess Cruises", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Oddeyrarbryggja 12" },
   { date: "2026-06-25", endDate: null, line: "Nicko Cruises", ship: "Vasco da Gama", turnaround: false, pax: 1258, status: "other", port: "AK", berth: "Tangabryggja 11b" },
   { date: "2026-06-25", endDate: null, line: "Viking", ship: "Viking Mars", turnaround: false, pax: 930, status: "contracted", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-06-25", endDate: "2026-06-26", line: "P&O", ship: "Aurora", turnaround: false, pax: 1868, status: "other", berth: "Skarfabakki" },
@@ -110,7 +110,7 @@ export const SHIPS = [
   { date: "2026-07-03", endDate: null, line: "Carnival", ship: "Carnival Legend", turnaround: false, pax: 2124, status: "other", berth: "Skarfabakki" },
   { date: "2026-07-03", endDate: null, line: "National Geographic", ship: "National Geographic Explorer", turnaround: true, pax: 148, status: "other", berth: "Miðbakki" },
   { date: "2026-07-04", endDate: null, line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: false, pax: 2348, status: "other", port: "AK", berth: "Oddeyrarbryggja 12" },
-  { date: "2026-07-04", endDate: null, line: "Princess", ship: "Sky Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Tangabryggja 11a" },
+  { date: "2026-07-04", endDate: null, line: "Princess Cruises", ship: "Sky Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-07-04", endDate: null, line: "Celebrity", ship: "Celebrity Silhouette", turnaround: true, pax: 2886, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-07-04", endDate: null, line: "Saga", ship: "Spirit of Discovery", turnaround: false, pax: 999, status: "other", berth: "Skarfabakki" },
   { date: "2026-07-05", endDate: null, line: "Carnival", ship: "Carnival Legend", turnaround: false, pax: 2124, status: "other", port: "AK", berth: "Tangabryggja 11a" },
@@ -121,9 +121,9 @@ export const SHIPS = [
   { date: "2026-07-06", endDate: "2026-07-07", line: "Viking", ship: "Viking Mars", turnaround: true, pax: 930, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-07-07", endDate: null, line: "Celebrity", ship: "Celebrity Silhouette", turnaround: false, pax: 2886, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-07-07", endDate: null, line: "Saga", ship: "Spirit of Discovery", turnaround: false, pax: 999, status: "other", port: "AK", berth: "Oddeyrarbryggja 12" },
-  { date: "2026-07-07", endDate: null, line: "Princess", ship: "Sky Princess", turnaround: false, pax: 3660, status: "other", berth: "Skarfabakki" },
+  { date: "2026-07-07", endDate: null, line: "Princess Cruises", ship: "Sky Princess", turnaround: false, pax: 3660, status: "other", berth: "Skarfabakki" },
   { date: "2026-07-08", endDate: null, line: "P&O", ship: "Britannia", turnaround: false, pax: 3647, status: "other", berth: "VÖR Cruise Terminal" },
-  { date: "2026-07-08", endDate: null, line: "Princess", ship: "Crown Princess", turnaround: false, pax: 3090, status: "other", berth: "Skarfabakki" },
+  { date: "2026-07-08", endDate: null, line: "Princess Cruises", ship: "Crown Princess", turnaround: false, pax: 3090, status: "other", berth: "Skarfabakki" },
   { date: "2026-07-09", endDate: "2026-07-10", line: "Ponant", ship: "Le Bellot", turnaround: false, pax: null, status: "other", port: "AK", berth: "Torfunef" },
   { date: "2026-07-09", endDate: null, line: "Viking", ship: "Viking Mars", turnaround: false, pax: 930, status: "contracted", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-07-09", endDate: "2026-07-10", line: "Aida", ship: "AIDAsol", turnaround: false, pax: 2194, status: "other", berth: "Korngarður" },
@@ -331,11 +331,11 @@ export const SHIPS = [
   { date: "2026-09-01", endDate: null, line: "VIVA Cruises", ship: "Seaventure", turnaround: true, pax: 164, status: "other", berth: "Miðbakki" },
   { date: "2026-09-02", endDate: "2026-09-03", line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: true, pax: 2298, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-09-03", endDate: null, line: "Viking", ship: "Viking Mira", turnaround: false, pax: 990, status: "contracted", port: "AK", berth: "Tangabryggja 11a" },
-  { date: "2026-09-03", endDate: null, line: "Princess", ship: "Sky Princess", turnaround: false, pax: 3660, status: "other", berth: "Skarfabakki" },
+  { date: "2026-09-03", endDate: null, line: "Princess Cruises", ship: "Sky Princess", turnaround: false, pax: 3660, status: "other", berth: "Skarfabakki" },
   { date: "2026-09-04", endDate: null, line: "Virgin", ship: "Valiant Lady", turnaround: false, pax: 2770, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-09-05", endDate: null, line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: false, pax: 2348, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-09-05", endDate: null, line: "Hurtigruten", ship: "Fram", turnaround: true, pax: 254, status: "other", berth: "Miðbakki" },
-  { date: "2026-09-06", endDate: null, line: "Princess", ship: "Sky Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Tangabryggja 11a" },
+  { date: "2026-09-06", endDate: null, line: "Princess Cruises", ship: "Sky Princess", turnaround: false, pax: 3560, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-09-06", endDate: null, line: "Virgin", ship: "Valiant Lady", turnaround: true, pax: 2762, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-09-07", endDate: "2026-09-08", line: "Aida", ship: "AIDAluna", turnaround: false, pax: 2050, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-09-07", endDate: null, line: "National Geographic", ship: "National Geographic Endurance", turnaround: true, pax: 170, status: "other", berth: "Miðbakki" },
@@ -365,7 +365,7 @@ export const SHIPS = [
   { date: "2026-09-23", endDate: null, line: "Silversea", ship: "Silver Endeavour", turnaround: true, pax: 260, status: "other", berth: "Miðbakki" },
   { date: "2026-09-24", endDate: null, line: "Hapag-Lloyd", ship: "Hanseatic Spirit", turnaround: true, pax: 230, status: "other", berth: "Miðbakki" },
   { date: "2026-09-26", endDate: null, line: "Hurtigruten", ship: "Spitsbergen", turnaround: false, pax: 335, status: "other", port: "AK", berth: "Torfunef" },
-  { date: "2026-09-26", endDate: null, line: "Princess", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", berth: "VÖR Cruise Terminal" },
+  { date: "2026-09-26", endDate: null, line: "Princess Cruises", ship: "Majestic Princess", turnaround: false, pax: 3560, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-09-26", endDate: null, line: "Poseidon Expeditions", ship: "Sea Spirit", turnaround: true, pax: 114, status: "other", berth: "Miðbakki" },
   { date: "2026-09-27", endDate: "2026-09-28", line: "Ponant", ship: "Le Commandant Charcot", turnaround: true, pax: 250, status: "other", berth: "VÖR Cruise Terminal" },
   { date: "2026-09-27", endDate: null, line: "VIVA Cruises", ship: "Seaventure", turnaround: true, pax: 164, status: "other", berth: "Miðbakki" },
@@ -459,7 +459,7 @@ export const SDK_LINES = ["Aida", "Ambassador", "Carnival", "Costa", "Cunard", "
 // Cruise lines IPS has a direct contract with (no SDK/Samskip agent in between).
 // Used together with SDK_LINES to drive the calendar's "ORDER missing" pills:
 // any visit by one of these lines without a logged job shows up as pending.
-export const DIRECT_CONTRACT_LINES = ["Viking", "Holland America", "Seabourn", "Princess"];
+export const DIRECT_CONTRACT_LINES = ["Viking", "Holland America", "Seabourn", "Princess Cruises"];
 
 // ─── PROSPECT GROUPS ─────────────────────────────────────────────────────────
 // Cruise line groupings used by the Market Intel what-if dropdown and a few
