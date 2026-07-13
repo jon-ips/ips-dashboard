@@ -32,7 +32,7 @@ INSERT INTO cruise_lines (name, status) VALUES
     ('Aida',                    'contracted'),
     ('Viking',                  'contracted'),
     ('Nicko Cruises',           'other'),
-    ('Princess',                'other'),
+    ('Princess Cruises',        'contracted'),
     ('Oceania',                 'prospect'),
     ('P&O',                     'contracted'),
     ('Phoenix Reisen',          'contracted'),
