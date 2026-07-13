@@ -24,7 +24,7 @@
 // inline.)
 
 import { payday } from "./payday.js";
-import { SERVICE_FULL_NAMES, SERVICE_CODES, JOB_TYPES } from "./constants.js";
+import { SERVICE_FULL_NAMES, SERVICE_CODES, JOB_TYPES, getBerthForShip } from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
 /**
@@ -114,7 +114,13 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   //   - Reykjavík jobs → the berth name (e.g. "Skarfabakki",
   //     "Miðbakki"). Reykjavík has multiple cruise berths and the
   //     specific one matters for billing context.
-  //   - If a Reykjavík job is missing a berth, the dash is dropped and
+  //   - "VÖR Cruise Terminal" is house-shortened to "VÖR" wherever it
+  //     appears — matches how the Viking bespoke notes render it and
+  //     what the operator writes by hand.
+  //   - If the job doesn't have a berth recorded (Quick Log jobs skip
+  //     the field), fall back to looking it up from SHIPS by
+  //     (ship, date). Jobs whose ship/date don't match any port_call
+  //     still fall through with no location; the dash is dropped and
   //     only the ship name appears on the header line.
   //
   // Field name: `description` per the invoice attribute table — top
@@ -122,7 +128,9 @@ export function buildDraftInvoicePayload(job, cruiseLine, rows, lastVikingMarsDa
   // create silently ignored (it's a line-level field, not an invoice-
   // level one). The multipart endpoint isn't as forgiving and 500s on
   // the unknown field, so we use the documented name.
-  const location = job.port === "AK" ? "Akureyri" : (job.berth || "").trim();
+  const rawBerth = (job.berth || "").trim() || getBerthForShip(job.ship, job.date) || "";
+  const berthDisplay = /vör/i.test(rawBerth) ? "VÖR" : rawBerth;
+  const location = job.port === "AK" ? "Akureyri" : berthDisplay;
   const headerLine = [ship, location].filter(Boolean).join(" - ");
 
   // Viking invoices use a bespoke notes block: a USD-conversion summary
