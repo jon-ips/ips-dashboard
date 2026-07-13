@@ -8,6 +8,7 @@ import {
   CFO_SERVICE_TYPES, CFO_UNITS, CFO_EXPENSE_CATS, CFO_STAFF_TYPES, CFO_INV_STATUS, fmtISK,
 } from "./constants.js";
 import { Card, SL, CTip, FilterPill, IconPlus, IconUpload, IconChevron, IconSync } from "./shared.jsx";
+import { vatRateFor, findLastVikingMarsDate } from "./vatRules.js";
 
 export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStatsChange }) {
   // ─── CFO MODULE STATE ──────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
   useEffect(() => {
     if (activeModule !== "cfo" || !SUPABASE_CONFIGURED) return;
     (async () => {
-      const { data } = await supabase.from("cruise_lines").select("id,name,status").order("name", { ascending: true });
+      const { data } = await supabase.from("cruise_lines").select("id,name,status,payday_customer_id").order("name", { ascending: true });
       if (data) setCfoCruiseLines(data);
     })();
   }, [activeModule]);
@@ -92,9 +93,12 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
             status: mapPaydayInvoiceStatus(inv.status),
             issue_date: (inv.invoiceDate || inv.created || "").slice(0, 10),
             due_date: (inv.dueDate || inv.finalDueDate || "").slice(0, 10),
-            subtotal_isk: Math.abs(parseFloat(inv.amountExcludingVat || 0)),
-            tax_isk: Math.abs(parseFloat(inv.amountVat || 0)),
-            total_isk: Math.abs(parseFloat(inv.amountIncludingVat || 0)),
+            // Keep amounts SIGNED — a credit note is negative and must
+            // subtract from revenue, not add to it (Math.abs doubled the
+            // error: +credit instead of −credit).
+            subtotal_isk: parseFloat(inv.amountExcludingVat || 0),
+            tax_isk: parseFloat(inv.amountVat || 0),
+            total_isk: parseFloat(inv.amountIncludingVat || 0),
             raw: inv,
           };
         });
@@ -121,9 +125,11 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
           id: exp.id,
           category: "other",
           description: ((exp.comments || exp.reference || `Expense #${exp.id}`).split("\n").find(l => l.trim()) || "").trim().slice(0, 120),
-          amount_isk: Math.abs(parseFloat(exp.amountIncludingVat || exp.amountExcludingVat || 0)),
-          subtotal_isk: Math.abs(parseFloat(exp.amountExcludingVat || 0)),
-          tax_isk: Math.abs(parseFloat(exp.amountVat || 0)),
+          // Signed for the same reason as invoices: a refunded expense is
+          // negative and must reduce the expense total.
+          amount_isk: parseFloat(exp.amountIncludingVat || exp.amountExcludingVat || 0),
+          subtotal_isk: parseFloat(exp.amountExcludingVat || 0),
+          tax_isk: parseFloat(exp.amountVat || 0),
           expense_date: (exp.date || exp.created || "").slice(0, 10),
           vendor: exp.creditor?.name || null,
           status: exp.status || null,
@@ -190,8 +196,26 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
     }
   }, []);
 
+  // Every CFO write goes through this: checks the Supabase error that was
+  // previously discarded, so a failed save can't silently show as saved and
+  // then revert on the next load.
+  const cfoCheckWrite = (what, { data, error }) => {
+    if (error) {
+      alert(`Failed to save ${what}: ${error.message || JSON.stringify(error)}. The change was NOT stored — try again.`);
+      return null;
+    }
+    // Zero rows back from an insert/update/delete means nothing was written
+    // (RLS / stale id) even though the request "succeeded".
+    if (Array.isArray(data) && data.length === 0) {
+      alert(`Failed to save ${what}: the database reported no rows affected. The change was NOT stored.`);
+      return null;
+    }
+    return data ?? true;
+  };
+
   const paydayMapCustomer = useCallback(async (cruiseLineId, paydayCustomerId) => {
-    await supabase.from("cruise_lines").update({ payday_customer_id: paydayCustomerId || null }).eq("id", cruiseLineId);
+    const res = await supabase.from("cruise_lines").update({ payday_customer_id: paydayCustomerId || null }).eq("id", cruiseLineId);
+    if (!cfoCheckWrite("Payday customer mapping", res)) return;
     setCfoCruiseLines(prev => prev.map(c => c.id === cruiseLineId ? { ...c, payday_customer_id: paydayCustomerId || null } : c));
   }, []);
 
@@ -213,7 +237,10 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
       switch (rc.unit) {
         case "per_pax": quantity = portCall.pax || 0; desc += ` (${quantity} pax)`; break;
         case "per_hour": {
-          const days = portCall.end_date ? Math.max(1, Math.ceil((new Date(portCall.end_date) - new Date(portCall.date)) / 86400000)) : 1;
+          // Port calls carry camelCase endDate (SHIPS / App.jsx mapping) —
+          // reading snake_case here made every multi-day stay bill as 1 day.
+          const endDate = portCall.endDate || portCall.end_date;
+          const days = endDate ? Math.max(1, Math.ceil((new Date(endDate) - new Date(portCall.date)) / 86400000)) : 1;
           quantity = days * 8; desc += ` (${quantity} hrs)`; break;
         }
         case "per_call": case "flat": default: quantity = 1; break;
@@ -224,11 +251,16 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
   }, []);
 
   const calculateDueDate = (dateStr, paymentTerms) => {
-    const d = new Date(dateStr);
+    // Anchor at UTC noon so setDate + toISOString can't straddle a day
+    // boundary for users west of UTC.
+    const d = new Date(dateStr + "T12:00:00Z");
     const match = (paymentTerms || "Net 30").match(/(\d+)/);
-    d.setDate(d.getDate() + (match ? parseInt(match[1]) : 30));
+    d.setUTCDate(d.getUTCDate() + (match ? parseInt(match[1]) : 30));
     return d.toISOString().slice(0, 10);
   };
+
+  // Needed for VAT: Viking Mars's final season call is zero-rated.
+  const lastVikingMarsDate = useMemo(() => findLastVikingMarsDate(portCalls), [portCalls]);
 
   const generatePaydayInvoice = useCallback(async (portCall, contract, rateCards) => {
     setCfoGenLoading(true);
@@ -237,12 +269,33 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
       const cl = cfoCruiseLines.find(c => c.id === contract.cruise_line_id);
       if (!cl?.payday_customer_id) throw new Error(`"${cl?.name}" is not mapped to a Payday customer. Map it in Settings first.`);
       const lines = calculateInvoiceLines(portCall, rateCards);
+      const dueDate = calculateDueDate(portCall.date, contract.payment_terms);
+      // Field names must match paydayInvoice.js's hard-won conventions:
+      // `customer: {id}` (not customerId), `unitPriceExcludingVat` (plain
+      // unitPrice is silently dropped → 400), explicit `vatPercentage`
+      // (otherwise every line lands at 0% VAT), `finalDueDate` and
+      // `currencyCode` (both required), and `status: "DRAFT"` so nothing
+      // hits the books unreviewed.
       const payload = {
-        customerId: cl.payday_customer_id,
+        customer: { id: cl.payday_customer_id },
         invoiceDate: portCall.date,
-        dueDate: calculateDueDate(portCall.date, contract.payment_terms),
+        dueDate,
+        finalDueDate: dueDate,
+        currencyCode: "ISK",
+        status: "DRAFT",
         reference: `IPS-${portCall.date}-${(cl.name || "").replace(/\s+/g, "").slice(0, 10)}`,
-        lines: lines.map(l => ({ description: l.description, quantity: l.quantity, unitPrice: l.unit_price_isk, amount: l.line_total_isk })),
+        lines: lines.map(l => {
+          // Payday computes line total as qty × unitPriceExcludingVat; fold
+          // min-charge overrides into the quantity so the totals match ours.
+          const unitExc = Number(l.unit_price_isk) || 0;
+          const quantity = unitExc > 0 ? Math.round((l.line_total_isk / unitExc) * 100) / 100 : l.quantity;
+          return {
+            description: l.description,
+            quantity,
+            unitPriceExcludingVat: unitExc,
+            vatPercentage: vatRateFor(cl.name, portCall.ship, portCall.date, lastVikingMarsDate),
+          };
+        }),
       };
       const result = await payday.invoices.create(payload);
       if (!result.ok) throw new Error(result.error?.message || "Payday rejected the invoice");
@@ -254,9 +307,16 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
     } finally {
       setCfoGenLoading(false);
     }
-  }, [cfoCruiseLines, calculateInvoiceLines, refreshPaydayData]);
+  }, [cfoCruiseLines, calculateInvoiceLines, refreshPaydayData, lastVikingMarsDate]);
 
   const openInvoiceGenerator = useCallback(async (contract) => {
+    // The already-invoiced filter below compares against pdInvoices — if the
+    // Payday invoice list hasn't loaded yet, EVERY call looks uninvoiced and
+    // one click away from a duplicate invoice.
+    if (!pdInvoicesLoaded) {
+      alert("Payday invoices haven't loaded yet, so already-invoiced calls can't be filtered out. Open the Invoices view first, then retry.");
+      return;
+    }
     const { data: rates } = await supabase.from("rate_cards").select("*").eq("contract_id", contract.id);
     if (!rates || rates.length === 0) { alert("No rate cards defined for this contract. Add rate cards first."); return; }
     const cl = cfoCruiseLines.find(c => c.id === contract.cruise_line_id);
@@ -265,7 +325,7 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
     });
     setCfoGenError(null);
     setCfoGenModal({ contract, rateCards: rates, eligibleCalls, cruiseLine: cl });
-  }, [cfoCruiseLines, portCalls, pdInvoices]);
+  }, [cfoCruiseLines, portCalls, pdInvoices, pdInvoicesLoaded]);
 
   // ─── CFO CRUD OPERATIONS ────────────────────────────────────────────────────
   const cfoSaveContract = useCallback(async () => {
@@ -280,13 +340,16 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
       notes: cfoContractForm.notes || null,
     };
     if (cfoContractModal === "new") {
-      const { data } = await supabase.from("contracts").insert(payload);
+      const res = await supabase.from("contracts").insert(payload);
+      const data = cfoCheckWrite("contract", res);
+      if (!data) return; // keep the modal open so nothing typed is lost
       if (data?.[0]) {
         const cl = cfoCruiseLines.find(c => c.id === payload.cruise_line_id);
         setCfoContracts(prev => [{ ...data[0], cruise_line_name: cl?.name || "Unknown" }, ...prev]);
       }
     } else {
-      await supabase.from("contracts").update(payload).eq("id", cfoContractModal);
+      const res = await supabase.from("contracts").update(payload).eq("id", cfoContractModal);
+      if (!cfoCheckWrite("contract", res)) return;
       const cl = cfoCruiseLines.find(c => c.id === payload.cruise_line_id);
       setCfoContracts(prev => prev.map(c => c.id === cfoContractModal ? { ...c, ...payload, cruise_line_name: cl?.name || c.cruise_line_name } : c));
     }
@@ -294,7 +357,8 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
   }, [cfoContractModal, cfoContractForm, cfoCruiseLines]);
 
   const cfoDeleteContract = useCallback(async (id) => {
-    await supabase.from("contracts").delete().eq("id", id);
+    const res = await supabase.from("contracts").delete().eq("id", id);
+    if (!cfoCheckWrite("contract deletion", res)) return;
     setCfoContracts(prev => prev.filter(c => c.id !== id));
     if (cfoExpandedContract === id) setCfoExpandedContract(null);
   }, [cfoExpandedContract]);
@@ -309,14 +373,17 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
       rate_isk: parseFloat(cfoRateForm.rate_isk),
       min_charge_isk: parseFloat(cfoRateForm.min_charge_isk) || 0,
     };
-    const { data } = await supabase.from("rate_cards").insert(payload);
+    const res = await supabase.from("rate_cards").insert(payload);
+    const data = cfoCheckWrite("rate card", res);
+    if (!data) return;
     if (data?.[0]) setCfoRateCards(prev => [...prev, data[0]]);
     setCfoRateForm({ service_type: "luggage_handling", description: "", unit: "per_pax", rate_isk: "", min_charge_isk: "0" });
     setCfoShowRateForm(false);
   }, [cfoRateForm, cfoExpandedContract]);
 
   const cfoDeleteRateCard = useCallback(async (id) => {
-    await supabase.from("rate_cards").delete().eq("id", id);
+    const res = await supabase.from("rate_cards").delete().eq("id", id);
+    if (!cfoCheckWrite("rate card deletion", res)) return;
     setCfoRateCards(prev => prev.filter(r => r.id !== id));
   }, []);
 
@@ -333,23 +400,29 @@ export default function CFOWorkspace({ cfoView, activeModule, portCalls, onStats
       notes: cfoStaffForm.notes || null,
     };
     if (cfoStaffModal === "new") {
-      const { data } = await supabase.from("staff").insert(payload);
+      const res = await supabase.from("staff").insert(payload);
+      const data = cfoCheckWrite("staff member", res);
+      if (!data) return;
       if (data?.[0]) setCfoStaff(prev => [...prev, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
     } else {
-      await supabase.from("staff").update(payload).eq("id", cfoStaffModal);
+      const res = await supabase.from("staff").update(payload).eq("id", cfoStaffModal);
+      if (!cfoCheckWrite("staff member", res)) return;
       setCfoStaff(prev => prev.map(s => s.id === cfoStaffModal ? { ...s, ...payload } : s));
     }
     setCfoStaffModal(null);
   }, [cfoStaffModal, cfoStaffForm]);
 
   const cfoToggleStaffActive = useCallback(async (id, active) => {
-    await supabase.from("staff").update({ active: !active }).eq("id", id);
+    const res = await supabase.from("staff").update({ active: !active }).eq("id", id);
+    if (!cfoCheckWrite("staff status", res)) return;
     setCfoStaff(prev => prev.map(s => s.id === id ? { ...s, active: !active } : s));
   }, []);
 
   // CSV Import for rate cards
   const cfoImportCSV = useCallback(async (text) => {
-    const lines = text.trim().split("\n");
+    // Split on \r?\n — Excel exports CRLF, and a trailing \r glued to the
+    // last column name made every min_charge_isk import as 0.
+    const lines = text.trim().split(/\r?\n/);
     if (lines.length < 2) return { imported: 0, errors: ["File has no data rows"] };
     const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, "_"));
     const clMap = {};

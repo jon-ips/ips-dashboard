@@ -195,6 +195,10 @@ SDK_LINES.forEach((l) => { CRUISE_LINE_TO_SHEET[l.toLowerCase()] = "sdk"; });
 CRUISE_LINE_TO_SHEET["viking"] = "viking";
 CRUISE_LINE_TO_SHEET["holland america"] = "hal";
 CRUISE_LINE_TO_SHEET["seabourn"] = "hal";
+// The schedule now says "Princess Cruises", but older jobs / other datasets
+// may still carry bare "Princess" — keep both spellings routing to hal so
+// neither falls through to the manual rate-sheet picker.
+CRUISE_LINE_TO_SHEET["princess"] = "hal";
 CRUISE_LINE_TO_SHEET["princess cruises"] = "hal";
 
 export function resolveRateSheet(cruiseLine) {

@@ -170,7 +170,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
     const tieredShare = totalTieredW > 0 ? ((ipsTieredW / totalTieredW) * 100).toFixed(1) : 0;
 
     const monthly = MONTH_NUMS.map((m, i) => {
-      const ms = portCalls.filter((s) => new Date(s.date).getMonth() + 1 === m);
+      const ms = portCalls.filter((s) => new Date(s.date + "T12:00:00").getMonth() + 1 === m);
       let mIC = 0, mOC = 0, mISW = 0, mOSW = 0, mITW = 0, mOTW = 0, pallets = 0, luggage = 0, crew = 0;
       ms.forEach((s) => {
         const sw = s.turnaround ? SIMPLE_TURNAROUND_WEIGHT : TRANSIT_WEIGHT;
@@ -248,7 +248,9 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
       }
     });
     return Object.values(allDates).filter((d) => (d.ipsTurnarounds + d.ipsNonTurnarounds) > 0).sort((a, b) => a.date.localeCompare(b.date));
-  }, [isIPS, showNonTurnaround]);
+    // portCalls must be a dep — it swaps when the 2026/2027 year toggles,
+    // and without it the Crunch view kept showing the previous year.
+  }, [isIPS, showNonTurnaround, portCalls]);
 
   const callPie = [{ name: "IPS", value: stats.ipsCalls, color: IPS_ACCENT }, { name: "Other", value: stats.otherCalls, color: "#334155" }];
   const simpleWPie = [{ name: "IPS", value: stats.ipsSimpleW, color: IPS_ACCENT }, { name: "Other", value: stats.otherSimpleW, color: "#334155" }];
@@ -666,7 +668,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
           const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
           // Count IPS calls this month for summary
-          const monthShips = portCalls.filter(s => new Date(s.date).getMonth() + 1 === calMonth);
+          const monthShips = portCalls.filter(s => new Date(s.date + "T12:00:00").getMonth() + 1 === calMonth);
           const ipsThisMonth = monthShips.filter(s => isIPS(s));
           const ipsT = ipsThisMonth.filter(s => s.turnaround).length;
 
@@ -1148,7 +1150,7 @@ export default function MarketIntel({ portCalls: allPortCalls, activeView, proje
                 <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: TEXT_DIM, fontFamily: "JetBrains Mono", borderBottom: `1px solid ${BORDER}` }}>
                   <span>Dates</span><span>Line</span><span>Ship</span><span style={{ textAlign: "right" }}>Pax</span><span style={{ textAlign: "center" }}>Type</span><span style={{ textAlign: "center" }}>O/N</span><span style={{ textAlign: "center" }}>Tier</span><span style={{ textAlign: "right" }}>Pallets</span>
                 </div>
-                {portCalls.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date).getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => (
+                {portCalls.filter((s) => MONTHS[MONTH_NUMS.indexOf(new Date(s.date + "T12:00:00").getMonth() + 1)] === selectedMonth && isIPS(s)).sort((a, b) => a.date.localeCompare(b.date)).map((s, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr 70px 80px 50px 50px 80px", gap: 10, padding: "9px 12px", fontSize: 13, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderRadius: 4 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: TEXT_DIM }}>{fmtDateRange(s)}</span>
                     <span style={{ fontWeight: 500 }}>{s.line}</span>

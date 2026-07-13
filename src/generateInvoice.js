@@ -108,6 +108,7 @@ function buildRows(job, sheet) {
     unitPriceIsk: 0,
     total: "—",
     _totalNum: 0,
+    _unpriced: true, // no rate on this sheet — surfaced as a warning in the preview
   });
 
   if (Array.isArray(job.hoursWorked)) {
@@ -126,13 +127,19 @@ function buildRows(job, sheet) {
             const segments = splitShiftIntoSegments(sh.startTime, g.hours, otAfter, job.date, !!sh.nextDay);
             segments.forEach((seg) => {
               const unitPrice = seg.type === "Overtime" ? rate.ot : rate.day;
-              const total = g.qty * seg.hours * unitPrice;
+              // Round to whole ISK at the LINE level so the printed lines sum
+              // exactly to the printed grand total — a half-hour OT segment
+              // used to print 5 033 per line but total from the raw floats,
+              // off by 1 ISK from the customer's own addition.
+              const total = Math.round(g.qty * seg.hours * unitPrice);
               rows.push({
                 resource: seg.type === "Overtime" ? `${label} (OT)` : label,
                 amount: g.qty,
                 startTime: seg.startTime,
                 endTime: seg.endTime,
-                timeUnit: `${seg.hours}h`,
+                // Trim float dust: a 10-minute segment is "0.17h", not
+                // "0.16666666666666666h" on a client-facing PDF.
+                timeUnit: `${+seg.hours.toFixed(2)}h`,
                 nextDay: !!sh.nextDay,
                 unitPrice: fmtISK(unitPrice),
                 unitPriceIsk: unitPrice,

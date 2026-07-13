@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_CONFIGURED, supabaseHeaders } from "./supabase.js";
 import {
   SHIPS, IPS_ACCENT, IPS_WARN, IPS_DANGER, IPS_SUCCESS, IPS_BLUE,
@@ -51,6 +51,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   const [wsTasks, setWsTasks] = useState([]);
   const [wsLoaded, setWsLoaded] = useState(false);
   const [wsTaskModal, setWsTaskModal] = useState(null); // null | "new" | taskId
+  const [wsAcceptedDraft, setWsAcceptedDraft] = useState(null); // Telegram draft id pending consumption on save
   const [wsTaskForm, setWsTaskForm] = useState({ title: "", description: "", assignee: "jon", project: "operations", priority: "medium", dueDate: "" });
   const [wsFilter, setWsFilter] = useState({ assignee: "all", project: "all", priority: "all", status: "all" });
   const [wsSortBy, setWsSortBy] = useState("dueDate");
@@ -217,15 +218,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     // The workaround is: create the invoice as DRAFT in Payday, save the
     // PDF locally, and the user manually attaches it in Payday's UI
     // before clicking Send.
-    const pdfResult = await generateInvoice(job, rateSheetKey);
-    if (!pdfResult) {
-      setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
-      return;
-    }
+    // try/catch so an unexpected throw (token fetch, PDF renderer) can't
+    // leave the modal stuck in `submitting` — Cancel and × are disabled in
+    // that state, which would force a full page reload.
+    try {
+      const pdfResult = await generateInvoice(job, rateSheetKey);
+      if (!pdfResult) {
+        setInvoicePreview(p => p && ({ ...p, submitting: false, error: "Failed to render the PDF." }));
+        return;
+      }
 
-    const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
-    if (!createRes.ok) {
-      setInvoicePreview(p => p && ({ ...p, submitting: false, error: createRes.error }));
+      const createRes = await createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDate);
+      if (!createRes.ok) {
+        setInvoicePreview(p => p && ({ ...p, submitting: false, error: createRes.error }));
+        return;
+      }
+    } catch (e) {
+      setInvoicePreview(p => p && ({ ...p, submitting: false, error: e?.message || String(e) }));
       return;
     }
 
@@ -290,34 +299,80 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
   useEffect(() => {
     (async () => {
-      try {
-        // Try Supabase first
-        const dbTasks = await loadTasksFromDb();
-        if (dbTasks !== null) {
-          setWsTasks(dbTasks);
-        } else if (window.storage) {
-          // Fall back to localStorage
-          const raw = await window.storage.getItem("ws:tasks");
-          if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setWsTasks(p); }
-        }
-      } catch (e) { console.warn("Failed to load workspace tasks:", e); }
-      finally { setWsLoaded(true); }
-    })();
-  }, [loadTasksFromDb]);
+      const readLocal = () => {
+        try { const raw = localStorage.getItem("ws:tasks"); if (!raw) return []; const p = JSON.parse(raw); return Array.isArray(p) ? p : []; }
+        catch { return []; }
+      };
+      const localTasks = readLocal();
 
-  const saveTasks = useCallback(async (tasks) => {
-    setWsTasks(tasks);
-    // Also keep localStorage as backup
-    try { if (window.storage) await window.storage.setItem("ws:tasks", JSON.stringify(tasks), { shared: true }); }
-    catch (e) { console.warn("Failed to save workspace tasks:", e); }
+      let dbTasks = null;
+      try { dbTasks = await loadTasksFromDb(); }
+      catch (e) { console.warn("Failed to load workspace tasks:", e); }
+
+      if (dbTasks === null) {
+        setWsTasks(localTasks);
+        setWsLoaded(true);
+        return;
+      }
+
+      // Same merge contract as jobs: local creates that never reached
+      // Supabase (pendingSync tag or local-format id) must survive the DB
+      // response instead of being shadowed by it.
+      const dbIds = new Set(dbTasks.map(t => t.id));
+      const unsynced = localTasks.filter(t => t && t.id && !dbIds.has(t.id) && (t.pendingSync || isLocalId(t.id)));
+      const merged = [...dbTasks, ...unsynced];
+      setWsTasks(merged);
+      try { localStorage.setItem("ws:tasks", JSON.stringify(merged)); } catch {}
+      setWsLoaded(true);
+
+      // Background: push unsynced tasks up so the other user sees them too.
+      if (!SUPABASE_CONFIGURED) return;
+      for (const t of unsynced) {
+        try {
+          const { data, error } = await supabase.from("tasks").insert({
+            title: t.title, description: t.description || null, assignee: t.assignee || "jon",
+            project: t.project || "operations", priority: t.priority || "medium",
+            due_date: t.dueDate || null, completed: !!t.completed, completed_at: t.completedAt || null,
+          });
+          if (error) { recordSyncError("task-sync", error); continue; }
+          if (data && data[0]) {
+            const dbId = data[0].id;
+            // localStorage first — the state updater is a no-op if the
+            // component unmounted mid-flight, and a stale local id in
+            // storage would re-insert (duplicate) the task next load.
+            const remap = (list) => list.map(x => x.id === t.id ? { ...x, id: dbId, pendingSync: undefined } : x);
+            try { localStorage.setItem("ws:tasks", JSON.stringify(remap(JSON.parse(localStorage.getItem("ws:tasks") || "[]")))); } catch {}
+            setWsTasks(prev => remap(prev));
+          }
+        } catch (e) { console.warn("Failed to sync local task:", e); }
+      }
+    })();
+  }, [loadTasksFromDb, recordSyncError]);
+
+  // Single write path for task state: functional update + localStorage
+  // mirror, so concurrent mutations never clobber each other via a stale
+  // captured array.
+  const mutateTasks = useCallback((fn) => {
+    setWsTasks(prev => {
+      const next = fn(prev);
+      try { localStorage.setItem("ws:tasks", JSON.stringify(next)); } catch (e) { console.warn("Failed to save workspace tasks:", e); }
+      return next;
+    });
   }, []);
 
   // ─── JOBS STORAGE (Supabase with localStorage fallback) ──────────────────
+  // One malformed row (bad JSON in shifts/hours_worked from an older writer
+  // or a manual edit) must not throw — that would fail the whole DB load and
+  // silently drop BOTH users back to their divergent localStorage copies.
+  const safeJsonField = (v, fallback) => {
+    if (typeof v !== "string") return v ?? fallback;
+    try { return JSON.parse(v); } catch { return fallback; }
+  };
   const rowToJob = (r) => ({
     id: r.id, port: r.port || "REY", type: r.type || "provisions", date: r.date, ship: r.ship || "",
     po_number: r.po_number || "",
-    notes: r.notes || "", shifts: typeof r.shifts === "string" ? JSON.parse(r.shifts) : (r.shifts || []),
-    completed: r.completed || false, hoursWorked: r.hours_worked ? (typeof r.hours_worked === "string" ? JSON.parse(r.hours_worked) : r.hours_worked) : undefined,
+    notes: r.notes || "", shifts: safeJsonField(r.shifts, []) || [],
+    completed: r.completed || false, hoursWorked: r.hours_worked ? safeJsonField(r.hours_worked, undefined) : undefined,
     invoiced: r.invoiced || false,
     service: r.service || null,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
@@ -364,14 +419,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
         j => j && j.id && !dbIds.has(j.id) && (j.pendingSync || isLocalId(j.id))
       );
 
-      // Local deletes are authoritative: if the user deleted a job locally
-      // but the soft-delete .update() never landed in Supabase, dbJobs comes
-      // back showing the row as active and the deletion silently unwinds.
-      // Trust the local deletedAt and queue a retry on the DB side.
+      // PENDING local deletes are authoritative: if the user deleted a job
+      // locally but the soft-delete .update() never landed in Supabase,
+      // dbJobs comes back showing the row as active and the deletion would
+      // silently unwind — trust the local deletedAt and retry the DB side.
+      // But once a delete is KNOWN to have landed (deleteSynced), a DB row
+      // that is active again means the other user deliberately restored it —
+      // re-asserting our stale tombstone would undo every restore they make.
       const localDeletedById = new Map(localDeleted.map(j => [j.id, j]));
       const reconciledDbJobs = dbJobs.map(j => {
+        // The DB carrying deleted_at IS proof the delete landed — stamp
+        // deleteSynced from it so the flag survives merges (the merged
+        // tombstone replaces the local copy, which would otherwise lose it).
+        if (j.deletedAt) return { ...j, deleteSynced: true };
         const localD = localDeletedById.get(j.id);
-        if (localD && !j.deletedAt) {
+        if (localD && !localD.deleteSynced) {
           return { ...j, deletedAt: localD.deletedAt || new Date().toISOString() };
         }
         return j;
@@ -387,7 +449,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
           return j.deletedAt && dbCopy && !dbCopy.deletedAt;
         });
         for (const j of needsRetry) {
-          verifyRows(supabase.from("jobs").update({ deleted_at: j.deletedAt }).eq("id", j.id), "delete-retry");
+          verifyRows(supabase.from("jobs").update({ deleted_at: j.deletedAt }).eq("id", j.id), "delete-retry").then(ok => {
+            if (!ok) return;
+            setDeletedJobs(prev => {
+              const next = prev.map(x => x.id === j.id ? { ...x, deleteSynced: true } : x);
+              try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(next)); } catch {}
+              return next;
+            });
+          });
         }
       }
 
@@ -402,6 +471,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       setJobsLoaded(true);
 
       // Background: push unsynced rows up so coworkers see them too.
+      // localStorage is updated via these tracked copies OUTSIDE the state
+      // updaters — if the component unmounts mid-loop the updaters no-op,
+      // and a stale local id left in storage would re-insert (duplicate)
+      // the job on the next mount.
+      let lsActive = mergedActive, lsDeleted = mergedDeleted;
       if (!SUPABASE_CONFIGURED) return;
       for (const j of unsynced) {
         if (!j.date) continue;
@@ -423,16 +497,12 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
           if (error) { recordSyncError("background-sync", error); continue; }
           if (data && data[0]) {
             const synced = rowToJob(data[0]);
-            setJobs(prev => {
-              const next = prev.map(x => x.id === j.id ? synced : x);
-              try { localStorage.setItem("ws:jobs", JSON.stringify(next)); } catch {}
-              return next;
-            });
-            setDeletedJobs(prev => {
-              const next = prev.map(x => x.id === j.id ? synced : x);
-              try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(next)); } catch {}
-              return next;
-            });
+            lsActive = lsActive.map(x => x.id === j.id ? synced : x);
+            lsDeleted = lsDeleted.map(x => x.id === j.id ? synced : x);
+            try { localStorage.setItem("ws:jobs", JSON.stringify(lsActive)); } catch {}
+            try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(lsDeleted)); } catch {}
+            setJobs(prev => prev.map(x => x.id === j.id ? synced : x));
+            setDeletedJobs(prev => prev.map(x => x.id === j.id ? synced : x));
           }
         } catch (e) { console.warn("Failed to sync local job:", e); }
       }
@@ -443,6 +513,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setJobs(j);
     try { localStorage.setItem("ws:jobs", JSON.stringify(j)); } catch (e) {}
   }, []);
+
+  // Append via functional update. Create paths run after an await, so a
+  // captured `jobs` array can be stale — two quick creates (phone Quick Log)
+  // would otherwise overwrite each other's addition in state AND localStorage.
+  const appendJob = useCallback((job) => {
+    setJobs(prev => {
+      const next = [...prev, job];
+      try { localStorage.setItem("ws:jobs", JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  // Blocks a second create of the SAME thing while one is in flight
+  // (double-click / double-tap fired two DB inserts for the same job before
+  // the modal closed). Keyed so two different quick-log taps still both land.
+  const createInFlight = useRef(new Set());
 
   // Load cruise_lines (id, name, payday_customer_id, payment_terms_days) so
   // the invoice flow can map job → Payday customer + due-date. Fails silently;
@@ -517,16 +603,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (isVikingTurn) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
     const localBase = { id: generateId(), port, type, date: dateStr, ship: shipName, po_number: "", notes: "", shifts, completed: !!isVikingTurn, createdAt: new Date().toISOString(), pendingSync: true };
     if (isVikingTurn) localBase.hoursWorked = hoursWorked;
-    if (SUPABASE_CONFIGURED) {
-      let data = null, error = null;
-      try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
-      if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
-      else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
-    } else {
-      saveJobs([...jobs, localBase]);
-    }
+    const flightKey = `quick|${shipName}|${dateStr}|${port}|${type}`;
+    if (createInFlight.current.has(flightKey)) return;
+    createInFlight.current.add(flightKey);
+    try {
+      if (SUPABASE_CONFIGURED) {
+        let data = null, error = null;
+        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+        if (data && data[0]) appendJob(rowToJob(data[0]));
+        else { recordSyncError("create", error || "Supabase returned no row"); appendJob(localBase); }
+      } else {
+        appendJob(localBase);
+      }
+    } finally { createInFlight.current.delete(flightKey); }
     setQuickToast(`✓ ${JOB_TYPES[type]?.label || type} logged — ${shipName}`);
-  }, [jobs, saveJobs, recordSyncError]);
+  }, [appendJob, recordSyncError]);
 
   useEffect(() => {
     if (!quickToast) return;
@@ -568,17 +659,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     if (isBind) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
     const localBase = { id: generateId(), port: jobPort, type, date, ship: ship || "", po_number: "", notes: "", shifts, completed: !!isBind, createdAt: new Date().toISOString(), pendingSync: true };
     if (isBind) localBase.hoursWorked = hoursWorked;
-    if (SUPABASE_CONFIGURED) {
-      let data = null, error = null;
-      try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
-      if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
-      else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
-    } else {
-      saveJobs([...jobs, localBase]);
-    }
+    const flightKey = "quicklog-save";
+    if (createInFlight.current.has(flightKey)) return;
+    createInFlight.current.add(flightKey);
+    try {
+      if (SUPABASE_CONFIGURED) {
+        let data = null, error = null;
+        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+        if (data && data[0]) appendJob(rowToJob(data[0]));
+        else { recordSyncError("create", error || "Supabase returned no row"); appendJob(localBase); }
+      } else {
+        appendJob(localBase);
+      }
+    } finally { createInFlight.current.delete(flightKey); }
     setQuickToast(`✓ ${JOB_TYPES[type]?.label || type} logged — ${ship}`);
     setQlJob(null);
-  }, [qlJob, qlEquip, qlStart, jobs, saveJobs, recordSyncError]);
+  }, [qlJob, qlEquip, qlStart, appendJob, recordSyncError]);
 
   // Phone "complete" flow: open a logged-but-unfinished job to add hours.
   const openQuickComplete = useCallback((job) => {
@@ -628,25 +724,30 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       createdAt: new Date().toISOString(),
       pendingSync: true, // not in Supabase yet — merge-on-load re-inserts it
     };
-    if (SUPABASE_CONFIGURED) {
-      let data = null, error = null;
-      try {
-        const insertPayload = { port, type: "no_job", date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes || null, shifts: [], completed: true };
-        if (service) insertPayload.service = service;
-        ({ data, error } = await supabase.from("jobs").insert(insertPayload));
-      } catch (e) { error = e; }
-      if (error) { console.error("Failed to confirm no job:", error); recordSyncError("create", error); }
-      if (data && data[0]) {
-        saveJobs([...jobs, rowToJob(data[0])]);
+    const flightKey = "nojob-save";
+    if (createInFlight.current.has(flightKey)) return;
+    createInFlight.current.add(flightKey);
+    try {
+      if (SUPABASE_CONFIGURED) {
+        let data = null, error = null;
+        try {
+          const insertPayload = { port, type: "no_job", date: jobForm.date, ship: jobForm.ship, notes: jobForm.notes || null, shifts: [], completed: true };
+          if (service) insertPayload.service = service;
+          ({ data, error } = await supabase.from("jobs").insert(insertPayload));
+        } catch (e) { error = e; }
+        if (error) { console.error("Failed to confirm no job:", error); recordSyncError("create", error); }
+        if (data && data[0]) {
+          appendJob(rowToJob(data[0]));
+        } else {
+          if (!error) recordSyncError("create", "Supabase returned no row");
+          appendJob(localRow);
+        }
       } else {
-        if (!error) recordSyncError("create", "Supabase returned no row");
-        saveJobs([...jobs, localRow]);
+        appendJob(localRow);
       }
-    } else {
-      saveJobs([...jobs, localRow]);
-    }
+    } finally { createInFlight.current.delete(flightKey); }
     setJobModal(null);
-  }, [jobForm, jobs, saveJobs, recordSyncError]);
+  }, [jobForm, appendJob, recordSyncError]);
 
   const openEditJob = useCallback((job) => {
     const type = job.type || "provisions";
@@ -698,17 +799,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     } else {
       const insertPayload = { port: "AK", type: "agency", date, ship: ship || null, po_number: null, notes: berth || null, shifts: [], completed: true, hours_worked: hoursWorked };
       const localBase = { id: generateId(), port: "AK", type: "agency", date, ship: ship || "", po_number: "", notes: berth || "", shifts: [], completed: true, hoursWorked, invoiced: false, createdAt: new Date().toISOString(), pendingSync: true };
-      if (SUPABASE_CONFIGURED) {
-        let data = null, error = null;
-        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
-        if (data && data[0]) saveJobs([...jobs, rowToJob(data[0])]);
-        else { recordSyncError("create", error || "Supabase returned no row"); saveJobs([...jobs, localBase]); }
-      } else {
-        saveJobs([...jobs, localBase]);
-      }
+      const flightKey = "agency-save";
+      if (createInFlight.current.has(flightKey)) return;
+      createInFlight.current.add(flightKey);
+      try {
+        if (SUPABASE_CONFIGURED) {
+          let data = null, error = null;
+          try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); } catch (e) { error = e; }
+          if (data && data[0]) appendJob(rowToJob(data[0]));
+          else { recordSyncError("create", error || "Supabase returned no row"); appendJob(localBase); }
+        } else {
+          appendJob(localBase);
+        }
+      } finally { createInFlight.current.delete(flightKey); }
     }
     setAgencyModal(null);
-  }, [agencyModal, agencyBuildItems, jobs, saveJobs, recordSyncError, verifyRows]);
+  }, [agencyModal, agencyBuildItems, jobs, saveJobs, appendJob, recordSyncError, verifyRows]);
 
   // Generate the agency PDF and mark the job invoiced.
   const invoiceAgency = useCallback(async (job) => {
@@ -764,21 +870,25 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       if (autoComplete) { insertPayload.completed = true; insertPayload.hours_worked = hoursWorked; }
       const localBase = { id: generateId(), port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts, completed: !!completed, createdAt: new Date().toISOString(), pendingSync: true };
       if (autoComplete) localBase.hoursWorked = hoursWorked;
-      if (SUPABASE_CONFIGURED) {
-        let data = null, error = null;
-        try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); }
-        catch (e) { error = e; }
-        if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
-        if (data && data[0]) {
-          const newJob = rowToJob(data[0]);
-          saveJobs([...jobs, newJob]);
+      const flightKey = "jobform-save";
+      if (createInFlight.current.has(flightKey)) return;
+      createInFlight.current.add(flightKey);
+      try {
+        if (SUPABASE_CONFIGURED) {
+          let data = null, error = null;
+          try { ({ data, error } = await supabase.from("jobs").insert(insertPayload)); }
+          catch (e) { error = e; }
+          if (error) { console.error("Failed to create job:", error); recordSyncError("create", error); }
+          if (data && data[0]) {
+            appendJob(rowToJob(data[0]));
+          } else {
+            if (!error) recordSyncError("create", "Supabase returned no row");
+            appendJob(localBase);
+          }
         } else {
-          if (!error) recordSyncError("create", "Supabase returned no row");
-          saveJobs([...jobs, localBase]);
+          appendJob(localBase);
         }
-      } else {
-        saveJobs([...jobs, localBase]);
-      }
+      } finally { createInFlight.current.delete(flightKey); }
     } else {
       const updatePatch = { port, type: jobForm.type, date: jobForm.date, ship: jobForm.ship, po_number: po_number || "", notes: jobForm.notes, shifts: cleanShifts };
       if (autoComplete) { updatePatch.completed = true; updatePatch.hoursWorked = hoursWorked; }
@@ -792,7 +902,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       }
     }
     setJobModal(null);
-  }, [jobForm, jobModal, jobs, saveJobs, recordSyncError, verifyRows]);
+  }, [jobForm, jobModal, jobs, saveJobs, appendJob, recordSyncError, verifyRows]);
 
   // Get all equipment merged across shifts (for completion + display)
   const getJobEquipment = (job) => {
@@ -812,6 +922,8 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     const job = jobs.find(j => j.id === id);
     if (!job) return;
     if (job.completed) {
+      // Reopening clears hoursWorked — irreversible, so never on a mis-click.
+      if (job.hoursWorked && !window.confirm(`Reopen "${job.ship || JOB_TYPES[job.type]?.label || "this job"}"? The recorded hours will be cleared.`)) return;
       saveJobs(jobs.map(j => j.id === id ? { ...j, completed: false, hoursWorked: undefined } : j));
       if (SUPABASE_CONFIGURED && !isLocalId(id)) verifyRows(supabase.from("jobs").update({ completed: false, hours_worked: null }).eq("id", id), "complete");
     } else {
@@ -900,14 +1012,23 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     // to pass silently and leave the row active in the DB for the other user.
     // Local-id rows were never inserted — merge-on-load carries deletedAt up.
     if (SUPABASE_CONFIGURED && !isLocalId(id)) {
-      await verifyRows(supabase.from("jobs").update({ deleted_at: now }).eq("id", id), "delete");
+      const ok = await verifyRows(supabase.from("jobs").update({ deleted_at: now }).eq("id", id), "delete");
+      // Record that the delete landed, so a later restore by the other user
+      // isn't mistaken for "my delete never reached the DB" and re-deleted.
+      if (ok) {
+        setDeletedJobs(prev => {
+          const next = prev.map(x => x.id === id ? { ...x, deleteSynced: true } : x);
+          try { localStorage.setItem("ws:jobs:deleted", JSON.stringify(next)); } catch {}
+          return next;
+        });
+      }
     }
   }, [jobs, saveJobs, deletedJobs, saveDeletedJobs, verifyRows]);
 
   const restoreJob = useCallback((id) => {
     const job = deletedJobs.find(j => j.id === id);
     if (!job) return;
-    const { deletedAt, ...restored } = job;
+    const { deletedAt, deleteSynced, ...restored } = job;
     saveJobs([...jobs, restored]);
     saveDeletedJobs(deletedJobs.filter(j => j.id !== id));
     if (SUPABASE_CONFIGURED && !isLocalId(id)) verifyRows(supabase.from("jobs").update({ deleted_at: null }).eq("id", id), "restore");
@@ -960,64 +1081,92 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setWsTaskModal(task.id);
   }, []);
 
+  // Consume the accepted Telegram draft once its task exists durably
+  // (in localStorage at minimum — merge-on-load carries it to the DB).
+  const consumeDraft = useCallback((draftId) => {
+    if (!SUPABASE_CONFIGURED) return;
+    fetch(`${SUPABASE_URL}/rest/v1/task_drafts?id=eq.${draftId}`, {
+      method: "DELETE", headers: supabaseHeaders,
+    }).then((res) => { if (res.ok) setWsDrafts(d => d.filter(x => x.id !== draftId)); })
+      .catch(e => console.warn("Failed to delete draft:", e));
+  }, []);
+
   const saveTaskForm = useCallback(async () => {
     if (!wsTaskForm.title.trim()) return;
     if (wsTaskModal === "new") {
-      const newTask = { id: generateId(), ...wsTaskForm, dueDate: wsTaskForm.dueDate || null, completed: false, createdAt: new Date().toISOString(), completedAt: null, notes: [] };
-      saveTasks([...wsTasks, newTask]);
-      // Persist to Supabase
+      const newTask = { id: generateId(), ...wsTaskForm, dueDate: wsTaskForm.dueDate || null, completed: false, createdAt: new Date().toISOString(), completedAt: null, notes: [], pendingSync: true };
+      mutateTasks(prev => [...prev, newTask]);
+      setWsTaskModal(null);
+      if (wsAcceptedDraft) { consumeDraft(wsAcceptedDraft); setWsAcceptedDraft(null); }
       if (SUPABASE_CONFIGURED) {
-        const { data } = await supabase.from("tasks").insert({
-          title: wsTaskForm.title, description: wsTaskForm.description, assignee: wsTaskForm.assignee,
-          project: wsTaskForm.project, priority: wsTaskForm.priority, due_date: wsTaskForm.dueDate || null,
-        });
-        // Update local ID to match DB UUID
+        let data = null, error = null;
+        try {
+          ({ data, error } = await supabase.from("tasks").insert({
+            title: wsTaskForm.title, description: wsTaskForm.description, assignee: wsTaskForm.assignee,
+            project: wsTaskForm.project, priority: wsTaskForm.priority, due_date: wsTaskForm.dueDate || null,
+          }));
+        } catch (e) { error = e; }
+        if (error) { recordSyncError("task-create", error); return; }
+        // Swap the local id for the DB uuid; keep the pendingSync copy if
+        // Supabase returned nothing so merge-on-load can re-insert it.
         if (data && data[0]) {
-          setWsTasks(prev => prev.map(t => t.id === newTask.id ? { ...t, id: data[0].id } : t));
+          mutateTasks(prev => prev.map(t => t.id === newTask.id ? { ...t, id: data[0].id, pendingSync: undefined } : t));
+        } else {
+          recordSyncError("task-create", "Supabase returned no row");
         }
       }
     } else {
-      saveTasks(wsTasks.map(t => t.id === wsTaskModal ? { ...t, ...wsTaskForm, dueDate: wsTaskForm.dueDate || null } : t));
-      if (SUPABASE_CONFIGURED) {
-        supabase.from("tasks").update({
+      mutateTasks(prev => prev.map(t => t.id === wsTaskModal ? { ...t, ...wsTaskForm, dueDate: wsTaskForm.dueDate || null } : t));
+      // Local-id tasks aren't in the DB yet — merge-on-load re-inserts them
+      // with their current (edited) state.
+      if (SUPABASE_CONFIGURED && !isLocalId(wsTaskModal)) {
+        verifyRows(supabase.from("tasks").update({
           title: wsTaskForm.title, description: wsTaskForm.description, assignee: wsTaskForm.assignee,
           project: wsTaskForm.project, priority: wsTaskForm.priority, due_date: wsTaskForm.dueDate || null,
-        }).eq("id", wsTaskModal).then(() => {});
+        }).eq("id", wsTaskModal), "task-edit");
       }
+      setWsTaskModal(null);
     }
-    setWsTaskModal(null);
-  }, [wsTaskModal, wsTaskForm, wsTasks, saveTasks]);
+  }, [wsTaskModal, wsTaskForm, mutateTasks, recordSyncError, verifyRows, wsAcceptedDraft, consumeDraft]);
 
   const toggleComplete = useCallback((id) => {
     const task = wsTasks.find(t => t.id === id);
     const nowCompleted = !task?.completed;
     const completedAt = nowCompleted ? new Date().toISOString() : null;
-    saveTasks(wsTasks.map(t => t.id === id ? { ...t, completed: nowCompleted, completedAt } : t));
-    if (SUPABASE_CONFIGURED) {
-      supabase.from("tasks").update({ completed: nowCompleted, completed_at: completedAt }).eq("id", id).then(() => {});
+    mutateTasks(prev => prev.map(t => t.id === id ? { ...t, completed: nowCompleted, completedAt } : t));
+    if (SUPABASE_CONFIGURED && !isLocalId(id)) {
+      verifyRows(supabase.from("tasks").update({ completed: nowCompleted, completed_at: completedAt }).eq("id", id), "task-complete");
     }
-  }, [wsTasks, saveTasks]);
+  }, [wsTasks, mutateTasks, verifyRows]);
 
   const deleteTask = useCallback((id) => {
-    saveTasks(wsTasks.filter(t => t.id !== id));
+    const task = wsTasks.find(t => t.id === id);
+    if (!window.confirm(`Delete task "${task?.title || ""}"? This removes it for both of you and can't be undone.`)) return;
+    mutateTasks(prev => prev.filter(t => t.id !== id));
     if (wsExpandedTask === id) setWsExpandedTask(null);
-    if (SUPABASE_CONFIGURED) {
-      supabase.from("tasks").delete().eq("id", id).then(() => {});
+    if (SUPABASE_CONFIGURED && !isLocalId(id)) {
+      verifyRows(supabase.from("tasks").delete().eq("id", id), "task-delete");
     }
-  }, [wsTasks, saveTasks, wsExpandedTask]);
+  }, [wsTasks, mutateTasks, wsExpandedTask, verifyRows]);
 
   const addNote = useCallback(async (taskId) => {
     if (!wsNewNote.trim()) return;
-    const newNote = { id: generateId(), author: wsNoteAuthor, text: wsNewNote.trim(), createdAt: new Date().toISOString() };
-    saveTasks(wsTasks.map(t => t.id === taskId ? { ...t, notes: [...(t.notes || []), newNote] } : t));
-    if (SUPABASE_CONFIGURED) {
-      const { data } = await supabase.from("task_notes").insert({ task_id: taskId, author: wsNoteAuthor, text: wsNewNote.trim() });
+    const text = wsNewNote.trim();
+    setWsNewNote(""); // clear immediately so a double-Enter can't insert twice
+    const newNote = { id: generateId(), author: wsNoteAuthor, text, createdAt: new Date().toISOString() };
+    mutateTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: [...(t.notes || []), newNote] } : t));
+    // Notes on a task that hasn't reached the DB yet can't be inserted
+    // (no valid task_id) — they ride along in localStorage until then.
+    if (SUPABASE_CONFIGURED && !isLocalId(taskId)) {
+      let data = null, error = null;
+      try { ({ data, error } = await supabase.from("task_notes").insert({ task_id: taskId, author: wsNoteAuthor, text })); }
+      catch (e) { error = e; }
+      if (error) { recordSyncError("note-create", error); return; }
       if (data && data[0]) {
-        setWsTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: (t.notes || []).map(n => n.id === newNote.id ? { ...n, id: data[0].id } : n) } : t));
+        mutateTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: (t.notes || []).map(n => n.id === newNote.id ? { ...n, id: data[0].id } : n) } : t));
       }
     }
-    setWsNewNote("");
-  }, [wsTasks, wsNewNote, wsNoteAuthor, saveTasks]);
+  }, [wsNewNote, wsNoteAuthor, mutateTasks, recordSyncError, verifyRows]);
 
   // ─── TELEGRAM DRAFTS — FETCH / ACCEPT / DISMISS ────────────────────────────
   const fetchDrafts = useCallback(async () => {
@@ -1051,14 +1200,10 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       priority: "medium",
       dueDate: "",
     });
+    // The draft row is only consumed when the task is actually saved
+    // (saveTaskForm) — cancelling the modal must not destroy the draft.
+    setWsAcceptedDraft(draft.id);
     setWsTaskModal("new");
-    // Delete draft from Supabase after opening modal
-    if (SUPABASE_CONFIGURED) {
-      fetch(`${SUPABASE_URL}/rest/v1/task_drafts?id=eq.${draft.id}`, {
-        method: "DELETE", headers: supabaseHeaders,
-      }).then(() => setWsDrafts(d => d.filter(x => x.id !== draft.id)))
-        .catch(e => console.warn("Failed to delete draft:", e));
-    }
   }, []);
 
   const dismissDraft = useCallback(async (draftId) => {
@@ -1110,11 +1255,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
 
           {/* TASK FORM MODAL */}
           {wsTaskModal !== null && (
-            <div onClick={() => setWsTaskModal(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={() => { setWsTaskModal(null); setWsAcceptedDraft(null); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div onClick={e => e.stopPropagation()} style={{ width: 480, maxHeight: "90vh", overflowY: "auto", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{wsTaskModal === "new" ? "New Task" : "Edit Task"}</div>
-                  <button onClick={() => setWsTaskModal(null)} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+                  <button onClick={() => { setWsTaskModal(null); setWsAcceptedDraft(null); }} style={{ background: "none", border: "none", color: TEXT_DIM, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1181,7 +1326,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
-                  <button onClick={() => setWsTaskModal(null)} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
+                  <button onClick={() => { setWsTaskModal(null); setWsAcceptedDraft(null); }} style={{ padding: "10px 20px", borderRadius: 8, cursor: "pointer", background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 13, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>Cancel</button>
                   <button onClick={saveTaskForm} style={{ padding: "10px 24px", borderRadius: 8, cursor: "pointer", background: IPS_ACCENT, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif" }}>{wsTaskModal === "new" ? "Create Task" : "Save Changes"}</button>
                 </div>
               </div>
@@ -1666,6 +1811,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                     </div>
                   </div>
 
+                  {/* Unpriced resources — these bill 0 and print "—" on the
+                      client PDF, so never let them slip through unnoticed. */}
+                  {rows.some(r => r._unpriced) && (
+                    <div style={{ padding: "10px 14px", background: `${IPS_WARN}15`, border: `1px solid ${IPS_WARN}`, borderRadius: 8, marginBottom: 12, fontSize: 12, color: IPS_WARN }}>
+                      ⚠ {rows.filter(r => r._unpriced).length} line{rows.filter(r => r._unpriced).length > 1 ? "s have" : " has"} no rate on this rate sheet ({rows.filter(r => r._unpriced).map(r => r.resource).join(", ")}) — they add 0 ISK to the total and appear as "—" on the PDF. Price them manually in Payday before sending.
+                    </div>
+                  )}
+
                   {/* Description */}
                   <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Description</div>
                   <pre style={{ margin: 0, marginBottom: 16, padding: 10, background: "rgba(0,0,0,0.2)", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, fontFamily: "JetBrains Mono", color: TEXT, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{payload.description || "(empty)"}</pre>
@@ -1961,10 +2114,21 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                       fontSize: 12, fontWeight: 600, fontFamily: "'Satoshi', 'Inter', sans-serif",
                     }}>+ New Bindingar</button>
                     <select value={bindingarMonth} onChange={e => setBindingarMonth(e.target.value)} style={{ ...inputStyle, padding: "6px 10px", width: "auto", cursor: "pointer", colorScheme: "dark", backgroundColor: "#112F45" }}>
-                      {[5, 6, 7, 8, 9, 10].map(m => {
-                        const val = `2026-${String(m).padStart(2, "0")}`;
-                        return <option key={val} value={val} style={{ background: "#112F45", color: TEXT }}>{BINDINGAR_MONTH_NAMES[m - 1]} 2026</option>;
-                      })}
+                      {(() => {
+                        // Season start through one month past today, plus any
+                        // months that actually hold bindingar jobs — the old
+                        // hardcoded May–Oct 2026 list went dead in November.
+                        const opts = new Set(bindingarJobs.map(j => (j.date || "").slice(0, 7)).filter(v => /^\d{4}-\d{2}$/.test(v)));
+                        opts.add(bindingarMonth);
+                        const cur = new Date();
+                        for (let d = new Date(2026, 4, 1); d <= new Date(cur.getFullYear(), cur.getMonth() + 1, 1); d.setMonth(d.getMonth() + 1)) {
+                          opts.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+                        }
+                        return [...opts].sort().map(val => {
+                          const [y, m] = val.split("-").map(Number);
+                          return <option key={val} value={val} style={{ background: "#112F45", color: TEXT }}>{BINDINGAR_MONTH_NAMES[m - 1]} {y}</option>;
+                        });
+                      })()}
                     </select>
                     <button onClick={() => generateBindingarInvoice(bindingarJobs, bYear, bMonthNum - 1)} style={{
                       padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: "rgba(20,184,166,0.12)", border: `1px solid ${bjt.color}`, color: bjt.color,
