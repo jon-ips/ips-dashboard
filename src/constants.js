@@ -491,7 +491,7 @@ export const AGENCY_BASE_FEE = 60000;      // Agency Base Fee (AKU), flat per ca
 export const AGENCY_DELIVERY_FEE = 4000;   // optional delivery fee
 export const AGENCY_BASE_LABEL = "Agency Base Fee (AKU)";
 export const AGENCY_DELIVERY_LABEL = "Delivery Fee";
-export const AGENCY_BOARDING_AGENT = "Eysteinn";
+export const AGENCY_BOARDING_AGENT = "Eysteinn Kári";
 // Agency service started on this date — no "A" chip on earlier calls.
 export const AGENCY_START_DATE = "2026-06-19";
 
@@ -526,6 +526,10 @@ export const SERVICE_CODES = {
   cherry_picker: "CP",
   special:       "CP",
   bindingar:     "B",
+  // Agency (Akureyri boarding agent). The "A" code already implies AKU
+  // since agency is Akureyri-only, so the composer skips the AKU suffix
+  // for this type.
+  agency:        "A",
 };
 
 // Full service names for the Payday invoice comment (Athugasemdir).

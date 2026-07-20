@@ -24,7 +24,10 @@
 // inline.)
 
 import { payday } from "./payday.js";
-import { SERVICE_FULL_NAMES, SERVICE_CODES, JOB_TYPES, getBerthForShip } from "./constants.js";
+import {
+  SERVICE_FULL_NAMES, SERVICE_CODES, JOB_TYPES, AGENCY_BOARDING_AGENT,
+  getBerthForShip,
+} from "./constants.js";
 import { vatRateFor } from "./vatRules.js";
 
 /**
@@ -303,6 +306,120 @@ export async function createDraftInvoice(job, cruiseLine, rows, lastVikingMarsDa
     return {
       ok: false,
       error: `Payday rejected the invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
+    };
+  }
+  return { ok: true, data: res.data };
+}
+
+/**
+ * Build the Payday create-invoice payload for an AGENCY (Akureyri
+ * boarding-agent) job. Structurally similar to buildDraftInvoicePayload
+ * but the line items come from a flat { label, isk } array (the agency
+ * modal's output), the description carries a boarding-agent footer, and
+ * VAT is fixed at 24% (agency service is performed in Iceland regardless
+ * of the ship's international-transit status, so it never zero-rates).
+ *
+ * @param {object} job              completed agency job (date, ship, berth, po_number)
+ * @param {object} cruiseLine       cruise_lines row → routes to the SDK customer
+ * @param {Array}  items            [{ label, isk }] from job.hoursWorked.agency
+ * @returns {object} payload ready for payday.invoices.create
+ */
+export function buildAgencyInvoicePayload(job, cruiseLine, items) {
+  const ship = shipDisplayName(job.ship);
+
+  const termsDays = Number.isFinite(cruiseLine?.payment_terms_days) ? cruiseLine.payment_terms_days : 30;
+  const dueDate = addDays(job.date, termsDays);
+
+  // Reference: "<call> A". SERVICE_CODES["agency"] = "A"; the AKU suffix
+  // is deliberately skipped because agency is Akureyri-only and the "A"
+  // code already implies it (matches Jón's manual invoices).
+  const refNumber = bareReferenceNumber(job.po_number);
+  const code = SERVICE_CODES.agency || "A";
+  const reference = [refNumber, code].filter(Boolean).join(" ");
+
+  // Description block:
+  //   <ship> - Akureyri
+  //   <dd.mm.yyyy>
+  //   <blank>
+  //   Agency fee
+  //   Boarding agent: <name>
+  //
+  // Matches the format Jón used for the manual agency invoice — the
+  // last two lines identify this as an agency line rather than the
+  // service-name line used on regular invoices.
+  const description = [
+    [ship, "Akureyri"].filter(Boolean).join(" - "),
+    fmtDDMMYYYY(job.date),
+    "",
+    "Agency fee",
+    `Boarding agent: ${AGENCY_BOARDING_AGENT}`,
+  ].join("\n");
+
+  // Line items come from the agency modal ({ label, isk } pairs). Every
+  // line at qty 1, 24% VAT — agency work is performed in Iceland so it
+  // never zero-rates via the international-transit rule that gates the
+  // ship's regular services.
+  const lines = (items || []).filter(it => it && it.label).map(it => ({
+    description:           it.label,
+    quantity:              1,
+    unitPriceExcludingVat: Number(it.isk) || 0,
+    vatPercentage:         24,
+  }));
+
+  return {
+    customer:     { id: cruiseLine?.payday_customer_id },
+    invoiceDate:  job.date,
+    dueDate,
+    finalDueDate: dueDate,
+    currencyCode: "ISK",
+    reference,
+    description,
+    status:       "DRAFT",
+    lines,
+  };
+}
+
+/**
+ * Validate prerequisites then POST an agency draft invoice to Payday.
+ * Mirrors createDraftInvoice's error surface so callers can handle both
+ * flows the same way.
+ *
+ * @returns {{ok: true, data: any} | {ok: false, error: string}}
+ */
+export async function createAgencyDraftInvoice(job, cruiseLine, items) {
+  if (!cruiseLine) {
+    return {
+      ok: false,
+      error: `Cannot create agency invoice — couldn't identify a cruise line for ship "${job?.ship || "—"}" on ${job?.date || "?"}. Check that the ship is in the schedule.`,
+    };
+  }
+  if (!cruiseLine.payday_customer_id) {
+    return {
+      ok: false,
+      error: `${cruiseLine.name} has no Payday customer mapping. Set it in CFO Workspace → Settings (CEO access required).`,
+    };
+  }
+
+  const missing = [];
+  if (!job?.date)                     missing.push("job date");
+  if (!items || items.length === 0)   missing.push("agency line items");
+  if (missing.length) {
+    return { ok: false, error: `Cannot create agency invoice — missing: ${missing.join(", ")}.` };
+  }
+  if (!payday.connected()) {
+    return { ok: false, error: "Payday API credentials are not configured (VITE_PAYDAY_CLIENT_ID / VITE_PAYDAY_CLIENT_SECRET)." };
+  }
+
+  const payload = buildAgencyInvoicePayload(job, cruiseLine, items);
+  const res = await payday.invoices.create(payload);
+  if (!res.ok) {
+    const e = res.error || {};
+    const statusBit = e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
+    const msgBit    = e.message || (typeof e === "string" ? e : JSON.stringify(e));
+    const combined  = [statusBit, msgBit].filter(Boolean).join(" — ");
+    return {
+      ok: false,
+      error: `Payday rejected the agency invoice: ${combined || "no detail returned"}. Full response in the browser console.`,
     };
   }
   return { ok: true, data: res.data };

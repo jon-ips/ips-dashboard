@@ -16,7 +16,7 @@ import generateBindingarInvoice, { MONTH_NAMES as BINDINGAR_MONTH_NAMES } from "
 import { RATE_SHEETS, resolveRateSheet } from "./rates.js";
 import { extractShipName, getCruiseLineForShip, getBerthForShip } from "./constants.js";
 import { computeAutoPONumber } from "./sdkCallNumbers.js";
-import { createDraftInvoice, buildDraftInvoicePayload } from "./paydayInvoice.js";
+import { createDraftInvoice, buildDraftInvoicePayload, createAgencyDraftInvoice } from "./paydayInvoice.js";
 import { findLastVikingMarsDate } from "./vatRules.js";
 
 // Offline-created ids come from generateId() (base36, no hyphens); Supabase
@@ -710,13 +710,39 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     setAgencyModal(null);
   }, [agencyModal, agencyBuildItems, jobs, saveJobs, recordSyncError, verifyRows]);
 
-  // Generate the agency PDF and mark the job invoiced.
+  // Generate the agency PDF, push a DRAFT invoice to Payday, and mark
+  // the job invoiced. Mirrors the regular-invoice flow: PDF downloads
+  // locally, draft lands in Payday for review, and the user manually
+  // attaches the PDF in Payday's UI before clicking Send (multipart
+  // attachment upload is still 500ing on Payday's server — same reason
+  // confirmInvoice uses the DRAFT workaround).
   const invoiceAgency = useCallback(async (job) => {
+    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Generating PDF…" });
     const res = await generateAgencyInvoice(job, agencyItemsOf(job));
-    if (!res) return;
+    if (!res) { setInvoiceStatus(null); return; }
+
+    // Resolve the cruise line + Payday customer via the ship-lookup used
+    // everywhere else. For SDK-affiliated ships (Aida, TUI, Costa,
+    // Phoenix Reisen, etc.) this routes to the shared SDK Cruise A/S
+    // customer, which is the direct billing target for the agent.
+    const clName = getCruiseLineForShip(job.ship, job.date);
+    const cruiseLine = cruiseLines.find(c => c.name === clName) || null;
+
+    setInvoiceStatus({ jobId: job.id, status: "working", msg: "Creating draft in Payday…" });
+    const createRes = await createAgencyDraftInvoice(job, cruiseLine, agencyItemsOf(job));
+    if (!createRes.ok) {
+      setInvoiceStatus({ jobId: job.id, status: "error", msg: createRes.error });
+      return;
+    }
+
+    setInvoiceStatus({
+      jobId: job.id,
+      status: "success",
+      msg: "Agency draft created in Payday. The PDF was saved to your Downloads — attach it to the draft in Payday, review, then click \"Send invoice\".",
+    });
     saveJobs(jobs.map(j => j.id === job.id ? { ...j, invoiced: true } : j));
     if (SUPABASE_CONFIGURED && !isLocalId(job.id)) verifyRows(supabase.from("jobs").update({ invoiced: true }).eq("id", job.id), "agency-invoice");
-  }, [jobs, saveJobs, verifyRows]);
+  }, [jobs, saveJobs, verifyRows, cruiseLines]);
 
   // Auto-fill PO Number — produces the full reference string (call number or
   // DD.MM, plus service code, plus " AKU" when applicable). The Payday
