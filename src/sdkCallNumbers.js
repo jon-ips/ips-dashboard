@@ -117,6 +117,10 @@ export function computeAutoPONumber({ ship, date, port, type }) {
   }
 
   const code = SERVICE_CODES[type] || "";
-  const akuSuffix = port === "AK" ? "AKU" : "";
+  // Agency ("A") is Akureyri-only, so the code already implies AKU. The
+  // house convention for the reference on agency invoices is just
+  // "<call> A" (no AKU suffix) — matches the manual invoices Jón sent
+  // before this was automated. Other AK jobs keep the explicit AKU.
+  const akuSuffix = port === "AK" && type !== "agency" ? "AKU" : "";
   return prefix + [base, code, akuSuffix].filter(Boolean).join(" ");
 }
