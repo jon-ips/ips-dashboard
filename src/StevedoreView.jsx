@@ -112,6 +112,20 @@ export default function StevedoreView() {
     [todayIso, weekOffset]
   );
 
+  // "Finish" button: write the reported end time onto the job row so the
+  // office completion flows can suggest it. Returns true when the DB took it.
+  const reportFinish = async (jobId, time) => {
+    try {
+      const { data, error } = await supabase
+        .from("jobs").update({ stevedore_end: time }).eq("id", jobId);
+      if (error || !data?.length) return false;
+      setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, stevedore_end: time } : j)));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   if (openDay) {
     return (
       <DayScreen
@@ -119,6 +133,7 @@ export default function StevedoreView() {
         isToday={openDay === todayIso}
         dayJobs={jobsByDate[openDay] || []}
         onBack={() => setOpenDay(null)}
+        onFinish={reportFinish}
       />
     );
   }
@@ -229,7 +244,7 @@ function DaySquare({ date, isToday, dayJobs, loading, onClick }) {
 
 // ─── DAY DETAIL ──────────────────────────────────────────────────────────────
 
-function DayScreen({ date, isToday, dayJobs, onBack }) {
+function DayScreen({ date, isToday, dayJobs, onBack, onFinish }) {
   const work = dayJobs.filter(isStevedoreJob);
   const bindingar = dayJobs.filter(isBindingar);
   return (
@@ -262,7 +277,7 @@ function DayScreen({ date, isToday, dayJobs, onBack }) {
           </div>
         )}
 
-        {work.map((j) => <JobCard key={j.id} job={j} />)}
+        {work.map((j) => <JobCard key={j.id} job={j} onFinish={onFinish} />)}
 
         {bindingar.length > 0 && (
           <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase", color: BINDINGAR_COLOR, marginTop: work.length ? 8 : 0 }}>
@@ -315,7 +330,87 @@ function ResourceBlock({ title, items, color, total }) {
   );
 }
 
-function JobCard({ job }) {
+// Finish flow on a job card: tap Finish → big time picker (prefilled with
+// the time right now) → Send. The time goes to the office as a suggestion
+// for the job's end time; the office still confirms the hours in the app.
+function FinishSection({ job, onFinish }) {
+  const [picking, setPicking] = useState(false);
+  const [time, setTime] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (job.completed) return null;
+
+  const openPicker = () => {
+    setTime(job.stevedore_end || new Date().toTimeString().slice(0, 5));
+    setFailed(false);
+    setPicking(true);
+  };
+
+  const send = async () => {
+    if (!time || sending) return;
+    setSending(true);
+    setFailed(false);
+    const ok = await onFinish(job.id, time);
+    setSending(false);
+    if (ok) setPicking(false);
+    else setFailed(true);
+  };
+
+  if (!picking) {
+    return (
+      <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 12 }}>
+        {job.stevedore_end ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, fontSize: 17, fontWeight: 800, color: "#22C55E" }}>
+              ✓ Finished at {job.stevedore_end}
+            </div>
+            <button onClick={openPicker} style={{ ...bigBtn, width: "auto", padding: "10px 16px", background: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 15 }}>
+              Change
+            </button>
+          </div>
+        ) : (
+          <button onClick={openPicker} style={{ ...bigBtn, background: "#166534", border: "1px solid #22C55E" }}>
+            Finish job
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", color: "#22C55E" }}>
+        What time did the job finish?
+      </div>
+      <input
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        style={{
+          width: "100%", padding: "12px 14px", borderRadius: 12, boxSizing: "border-box",
+          background: "rgba(255,255,255,0.05)", border: `1px solid ${BORDER}`, colorScheme: "dark",
+          color: TEXT, fontSize: 26, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace",
+        }}
+      />
+      {failed && (
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#FCA5A5" }}>
+          Could not send. Check internet and try again.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => setPicking(false)} style={{ ...bigBtn, flex: 1, background: "transparent", border: `1px solid ${BORDER}`, color: TEXT_DIM }}>
+          Cancel
+        </button>
+        <button onClick={send} disabled={sending} style={{ ...bigBtn, flex: 2, background: "#166534", border: "1px solid #22C55E", opacity: sending ? 0.6 : 1 }}>
+          {sending ? "Sending…" : "Send finish time"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function JobCard({ job, onFinish }) {
   // The stevedore's word for bindingar is "parking" — renamed in this view only.
   const type = isBindingar(job)
     ? { ...JOB_TYPES.bindingar, label: "Parking" }
@@ -377,6 +472,8 @@ function JobCard({ job }) {
           <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45 }}>{job.notes}</div>
         </div>
       )}
+
+      {onFinish && <FinishSection job={job} onFinish={onFinish} />}
     </div>
   );
 }

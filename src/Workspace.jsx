@@ -375,6 +375,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     completed: r.completed || false, hoursWorked: r.hours_worked ? safeJsonField(r.hours_worked, undefined) : undefined,
     invoiced: r.invoiced || false,
     service: r.service || null,
+    stevedoreEnd: r.stevedore_end || undefined,
     createdAt: r.created_at, deletedAt: r.deleted_at || undefined,
   });
 
@@ -679,8 +680,9 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
   // Phone "complete" flow: open a logged-but-unfinished job to add hours.
   const openQuickComplete = useCallback((job) => {
     setQcJob(job);
-    setQcHours(4);
-    setQcHalf(false);
+    const sug = stevedoreSuggestion(job);
+    setQcHours(sug ? sug.hours : 4);
+    setQcHalf(!!sug?.half);
     setQcStart(job.shifts?.[0]?.startTime || "");
   }, []);
 
@@ -944,6 +946,22 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
     return job.startTime || "";
   };
 
+  // Hours suggestion from the stevedore view's "Finish" button: start time →
+  // reported end, rounded to the half hour and clamped to the 4h minimum the
+  // completion flows already enforce. A proposal to confirm, never auto-saved.
+  const stevedoreSuggestion = (job) => {
+    const end = job?.stevedoreEnd, start = job?.shifts?.[0]?.startTime;
+    if (!end || !start) return null;
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    if ([sh, sm, eh, em].some(Number.isNaN)) return null;
+    let mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) mins += 1440; // finished past midnight
+    const rawHours = Math.round(mins / 30) / 2;
+    const clamped = Math.max(4, rawHours);
+    return { end, start, rawHours, hours: Math.floor(clamped), half: clamped % 1 !== 0 };
+  };
+
   const toggleJobComplete = useCallback((id) => {
     const job = jobs.find(j => j.id === id);
     if (!job) return;
@@ -956,14 +974,17 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
       const shifts = job.shifts || [{ startTime: job.startTime || "", equipment: job.equipment || {} }];
       const cpEquip = JOB_EQUIPMENT_BY_TYPE[job.type] || {};
       const isDaysKey = (k) => job.type === "cherry_picker" && !!cpEquip[k]?.flatDay;
+      const sug = stevedoreSuggestion(job);
+      const defHours = sug ? String(sug.hours) : "4";
+      const defHalf = !!sug?.half;
       const hrs = shifts.map(s => ({
         startTime: s.startTime || "",
         nextDay: !!s.nextDay,
-        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: isDaysKey(k) ? "1" : "4", half: false }]])),
+        equipment: Object.fromEntries(Object.entries(s.equipment).filter(([, qty]) => qty > 0).map(([k, qty]) => [k, [{ qty, hours: isDaysKey(k) ? "1" : defHours, half: isDaysKey(k) ? false : defHalf }]])),
       }));
       setCompleteHours(hrs);
-      setCompleteAllHours("");
-      setCompleteAllHalf(false);
+      setCompleteAllHours(sug ? defHours : "");
+      setCompleteAllHalf(defHalf);
       setCompleteModal(job);
     }
   }, [jobs, saveJobs, verifyRows]);
@@ -1625,6 +1646,7 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
           {completeModal !== null && (() => {
             const cjt = JOB_TYPES[completeModal.type] || JOB_TYPES.provisions;
             const cEquipList = JOB_EQUIPMENT_BY_TYPE[completeModal.type] || {};
+            const cSug = stevedoreSuggestion(completeModal);
             const halfBtnStyle = (on) => ({
               padding: "4px 8px", borderRadius: 6, cursor: "pointer", fontSize: 10, fontWeight: 700,
               fontFamily: "JetBrains Mono", whiteSpace: "nowrap",
@@ -1644,6 +1666,14 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                   <span style={{ fontSize: 10, fontWeight: 700, color: cjt.color, background: `${cjt.color}15`, padding: "1px 8px", borderRadius: 4, textTransform: "uppercase", fontFamily: "JetBrains Mono" }}>{cjt.label}</span>
                   {" "}{fmtDate(completeModal.date)}{getJobStartTime(completeModal) ? ` at ${getJobStartTime(completeModal)}` : ""}{completeModal.ship ? ` · ${completeModal.ship}` : ""}
                 </div>
+
+                {cSug && (
+                  <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.35)", borderRadius: 8, fontSize: 12, color: TEXT }}>
+                    <span style={{ color: IPS_SUCCESS, fontWeight: 700 }}>Stevedore reported finish at {cSug.end}</span>
+                    {" "}— hours prefilled from {cSug.start}–{cSug.end}
+                    {cSug.rawHours < 4 ? ` (${cSug.rawHours}h worked, 4h minimum applied)` : ` (${cSug.hours + (cSug.half ? 0.5 : 0)}h)`}. Confirm or adjust.
+                  </div>
+                )}
 
                 <div style={{ margin: "16px 0 12px" }}>
                   <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 8 }}>Hours worked</div>
@@ -3135,6 +3165,11 @@ export default function Workspace({ wsView, activeModule, onDraftCountChange }) 
                         </div>
                         <div style={{ fontSize: 12, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 14 }}>{fmtDate(qcJob.date)} · Complete</div>
                         <div style={{ fontSize: 13, color: TEXT, background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>{resSummary || "No resources logged for this job"}</div>
+                        {qcJob.stevedoreEnd && (
+                          <div style={{ fontSize: 13, fontWeight: 700, color: IPS_SUCCESS, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.35)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
+                            Stevedore reported finish at {qcJob.stevedoreEnd} — hours prefilled below.
+                          </div>
+                        )}
                         <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Start time (optional)</div>
                         <input type="time" value={qcStart} onChange={e => setQcStart(e.target.value)} style={{ ...inputStyle, width: "100%", fontSize: 18, padding: "12px 14px", colorScheme: "dark", marginBottom: 18 }} />
                         <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: TEXT_DIM, fontFamily: "JetBrains Mono", marginBottom: 6 }}>Hours worked (applies to all resources)</div>
