@@ -210,7 +210,7 @@ function DaySquare({ date, isToday, dayJobs, loading, onClick }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           <CountRow color={IPS_ACCENT} count={nJobs} label={nJobs === 1 ? "job" : "jobs"} />
-          <CountRow color={BINDINGAR_COLOR} count={nBind} label="bindingar" />
+          <CountRow color={BINDINGAR_COLOR} count={nBind} label={nBind === 1 ? "parking" : "parkings"} />
         </div>
       )}
     </button>
@@ -256,7 +256,7 @@ function DayScreen({ date, isToday, dayJobs, onBack }) {
 
         {bindingar.length > 0 && (
           <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase", color: BINDINGAR_COLOR, marginTop: work.length ? 8 : 0 }}>
-            Bindingar
+            Parkings
           </div>
         )}
         {bindingar.map((j) => <JobCard key={j.id} job={j} />)}
@@ -298,7 +298,10 @@ function ResourceBlock({ title, items, color }) {
 }
 
 function JobCard({ job }) {
-  const type = JOB_TYPES[job.type] || { label: job.type, color: TEXT_DIM };
+  // The stevedore's word for bindingar is "parking" — renamed in this view only.
+  const type = isBindingar(job)
+    ? { ...JOB_TYPES.bindingar, label: "Parking" }
+    : JOB_TYPES[job.type] || { label: job.type, color: TEXT_DIM };
   const ship = extractShipName(job.ship);
   const berth = getBerthForShip(job.ship, job.date);
   const port = PORTS[job.port]?.longLabel || job.port;
