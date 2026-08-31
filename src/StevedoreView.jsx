@@ -283,6 +283,7 @@ function fmtTime(shift) {
 // One shift's resources split into people and equipment lines.
 function shiftLines(jobType, shift) {
   const people = [], equipment = [];
+  let peopleTotal = 0;
   for (const [key, qty] of Object.entries(shift.equipment || {})) {
     const n = Number(qty) || 0;
     if (n <= 0) continue;
@@ -290,16 +291,22 @@ function shiftLines(jobType, shift) {
     if (def.hidden) continue;
     const label = n > 1 && def.plural ? def.plural : def.label;
     (def.human ? people : equipment).push(`${n} × ${label}`);
+    if (def.human) peopleTotal += n;
   }
-  return { people, equipment };
+  return { people, equipment, peopleTotal };
 }
 
-function ResourceBlock({ title, items, color }) {
+function ResourceBlock({ title, items, color, total }) {
   if (!items.length) return null;
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", color, marginBottom: 4 }}>
-        {title}
+      <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", color, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+        <span>{title}</span>
+        {total != null && (
+          <span style={{ background: `${color}22`, borderRadius: 6, padding: "2px 8px", letterSpacing: 0.5 }}>
+            {total} total
+          </span>
+        )}
       </div>
       {items.map((line, i) => (
         <div key={i} style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.5 }}>{line}</div>
@@ -342,7 +349,7 @@ function JobCard({ job }) {
       </div>
 
       {shifts.map((s, i) => {
-        const { people, equipment } = shiftLines(job.type, s);
+        const { people, equipment, peopleTotal } = shiftLines(job.type, s);
         return (
           <div key={i} style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
@@ -353,7 +360,7 @@ function JobCard({ job }) {
                 <span style={{ fontSize: 13, fontWeight: 700, color: TEXT_DIM }}>Shift {i + 1}</span>
               )}
             </div>
-            <ResourceBlock title="People" items={people} color={IPS_ACCENT} />
+            <ResourceBlock title="People" items={people} color={IPS_ACCENT} total={peopleTotal} />
             <ResourceBlock title="Equipment" items={equipment} color={TEXT_DIM} />
             {!people.length && !equipment.length && (
               <div style={{ fontSize: 15, fontWeight: 600, color: TEXT_DIM }}>No resources listed.</div>
