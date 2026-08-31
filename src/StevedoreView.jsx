@@ -22,8 +22,18 @@ const FONT = "'Satoshi', 'Inter', sans-serif";
 const ALL_EQUIPMENT = Object.values(JOB_EQUIPMENT_BY_TYPE).reduce(
   (acc, typeMap) => ({ ...typeMap, ...acc }), {}
 );
-const equipDef = (jobType, key) =>
-  JOB_EQUIPMENT_BY_TYPE[jobType]?.[key] || ALL_EQUIPMENT[key] || { label: key };
+// The stevedore's names for the bindingar resources — English, this view only.
+// Endamaður is a person, so flag him human to land under the People header.
+const BINDINGAR_LABELS = {
+  endamadur: { label: "Man", plural: "Men", human: true },
+  lyftari:   { label: "Platform" },
+};
+
+const equipDef = (jobType, key) => {
+  const def = JOB_EQUIPMENT_BY_TYPE[jobType]?.[key] || ALL_EQUIPMENT[key] || { label: key };
+  if (jobType === "bindingar" && BINDINGAR_LABELS[key]) return { ...def, ...BINDINGAR_LABELS[key] };
+  return def;
+};
 
 const toIso = (d) => {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
@@ -278,7 +288,8 @@ function shiftLines(jobType, shift) {
     if (n <= 0) continue;
     const def = equipDef(jobType, key);
     if (def.hidden) continue;
-    (def.human ? people : equipment).push(`${n} × ${def.label}`);
+    const label = n > 1 && def.plural ? def.plural : def.label;
+    (def.human ? people : equipment).push(`${n} × ${label}`);
   }
   return { people, equipment };
 }
