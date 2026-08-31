@@ -22,17 +22,49 @@ const FONT = "'Satoshi', 'Inter', sans-serif";
 const ALL_EQUIPMENT = Object.values(JOB_EQUIPMENT_BY_TYPE).reduce(
   (acc, typeMap) => ({ ...typeMap, ...acc }), {}
 );
-// The stevedore's names for the bindingar resources — English, this view only.
-// Endamaður is a person, so flag him human to land under the People header.
-const BINDINGAR_LABELS = {
-  endamadur: { label: "Man", plural: "Men", human: true },
-  lyftari:   { label: "Platform" },
+// The whole view is in Romanian for the stevedore — this map renames the
+// resources; anything not listed falls back to the app's English label.
+// Endamaður is a person, so flag him human to land under the Oameni header.
+const RO_EQUIPMENT = {
+  forklift:             { label: "Stivuitor", plural: "Stivuitoare" },
+  forklift_op:          { label: "Operator stivuitor" },
+  telescopic:           { label: "Stivuitor telescopic" },
+  telescopic_op:        { label: "Operator stivuitor" },
+  foreman:              { label: "Șef de echipă" },
+  stevedore:            { label: "Docher", plural: "Docheri" },
+  porter:               { label: "Bagajist", plural: "Bagajiști" },
+  ramp:                 { label: "Rampă de container" },
+  crane:                { label: "Macara" },
+  crane_op:             { label: "Operator macara" },
+  conveyor_belt:        { label: "Bandă transportoare" },
+  conveyor_op:          { label: "Operator bandă" },
+  luggage_van:          { label: "Dubă de bagaje" },
+  luggage_cage:         { label: "Cușcă pentru bagaje" },
+  pallet_cage:          { label: "Cușcă pentru paleți" },
+  pallet_jack_manual:   { label: "Transpalet manual" },
+  pallet_jack_electric: { label: "Transpalet electric" },
+  cherry_picker_22m:    { label: "Nacelă 22m" },
+  cherry_picker_25m:    { label: "Nacelă 25m" },
+  cherry_picker_40m:    { label: "Nacelă 40m" },
+  cherry_picker_60m:    { label: "Nacelă 60m" },
+  cherry_picker_op:     { label: "Operator nacelă" },
+  endamadur:            { label: "Om", plural: "Oameni", human: true },
+  lyftari:              { label: "Platformă" },
+};
+
+// Job type names in Romanian ("bindingar" is his "parking").
+const RO_TYPES = {
+  provisions:    "Provizii",
+  waste:         "Deșeuri",
+  turnaround:    "Bagaje",
+  cherry_picker: "Nacelă",
+  special:       "Special",
+  bindingar:     "Parcare",
 };
 
 const equipDef = (jobType, key) => {
   const def = JOB_EQUIPMENT_BY_TYPE[jobType]?.[key] || ALL_EQUIPMENT[key] || { label: key };
-  if (jobType === "bindingar" && BINDINGAR_LABELS[key]) return { ...def, ...BINDINGAR_LABELS[key] };
-  return def;
+  return RO_EQUIPMENT[key] ? { ...def, ...RO_EQUIPMENT[key] } : def;
 };
 
 const toIso = (d) => {
@@ -44,8 +76,10 @@ const addDays = (iso, n) => {
   d.setDate(d.getDate() + n);
   return toIso(d);
 };
-const weekdayName = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long" });
-const shortDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+// Romanian locale gives lowercase day/month names — capitalize for display.
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const weekdayName = (iso) => cap(new Date(iso + "T12:00:00").toLocaleDateString("ro-RO", { weekday: "long" }));
+const shortDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("ro-RO", { day: "numeric", month: "short" });
 
 // Earliest shift start time, for sorting jobs within a day. Jobs without a
 // time sort last.
@@ -143,15 +177,15 @@ export default function StevedoreView() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 4px 14px" }}>
         <img src={ipsLogo} alt="IPS" style={{ height: 30 }} />
         <div style={{ fontSize: 15, fontWeight: 700, color: TEXT_DIM }}>
-          {weekOffset === 0 ? "Next 7 days" : "Following week"}
+          {weekOffset === 0 ? "Următoarele 7 zile" : "Săptămâna viitoare"}
         </div>
       </div>
 
       {loadState === "error" && (
         <div style={{ background: "#7F1D1D", borderRadius: 12, padding: 16, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-          Could not load the plan. Check internet and try again.
+          Planul nu s-a putut încărca. Verifică internetul și încearcă din nou.
           <button onClick={loadJobs} style={{ ...bigBtn, marginTop: 12, background: "rgba(255,255,255,0.15)", border: "none" }}>
-            Try again
+            Încearcă din nou
           </button>
         </div>
       )}
@@ -177,7 +211,7 @@ export default function StevedoreView() {
         >
           <div style={{ fontSize: 30, lineHeight: 1 }}>{weekOffset === 0 ? "→" : "←"}</div>
           <div style={{ fontSize: 16, fontWeight: 800 }}>
-            {weekOffset === 0 ? "Next week" : "Back to this week"}
+            {weekOffset === 0 ? "Săptămâna viitoare" : "Înapoi la această săptămână"}
           </div>
         </button>
       </div>
@@ -222,20 +256,20 @@ function DaySquare({ date, isToday, dayJobs, loading, onClick }) {
     >
       <div>
         <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.15 }}>
-          {isToday ? "Today" : weekdayName(date)}
+          {isToday ? "Azi" : weekdayName(date)}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: isToday ? IPS_ACCENT : TEXT_DIM }}>
           {isToday ? weekdayName(date) + " " : ""}{shortDate(date)}
         </div>
       </div>
       {loading ? (
-        <div style={{ fontSize: 14, color: TEXT_DIM }}>Loading…</div>
+        <div style={{ fontSize: 14, color: TEXT_DIM }}>Se încarcă…</div>
       ) : empty ? (
-        <div style={{ fontSize: 15, fontWeight: 700, color: TEXT_DIM, opacity: 0.6 }}>Free day</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TEXT_DIM, opacity: 0.6 }}>Zi liberă</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <CountRow color={IPS_ACCENT} count={nJobs} label={nJobs === 1 ? "job" : "jobs"} />
-          <CountRow color={BINDINGAR_COLOR} count={nBind} label={nBind === 1 ? "parking" : "parkings"} />
+          <CountRow color={IPS_ACCENT} count={nJobs} label={nJobs === 1 ? "lucrare" : "lucrări"} />
+          <CountRow color={BINDINGAR_COLOR} count={nBind} label={nBind === 1 ? "parcare" : "parcări"} />
         </div>
       )}
     </button>
@@ -258,11 +292,11 @@ function DayScreen({ date, isToday, dayJobs, onBack, onFinish }) {
           ...bigBtn, width: "auto", padding: "10px 16px",
           background: SURFACE, border: `1px solid ${BORDER}`,
         }}>
-          ← Back
+          ← Înapoi
         </button>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.1 }}>
-            {isToday ? "Today" : weekdayName(date)}
+            {isToday ? "Azi" : weekdayName(date)}
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: TEXT_DIM }}>
             {isToday ? weekdayName(date) + ", " : ""}{shortDate(date)}
@@ -273,7 +307,7 @@ function DayScreen({ date, isToday, dayJobs, onBack, onFinish }) {
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
         {work.length === 0 && bindingar.length === 0 && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: TEXT_DIM, fontSize: 20, fontWeight: 700 }}>
-            No work planned this day.
+            Nicio lucrare planificată în această zi.
           </div>
         )}
 
@@ -281,7 +315,7 @@ function DayScreen({ date, isToday, dayJobs, onBack, onFinish }) {
 
         {bindingar.length > 0 && (
           <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase", color: BINDINGAR_COLOR, marginTop: work.length ? 8 : 0 }}>
-            Parkings
+            Parcări
           </div>
         )}
         {bindingar.map((j) => <JobCard key={j.id} job={j} />)}
@@ -291,8 +325,8 @@ function DayScreen({ date, isToday, dayJobs, onBack, onFinish }) {
 }
 
 function fmtTime(shift) {
-  if (!shift.startTime) return "Time TBC";
-  return shift.startTime + (shift.nextDay ? " (+1 day)" : "");
+  if (!shift.startTime) return "Ora nestabilită";
+  return shift.startTime + (shift.nextDay ? " (+1 zi)" : "");
 }
 
 // One shift's resources split into people and equipment lines.
@@ -319,7 +353,7 @@ function ResourceBlock({ title, items, color, total }) {
         <span>{title}</span>
         {total != null && (
           <span style={{ background: `${color}22`, borderRadius: 6, padding: "2px 8px", letterSpacing: 0.5 }}>
-            {total} total
+            {total} în total
           </span>
         )}
       </div>
@@ -363,15 +397,15 @@ function FinishSection({ job, onFinish }) {
         {job.stevedore_end ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: 17, fontWeight: 800, color: "#22C55E" }}>
-              ✓ Finished at {job.stevedore_end}
+              ✓ Terminat la {job.stevedore_end}
             </div>
             <button onClick={openPicker} style={{ ...bigBtn, width: "auto", padding: "10px 16px", background: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_DIM, fontSize: 15 }}>
-              Change
+              Schimbă
             </button>
           </div>
         ) : (
           <button onClick={openPicker} style={{ ...bigBtn, background: "#166534", border: "1px solid #22C55E" }}>
-            Finish job
+            Termină lucrarea
           </button>
         )}
       </div>
@@ -381,7 +415,7 @@ function FinishSection({ job, onFinish }) {
   return (
     <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", color: "#22C55E" }}>
-        What time did the job finish?
+        La ce oră s-a terminat lucrarea?
       </div>
       <input
         type="time"
@@ -395,15 +429,15 @@ function FinishSection({ job, onFinish }) {
       />
       {failed && (
         <div style={{ fontSize: 15, fontWeight: 700, color: "#FCA5A5" }}>
-          Could not send. Check internet and try again.
+          Nu s-a trimis. Verifică internetul și încearcă din nou.
         </div>
       )}
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={() => setPicking(false)} style={{ ...bigBtn, flex: 1, background: "transparent", border: `1px solid ${BORDER}`, color: TEXT_DIM }}>
-          Cancel
+          Anulează
         </button>
         <button onClick={send} disabled={sending} style={{ ...bigBtn, flex: 2, background: "#166534", border: "1px solid #22C55E", opacity: sending ? 0.6 : 1 }}>
-          {sending ? "Sending…" : "Send finish time"}
+          {sending ? "Se trimite…" : "Trimite ora"}
         </button>
       </div>
     </div>
@@ -411,10 +445,8 @@ function FinishSection({ job, onFinish }) {
 }
 
 function JobCard({ job, onFinish }) {
-  // The stevedore's word for bindingar is "parking" — renamed in this view only.
-  const type = isBindingar(job)
-    ? { ...JOB_TYPES.bindingar, label: "Parking" }
-    : JOB_TYPES[job.type] || { label: job.type, color: TEXT_DIM };
+  const baseType = JOB_TYPES[job.type] || { label: job.type, color: TEXT_DIM };
+  const type = { ...baseType, label: RO_TYPES[job.type] || baseType.label };
   const ship = extractShipName(job.ship);
   const berth = getBerthForShip(job.ship, job.date);
   const port = PORTS[job.port]?.longLabel || job.port;
@@ -436,7 +468,7 @@ function JobCard({ job, onFinish }) {
           </span>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginTop: 6 }}>
-          {ship || "No ship"}
+          {ship || "Fără navă"}
         </div>
         <div style={{ fontSize: 16, fontWeight: 700, color: IPS_ACCENT, marginTop: 2 }}>
           {berth ? `${berth} · ${port}` : port}
@@ -452,13 +484,13 @@ function JobCard({ job, onFinish }) {
                 {fmtTime(s)}
               </span>
               {shifts.length > 1 && (
-                <span style={{ fontSize: 13, fontWeight: 700, color: TEXT_DIM }}>Shift {i + 1}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: TEXT_DIM }}>Tura {i + 1}</span>
               )}
             </div>
-            <ResourceBlock title="People" items={people} color={IPS_ACCENT} total={peopleTotal} />
-            <ResourceBlock title="Equipment" items={equipment} color={TEXT_DIM} />
+            <ResourceBlock title="Oameni" items={people} color={IPS_ACCENT} total={peopleTotal} />
+            <ResourceBlock title="Echipament" items={equipment} color={TEXT_DIM} />
             {!people.length && !equipment.length && (
-              <div style={{ fontSize: 15, fontWeight: 600, color: TEXT_DIM }}>No resources listed.</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TEXT_DIM }}>Nicio resursă listată.</div>
             )}
           </div>
         );
@@ -467,7 +499,7 @@ function JobCard({ job, onFinish }) {
       {job.notes && (
         <div style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: "10px 12px" }}>
           <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", color: "#F59E0B", marginBottom: 3 }}>
-            Note
+            Notă
           </div>
           <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45 }}>{job.notes}</div>
         </div>
