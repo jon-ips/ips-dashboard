@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- Own manifest with start_url pointing back here, so Android's
+         "Add to Home Screen" reopens the stevedore view instead of the
+         main app's PIN gate (the main manifest starts at /?view=quicklog). -->
+    <link rel="manifest" href="/stevedore.webmanifest" />
+    <meta name="theme-color" content="#081E2C" />
+    <!-- iOS "Add to Home Screen" support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="IPS Plan" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <title>IPS Plan</title>
+  </head>
+  <body style="margin:0; background:#081E2C;">
+    <div id="root"></div>
+    <script type="module" src="/src/stevedore-main.jsx"></script>
+  </body>
+</html>

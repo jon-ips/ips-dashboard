@@ -1,0 +1,15 @@
+{
+  "name": "IPS Plan",
+  "short_name": "IPS Plan",
+  "description": "Week plan for the stevedore: jobs, parkings, times and resources.",
+  "start_url": "/stevedore.html",
+  "scope": "/stevedore.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#081E2C",
+  "theme_color": "#081E2C",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
