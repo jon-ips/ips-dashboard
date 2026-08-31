@@ -2,6 +2,14 @@ import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import AuthGate from './AuthGate.jsx';
 import IPSDashboard from './App.jsx';
+import StevedoreView from './StevedoreView.jsx';
+
+// "?view=stevedore" is the stevedore's link: a read-only week overview with
+// no PIN, so he can open it straight from a home-screen bookmark. It renders
+// before the auth gate on purpose — the view exposes no rates or billing.
+const urlView = (() => {
+  try { return new URLSearchParams(window.location.search).get("view"); } catch { return null; }
+})();
 
 function App() {
   // Persisted so a page refresh (or every launch of the phone quick-log PWA)
@@ -31,6 +39,6 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    {urlView === "stevedore" ? <StevedoreView /> : <App />}
   </React.StrictMode>
 );
