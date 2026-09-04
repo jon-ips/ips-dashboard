@@ -326,7 +326,7 @@ export const SHIPS = [
   { date: "2026-08-31", endDate: null, line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: false, pax: 2348, status: "other", port: "AK", berth: "Tangabryggja 11a" },
   { date: "2026-08-31", endDate: "2026-09-01", line: "Phoenix Reisen", ship: "Artania", turnaround: false, pax: 1176, status: "other", berth: "Skarfabakki" },
   { date: "2026-08-31", endDate: null, line: "Hurtigruten", ship: "Spitsbergen", turnaround: true, pax: 335, status: "other", berth: "Faxagarður" },
-  { date: "2026-08-31", endDate: null, line: "Windstar", ship: "Star Pride", turnaround: true, pax: 212, status: "other", berth: "Miðbakki" },
+  { date: "2026-08-31", endDate: null, line: "Windstar", ship: "Star Pride", turnaround: true, pax: 212, status: "other", berth: "Korngarður" },
   // ─── SEPTEMBER ──────────────────────────────────────────────────────────────
   { date: "2026-09-01", endDate: null, line: "VIVA Cruises", ship: "Seaventure", turnaround: true, pax: 164, status: "other", berth: "Miðbakki" },
   { date: "2026-09-02", endDate: "2026-09-03", line: "Norwegian Cruise Line", ship: "Norwegian Star", turnaround: true, pax: 2298, status: "other", berth: "VÖR Cruise Terminal" },
